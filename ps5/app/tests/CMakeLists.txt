@@ -27,3 +27,8 @@ add_executable(test_gen_args test_gen_args.cpp ../gen_args.cpp)
 target_include_directories(test_gen_args PRIVATE ..)
 target_link_libraries(test_gen_args PRIVATE stable-diffusion)
 add_test(NAME gen_args COMMAND test_gen_args)
+
+add_executable(test_sd_plan test_sd_plan.cpp ../sd_plan.cpp ../gen_args.cpp)
+target_include_directories(test_sd_plan PRIVATE ..)
+target_link_libraries(test_sd_plan PRIVATE stable-diffusion)
+add_test(NAME sd_plan COMMAND test_sd_plan)

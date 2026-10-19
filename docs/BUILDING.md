@@ -2,7 +2,7 @@
 
 The app is a PS5 title (`ps5/app`): stable-diffusion.cpp linked with ggml-vulkan against
 [PS5_Vulkan](https://github.com/mihawk-99/PS5_Vulkan)'s RADV build, a dashboard drawn with
-[ps5-homebrew-ui](https://github.com/blackbearreloaded/ps5-homebrew-ui), packed as a title folder for
+[ps5-homebrew-ui](https://github.com/Phononenom/ps5-homebrew-ui), packed as a title folder for
 ShadowMountPlus. The toolchain runs on x86-64 Linux only; PS5_Vulkan supports Arch (CachyOS), so
 everything here builds on Arch, directly, in a container or in WSL2. There is no macOS build of the
 title (the `host` CI job only builds stable-diffusion.cpp on the CPU to check the patches). The setup
