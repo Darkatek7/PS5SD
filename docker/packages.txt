@@ -1,0 +1,45 @@
+# Arch packages for the PS5SD build: the host package list of PS5LM's docs/BUILDING.md
+# (RADV, the PS5 payload SDK, ggml-vulkan shaders), plus what the scripts and CI need.
+# One package per line; `#` starts a comment. Read by docker/Dockerfile and by the
+# GitHub Actions workflow (through the image), so this is the only list.
+
+# PS5LM host packages
+base-devel
+clang
+llvm
+lld
+cmake
+ninja
+meson
+glslang
+python-mako
+python-yaml
+python-packaging
+python-setuptools
+spirv-tools
+spirv-headers
+spirv-llvm-translator
+libclc
+vulkan-headers
+shaderc
+imagemagick
+ffmpeg
+rsync
+libxml2
+elfutils
+xxd
+python-numpy
+python-fonttools
+python-brotli
+librsvg
+
+# PS5SD additions: fetching and deploying, and what PS5_Vulkan's setup scripts call
+# (wget and unzip fetch the payload SDK release, util-linux's flock is in the base image).
+git
+curl
+wget
+unzip
+python
+lftp
+socat
+sudo

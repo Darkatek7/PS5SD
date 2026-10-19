@@ -1,0 +1,155 @@
+name: build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # The PS5 title: ggml-vulkan on RADV, cross-built with PS5_Vulkan's toolchain. Runs in
+  # docker/Dockerfile's image (Arch Linux, the packages of docker/packages.txt), so the
+  # package list lives in one place. The repository is checked out on the runner and
+  # mounted into the container at /work.
+  title:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    env:
+      IMAGE: ps5sd-build
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - name: Submodules
+        run: |
+          git submodule update --init third_party/stable-diffusion.cpp third_party/ps5-homebrew-ui
+          git -C third_party/stable-diffusion.cpp submodule update --init ggml
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      # RADV's build tree and the toolchain take several GiB.
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h /
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: docker
+          file: docker/Dockerfile
+          platforms: linux/amd64
+          load: true
+          tags: ${{ env.IMAGE }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Cache .deps
+        uses: actions/cache@v4
+        with:
+          path: .deps
+          key: ps5sd-deps-${{ runner.os }}-${{ hashFiles('scripts/setup-deps.sh', 'patches/mesa/**') }}
+          restore-keys: |
+            ps5sd-deps-${{ runner.os }}-
+
+      - name: Dependencies (PS5_Vulkan, RADV, payload SDK)
+        run: |
+          docker run --rm --platform linux/amd64 -v "$PWD":/work -w /work "$IMAGE" \
+            bash -c 'git config --global --add safe.directory "*" && scripts/setup-deps.sh'
+
+      - name: What can be built
+        id: have
+        run: |
+          [ -f scripts/build-app.sh ] && echo "build=true" >> "$GITHUB_OUTPUT" || echo "build=false" >> "$GITHUB_OUTPUT"
+          [ -f scripts/preview-app-ui.sh ] && echo "preview=true" >> "$GITHUB_OUTPUT" || echo "preview=false" >> "$GITHUB_OUTPUT"
+
+      - name: Build the title
+        if: steps.have.outputs.build == 'true'
+        run: |
+          docker run --rm --platform linux/amd64 -v "$PWD":/work -w /work "$IMAGE" \
+            bash -c 'git config --global --add safe.directory "*" && scripts/build-app.sh'
+
+      - name: Preview the UI
+        if: steps.have.outputs.preview == 'true'
+        run: |
+          docker run --rm --platform linux/amd64 -v "$PWD":/work -w /work "$IMAGE" \
+            bash -c 'git config --global --add safe.directory "*" && scripts/preview-app-ui.sh'
+
+      # The container ran as root; hand the files back before the cache is saved.
+      - name: Give the files back to the runner
+        if: always()
+        run: |
+          docker run --rm -v "$PWD":/work -w /work "$IMAGE" chown -R "$(id -u):$(id -g)" /work || true
+
+      - name: Upload the title
+        if: steps.have.outputs.build == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ps5sd-title
+          path: build/app-ps5/title
+          if-no-files-found: error
+
+      - name: Upload the UI preview
+        if: steps.have.outputs.preview == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-preview
+          path: build/app-preview/*.png
+          if-no-files-found: warn
+
+  # stable-diffusion.cpp on the host, CPU only: catches a patch that no longer applies or
+  # a change that does not compile, in minutes and without the PS5 toolchain.
+  host:
+    runs-on: macos-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - name: Submodules
+        run: |
+          git submodule update --init third_party/stable-diffusion.cpp third_party/ps5-homebrew-ui
+          git -C third_party/stable-diffusion.cpp submodule update --init ggml
+
+      - name: Apply the patches
+        run: |
+          for p in patches/sdcpp/*.patch; do
+            [ -e "$p" ] || continue
+            echo "stable-diffusion.cpp: $p"
+            git -C third_party/stable-diffusion.cpp apply --verbose "$GITHUB_WORKSPACE/$p"
+          done
+          for p in patches/ggml/*.patch; do
+            [ -e "$p" ] || continue
+            echo "ggml: $p"
+            git -C third_party/stable-diffusion.cpp/ggml apply --verbose "$GITHUB_WORKSPACE/$p"
+          done
+
+      - name: Build stable-diffusion.cpp (CPU)
+        run: |
+          cmake -S third_party/stable-diffusion.cpp -B build/host-sd -DCMAKE_BUILD_TYPE=Release \
+            -DSD_BUILD_EXAMPLES=ON -DSD_SERVER_BUILD_FRONTEND=OFF \
+            -DSD_METAL=OFF -DGGML_METAL=OFF
+          cmake --build build/host-sd --target sd-cli --parallel "$(sysctl -n hw.ncpu)"
+          cli=$(find build/host-sd -name sd-cli -type f | head -1)
+          test -n "$cli"
+          "$cli" --help | head -5
+
+      # The app's host-side unit tests (planner, config, HTTP API), if it has any.
+      - name: Tests
+        run: |
+          if [ -f ps5/app/tests/CMakeLists.txt ]; then
+            cmake -S ps5/app/tests -B build/host-tests -DCMAKE_BUILD_TYPE=Release
+            cmake --build build/host-tests --parallel "$(sysctl -n hw.ncpu)"
+            ctest --test-dir build/host-tests --output-on-failure
+          else
+            echo "no ps5/app/tests/CMakeLists.txt, skipping"
+          fi
