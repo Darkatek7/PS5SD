@@ -1,0 +1,72 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: ps5sd <ps5sd@localhost>
+Date: Mon, 19 Oct 2026 15:51:05 +0200
+Subject: [PATCH 3/4] server: SD_SERVER_EMBED_INDEX
+
+
+diff --git a/examples/server/CMakeLists.txt b/examples/server/CMakeLists.txt
+index a05631b..0791f9f 100644
+--- a/examples/server/CMakeLists.txt
++++ b/examples/server/CMakeLists.txt
+@@ -1,6 +1,7 @@
+ set(TARGET sd-server)
+ 
+ option(SD_SERVER_BUILD_FRONTEND "Build server frontend with pnpm" ON)
++set(SD_SERVER_EMBED_INDEX "" CACHE FILEPATH "Generated header (scripts/embed-file.sh <index.html> sd_server_index_html) whose page is served at / instead of the pnpm frontend")
+ option(SD_SERVER_LIBRARY "Build the server as the static library sd-server-lib (entry points sd_server / sd_server_terminate, no main())" OFF)
+ 
+ set(FRONTEND_DIR "${CMAKE_CURRENT_SOURCE_DIR}/frontend")
+@@ -8,7 +9,9 @@ set(GENERATED_HTML_HEADER "${FRONTEND_DIR}/dist/gen_index_html.h")
+ 
+ set(HAVE_FRONTEND_BUILD OFF)
+ 
+-if(SD_SERVER_BUILD_FRONTEND AND EXISTS "${FRONTEND_DIR}")
++if(SD_SERVER_EMBED_INDEX)
++    message(STATUS "Embedded index page: ${SD_SERVER_EMBED_INDEX}; pnpm frontend disabled")
++elseif(SD_SERVER_BUILD_FRONTEND AND EXISTS "${FRONTEND_DIR}")
+     if(WIN32)
+         find_program(PNPM_EXECUTABLE NAMES pnpm.cmd pnpm)
+     else()
+@@ -91,7 +94,11 @@ if(APPLE)
+     sd_set_macos_rpaths(${SD_SERVER_TARGET})
+ endif()
+ 
+-if(HAVE_FRONTEND_BUILD)
++if(SD_SERVER_EMBED_INDEX)
++    target_compile_definitions(${SD_SERVER_TARGET} PRIVATE SD_SERVER_EMBED_INDEX="${SD_SERVER_EMBED_INDEX}")
++    set_property(SOURCE main.cpp APPEND PROPERTY OBJECT_DEPENDS "${SD_SERVER_EMBED_INDEX}")
++    message(STATUS "SD_SERVER_EMBED_INDEX enabled")
++elseif(HAVE_FRONTEND_BUILD)
+     add_dependencies(${SD_SERVER_TARGET} ${TARGET}_frontend)
+     target_sources(${SD_SERVER_TARGET} PRIVATE "${GENERATED_HTML_HEADER}")
+     target_include_directories(${SD_SERVER_TARGET} PRIVATE "${FRONTEND_DIR}/dist")
+diff --git a/examples/server/main.cpp b/examples/server/main.cpp
+index b3203cb..6c98059 100644
+--- a/examples/server/main.cpp
++++ b/examples/server/main.cpp
+@@ -18,7 +18,13 @@
+ #include "server_hooks.h"
+ #include "runtime.h"
+ 
+-#ifdef HAVE_INDEX_HTML
++// PS5SD: SD_SERVER_EMBED_INDEX is the quoted path of a generated header
++// (scripts/embed-file.sh <index.html> sd_server_index_html) that defines
++// `sd_server_index_html[]` and `sd_server_index_html_len`. That page is served
++// at / instead of the pnpm frontend.
++#if defined(SD_SERVER_EMBED_INDEX)
++#include SD_SERVER_EMBED_INDEX
++#elif defined(HAVE_INDEX_HTML)
+ #include "frontend/dist/gen_index_html.h"
+ #endif
+ 
+@@ -219,7 +225,9 @@ extern "C" int sd_server(int argc, char** argv_in) {
+     });
+ 
+     std::string index_html;
+-#ifdef HAVE_INDEX_HTML
++#if defined(SD_SERVER_EMBED_INDEX)
++    index_html.assign(reinterpret_cast<const char*>(sd_server_index_html), sd_server_index_html_len);
++#elif defined(HAVE_INDEX_HTML)
+     index_html.assign(reinterpret_cast<const char*>(index_html_bytes), index_html_size);
+ #else
+     index_html = "Stable Diffusion Server is running";

@@ -1,0 +1,270 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: ps5sd <ps5sd@localhost>
+Date: Mon, 19 Oct 2026 15:50:04 +0200
+Subject: [PATCH 1/4] server: SD_SERVER_LIBRARY, sd_server() entry point,
+ REUSEADDR-only listener that binds again
+
+
+diff --git a/examples/server/CMakeLists.txt b/examples/server/CMakeLists.txt
+index 302a8d6..6a7757f 100644
+--- a/examples/server/CMakeLists.txt
++++ b/examples/server/CMakeLists.txt
+@@ -1,6 +1,7 @@
+ set(TARGET sd-server)
+ 
+ option(SD_SERVER_BUILD_FRONTEND "Build server frontend with pnpm" ON)
++option(SD_SERVER_LIBRARY "Build the server as the static library sd-server-lib (entry points sd_server / sd_server_terminate, no main())" OFF)
+ 
+ set(FRONTEND_DIR "${CMAKE_CURRENT_SOURCE_DIR}/frontend")
+ set(GENERATED_HTML_HEADER "${FRONTEND_DIR}/dist/gen_index_html.h")
+@@ -62,7 +63,7 @@ else()
+     message(STATUS "Frontend disabled or directory not found: ${FRONTEND_DIR}")
+ endif()
+ 
+-add_executable(${TARGET}
++set(SD_SERVER_SOURCES
+     ../common/common.cpp
+     ../common/log.cpp
+     ../common/media_io.cpp
+@@ -74,34 +75,51 @@ add_executable(${TARGET}
+     routes_sdapi.cpp
+     routes_sdcpp.cpp
+ )
++
++if(SD_SERVER_LIBRARY)
++    # extern "C" int sd_server(int argc, char** argv); extern "C" void sd_server_terminate(void);
++    set(SD_SERVER_TARGET sd-server-lib)
++    add_library(${SD_SERVER_TARGET} STATIC ${SD_SERVER_SOURCES})
++    target_compile_definitions(${SD_SERVER_TARGET} PRIVATE SD_SERVER_NO_MAIN)
++    set_target_properties(${SD_SERVER_TARGET} PROPERTIES POSITION_INDEPENDENT_CODE ON)
++else()
++    set(SD_SERVER_TARGET ${TARGET})
++    add_executable(${SD_SERVER_TARGET} ${SD_SERVER_SOURCES})
++endif()
+ if(APPLE)
+-    sd_set_macos_rpaths(${TARGET})
++    sd_set_macos_rpaths(${SD_SERVER_TARGET})
+ endif()
+ 
+ if(HAVE_FRONTEND_BUILD)
+-    add_dependencies(${TARGET} ${TARGET}_frontend)
+-    target_sources(${TARGET} PRIVATE "${GENERATED_HTML_HEADER}")
+-    target_include_directories(${TARGET} PRIVATE "${FRONTEND_DIR}/dist")
+-    target_compile_definitions(${TARGET} PRIVATE HAVE_INDEX_HTML)
++    add_dependencies(${SD_SERVER_TARGET} ${TARGET}_frontend)
++    target_sources(${SD_SERVER_TARGET} PRIVATE "${GENERATED_HTML_HEADER}")
++    target_include_directories(${SD_SERVER_TARGET} PRIVATE "${FRONTEND_DIR}/dist")
++    target_compile_definitions(${SD_SERVER_TARGET} PRIVATE HAVE_INDEX_HTML)
+     message(STATUS "HAVE_INDEX_HTML enabled")
+ else()
+     message(STATUS "HAVE_INDEX_HTML disabled")
+ endif()
+ 
+-install(TARGETS ${TARGET} RUNTIME)
+-target_link_libraries(${TARGET} PRIVATE stable-diffusion ${CMAKE_THREAD_LIBS_INIT})
++if(SD_SERVER_LIBRARY)
++    install(TARGETS ${SD_SERVER_TARGET} ARCHIVE)
++    # PUBLIC: whoever links sd-server-lib also links stable-diffusion (and ggml) and the thread library
++    target_link_libraries(${SD_SERVER_TARGET} PUBLIC stable-diffusion ${CMAKE_THREAD_LIBS_INIT})
++else()
++    install(TARGETS ${SD_SERVER_TARGET} RUNTIME)
++    target_link_libraries(${SD_SERVER_TARGET} PRIVATE stable-diffusion ${CMAKE_THREAD_LIBS_INIT})
++endif()
+ if(SD_WEBP)
+-    target_compile_definitions(${TARGET} PRIVATE SD_USE_WEBP)
+-    target_link_libraries(${TARGET} PRIVATE webp libwebpmux)
++    target_compile_definitions(${SD_SERVER_TARGET} PRIVATE SD_USE_WEBP)
++    target_link_libraries(${SD_SERVER_TARGET} PUBLIC webp libwebpmux)
+ endif()
+ if(SD_WEBM)
+-    target_compile_definitions(${TARGET} PRIVATE SD_USE_WEBM)
+-    target_link_libraries(${TARGET} PRIVATE webm)
++    target_compile_definitions(${SD_SERVER_TARGET} PRIVATE SD_USE_WEBM)
++    target_link_libraries(${SD_SERVER_TARGET} PUBLIC webm)
+ endif()
+ 
+ # due to httplib; it contains a pragma for MSVC, but other things need explicit flags
+ if(WIN32 AND NOT MSVC)
+-    target_link_libraries(${TARGET} PRIVATE ws2_32)
++    target_link_libraries(${SD_SERVER_TARGET} PUBLIC ws2_32)
+ endif()
+ 
+-target_compile_features(${TARGET} PUBLIC c_std_11 cxx_std_17)
++target_compile_features(${SD_SERVER_TARGET} PUBLIC c_std_11 cxx_std_17)
+diff --git a/examples/server/main.cpp b/examples/server/main.cpp
+index ddfd733..bdb2aff 100644
+--- a/examples/server/main.cpp
++++ b/examples/server/main.cpp
+@@ -1,3 +1,7 @@
++#include <atomic>
++#include <cerrno>
++#include <chrono>
++#include <cstdio>
+ #include <cstdlib>
+ #include <iostream>
+ #include <mutex>
+@@ -28,11 +32,13 @@ static void print_usage(const char* argv0, const std::vector<ArgOptions>& option
+     options_list[2].print();
+ }
+ 
+-static void parse_args(int argc,
+-                       const char** argv,
+-                       SDSvrParams& svr_params,
+-                       SDContextParams& ctx_params,
+-                       SDGenerationParams& default_gen_params) {
++// Returns -1 when the arguments are fine, otherwise the exit code to return
++// (sd_server() is a library entry point and must not call exit()).
++static int parse_args(int argc,
++                      const char** argv,
++                      SDSvrParams& svr_params,
++                      SDContextParams& ctx_params,
++                      SDGenerationParams& default_gen_params) {
+     std::vector<ArgOptions> options_vec = {
+         svr_params.get_options(),
+         ctx_params.get_options(),
+@@ -41,7 +47,7 @@ static void parse_args(int argc,
+ 
+     if (!parse_options(argc, argv, options_vec)) {
+         print_usage(argv[0], options_vec);
+-        exit(svr_params.normal_exit ? 0 : 1);
++        return svr_params.normal_exit ? 0 : 1;
+     }
+ 
+     log_level = svr_params.log_level;
+@@ -55,12 +61,13 @@ static void parse_args(int argc,
+                                                  ctx_params.lora_model_dir,
+                                                  ctx_params.hires_upscalers_dir)) {
+         print_usage(argv[0], options_vec);
+-        exit(1);
++        return 1;
+     }
+ 
+     if (random_seed_requested) {
+         default_gen_params.seed = -1;
+     }
++    return -1;
+ }
+ 
+ void sd_log_cb(enum sd_log_level_t level, const char* log, void* data) {
+@@ -68,7 +75,61 @@ void sd_log_cb(enum sd_log_level_t level, const char* log, void* data) {
+     log_print(level, log, svr_params->log_level, svr_params->color);
+ }
+ 
+-int main(int argc, const char** argv) {
++// PS5SD: errno that the PS5 network stack reports from accept() when the
++// interface went inactive (SCE_NET_EINACTIVEDISABLED: link down, new DHCP
++// lease, console resumed from rest mode). httplib takes any accept() failure
++// as fatal and closes the listening socket, so the listener is bound again.
++static constexpr int k_ps5_net_einactivedisabled = 163;
++
++// Set by sd_server_terminate(); reset when sd_server() returns so the entry
++// point can be called again.
++static std::atomic<bool> g_sd_server_stop{false};
++static std::atomic<httplib::Server*> g_sd_server_svr{nullptr};
++
++// Only SO_REUSEADDR. httplib's default picks SO_REUSEPORT where it exists,
++// which lets a second process bind the same port without an error.
++static void listener_socket_options(socket_t sock) {
++    int yes = 1;
++    setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, reinterpret_cast<const char*>(&yes), sizeof(yes));
++}
++
++// Binds and serves until sd_server_terminate(). When the listener ends on its
++// own it is bound again, once a second, until that works or terminate is asked.
++// Returns false if the very first bind failed.
++static bool serve_until_terminated(httplib::Server& svr, const std::string& host, int port) {
++    if (!svr.bind_to_port(host, port)) {
++        return false;
++    }
++    while (!g_sd_server_stop) {
++        if (svr.listen_after_bind() || g_sd_server_stop) {
++            break;
++        }
++        if (errno == k_ps5_net_einactivedisabled) {
++            LOG_WARN("network went inactive (SCE_NET_EINACTIVEDISABLED); listening again\n");
++        } else {
++            LOG_ERROR("listener on %s:%d stopped unexpectedly (errno %d); listening again\n", host.c_str(), port, errno);
++        }
++        do {
++            std::this_thread::sleep_for(std::chrono::seconds(1));
++            svr.stop();  // clears the failed state; the socket is closed already
++        } while (!g_sd_server_stop && !svr.bind_to_port(host, port));
++        if (!g_sd_server_stop) {
++            LOG_INFO("listener on http://%s:%d is back\n", host.c_str(), port);
++        }
++    }
++    return true;
++}
++
++extern "C" void sd_server_terminate(void) {
++    g_sd_server_stop = true;
++    httplib::Server* svr = g_sd_server_svr.load();
++    if (svr != nullptr) {
++        svr->stop();
++    }
++}
++
++extern "C" int sd_server(int argc, char** argv_in) {
++    const char** argv = const_cast<const char**>(argv_in);
+     if (argc > 1 && std::string(argv[1]) == "--version") {
+         std::cout << version_string() << "\n";
+         return EXIT_SUCCESS;
+@@ -80,7 +141,11 @@ int main(int argc, const char** argv) {
+     SDGenerationParams default_gen_params;
+ 
+     sd_set_log_callback(sd_log_cb, (void*)&svr_params);
+-    parse_args(argc, argv, svr_params, ctx_params, default_gen_params);
++    const int parse_result = parse_args(argc, argv, svr_params, ctx_params, default_gen_params);
++    if (parse_result >= 0) {
++        sd_set_log_callback(nullptr, nullptr);
++        return parse_result;
++    }
+ 
+     LOG_VERBOSE("version: %s", version_string().c_str());
+     LOG_VERBOSE("%s", sd_get_system_info());
+@@ -93,6 +158,8 @@ int main(int argc, const char** argv) {
+ 
+     if (sd_ctx == nullptr) {
+         LOG_ERROR("new_sd_ctx_t failed");
++        sd_set_log_callback(nullptr, nullptr);
++        g_sd_server_stop = false;
+         return 1;
+     }
+ 
+@@ -119,6 +186,7 @@ int main(int argc, const char** argv) {
+     std::thread async_worker(async_job_worker, std::ref(runtime));
+ 
+     httplib::Server svr;
++    svr.set_socket_options(listener_socket_options);
+ 
+     svr.set_pre_routing_handler([](const httplib::Request& req, httplib::Response& res) {
+         std::string origin = req.get_header_value("Origin");
+@@ -149,7 +217,12 @@ int main(int argc, const char** argv) {
+     register_sdcpp_api_endpoints(svr, runtime);
+ 
+     LOG_INFO("listening on: http://%s:%d\n", svr_params.listen_ip.c_str(), svr_params.listen_port);
+-    svr.listen(svr_params.listen_ip, svr_params.listen_port);
++    g_sd_server_svr = &svr;
++    const bool served = serve_until_terminated(svr, svr_params.listen_ip, svr_params.listen_port);
++    g_sd_server_svr = nullptr;
++    if (!served) {
++        LOG_ERROR("could not listen on %s:%d\n", svr_params.listen_ip.c_str(), svr_params.listen_port);
++    }
+ 
+     {
+         std::lock_guard<std::mutex> lock(async_job_manager.mutex);
+@@ -157,5 +230,13 @@ int main(int argc, const char** argv) {
+     }
+     async_job_manager.cv.notify_all();
+     async_worker.join();
+-    return 0;
++    sd_set_log_callback(nullptr, nullptr);
++    g_sd_server_stop = false;
++    return served ? 0 : 1;
++}
++
++#ifndef SD_SERVER_NO_MAIN
++int main(int argc, char** argv) {
++    return sd_server(argc, argv);
+ }
++#endif

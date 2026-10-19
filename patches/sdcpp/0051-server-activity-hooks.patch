@@ -1,0 +1,356 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: ps5sd <ps5sd@localhost>
+Date: Mon, 19 Oct 2026 15:50:42 +0200
+Subject: [PATCH 2/4] server: weak activity hooks (job
+ begin/progress/preview/end)
+
+
+diff --git a/examples/server/CMakeLists.txt b/examples/server/CMakeLists.txt
+index 6a7757f..a05631b 100644
+--- a/examples/server/CMakeLists.txt
++++ b/examples/server/CMakeLists.txt
+@@ -70,6 +70,7 @@ set(SD_SERVER_SOURCES
+     main.cpp
+     runtime.cpp
+     async_jobs.cpp
++    server_hooks.cpp
+     routes_index.cpp
+     routes_openai.cpp
+     routes_sdapi.cpp
+diff --git a/examples/server/async_jobs.cpp b/examples/server/async_jobs.cpp
+index 8840808..bb9f304 100644
+--- a/examples/server/async_jobs.cpp
++++ b/examples/server/async_jobs.cpp
+@@ -9,6 +9,7 @@
+ #include "common/log.h"
+ #include "common/media_io.h"
+ #include "common/resource_owners.hpp"
++#include "server_activity.h"
+ 
+ static void preview_callback(int step, int frame_count, sd_image_t* frames, bool is_noisy, void* data) {
+     (void)is_noisy;
+@@ -20,6 +21,10 @@ static void preview_callback(int step, int frame_count, sd_image_t* frames, bool
+     const sd_image_t& frame      = frames[0];
+     const sd_preview_info_t info = sd_get_preview_info();
+ 
++    if (frame.channel == 3) {
++        sd_activity_preview(frame.data, static_cast<int>(frame.width), static_cast<int>(frame.height));
++    }
++
+     auto image_bytes = encode_image_to_vector(EncodedImageFormat::PNG,
+                                               frame.data,
+                                               frame.width,
+@@ -232,9 +237,11 @@ bool execute_img_gen_job(ServerRuntime& runtime,
+     sd_img_gen_params_t params = job.img_gen.to_sd_img_gen_params_t();
+ 
+     SDImageVec results;
++    ActivityJob activity("img_gen", job.img_gen.gen_params);
+ 
+     {
+         std::lock_guard<std::mutex> lock(*runtime.sd_ctx_mutex);
++        activity.begin();
+         set_preview_callback(job);
+         sd_image_t* raw_results = nullptr;
+         int num_results         = 0;
+@@ -247,6 +254,7 @@ bool execute_img_gen_job(ServerRuntime& runtime,
+     }
+ 
+     const int num_results = results.count();
++    activity.finish(num_results > 0, "");
+     if (num_results <= 0) {
+         error_message = "generate_image returned no results";
+         return false;
+@@ -307,9 +315,11 @@ bool execute_vid_gen_job(ServerRuntime& runtime,
+     SDImageVec results;
+     int num_results             = 0;
+     sd_audio_t* generated_audio = nullptr;
++    ActivityJob activity("vid_gen", job.vid_gen.gen_params);
+ 
+     {
+         std::lock_guard<std::mutex> lock(*runtime.sd_ctx_mutex);
++        activity.begin();
+         set_preview_callback(job);
+         sd_image_t* raw_results = nullptr;
+         if (!generate_video(runtime.sd_ctx, &params, &raw_results, &num_results, &generated_audio, &output_fps)) {
+@@ -320,6 +330,7 @@ bool execute_vid_gen_job(ServerRuntime& runtime,
+     }
+ 
+     num_results = results.count();
++    activity.finish(num_results > 0, "");
+     if (num_results <= 0) {
+         free_sd_audio(generated_audio);
+         error_message = "generate_video returned no results";
+diff --git a/examples/server/main.cpp b/examples/server/main.cpp
+index bdb2aff..b3203cb 100644
+--- a/examples/server/main.cpp
++++ b/examples/server/main.cpp
+@@ -15,6 +15,7 @@
+ #include "common/common.h"
+ #include "common/resource_owners.hpp"
+ #include "routes.h"
++#include "server_hooks.h"
+ #include "runtime.h"
+ 
+ #ifdef HAVE_INDEX_HTML
+@@ -70,6 +71,16 @@ static int parse_args(int argc,
+     return -1;
+ }
+ 
++// Replaces the library's console progress bar: tells the activity hooks, and
++// keeps a one-line progress on stderr.
++static void sd_progress_cb(int step, int steps, float secs, void*) {
++    sd_activity_progress(step, steps, secs);
++    if (step > 0) {
++        fprintf(stderr, "\rstep %d/%d (%.2fs/it)\033[K%s", step, steps, secs, step == steps ? "\n" : "");
++        fflush(stderr);
++    }
++}
++
+ void sd_log_cb(enum sd_log_level_t level, const char* log, void* data) {
+     SDSvrParams* svr_params = (SDSvrParams*)data;
+     log_print(level, log, svr_params->log_level, svr_params->color);
+@@ -163,6 +174,8 @@ extern "C" int sd_server(int argc, char** argv_in) {
+         return 1;
+     }
+ 
++    sd_set_progress_callback(sd_progress_cb, nullptr);
++
+     std::mutex sd_ctx_mutex;
+ 
+     std::vector<LoraEntry> lora_cache;
+@@ -230,6 +243,7 @@ extern "C" int sd_server(int argc, char** argv_in) {
+     }
+     async_job_manager.cv.notify_all();
+     async_worker.join();
++    sd_set_progress_callback(nullptr, nullptr);
+     sd_set_log_callback(nullptr, nullptr);
+     g_sd_server_stop = false;
+     return served ? 0 : 1;
+diff --git a/examples/server/routes_openai.cpp b/examples/server/routes_openai.cpp
+index af0cdfa..cb962cb 100644
+--- a/examples/server/routes_openai.cpp
++++ b/examples/server/routes_openai.cpp
+@@ -7,6 +7,7 @@
+ #include "common/common.h"
+ #include "common/media_io.h"
+ #include "common/resource_owners.hpp"
++#include "server_activity.h"
+ 
+ static std::string extract_and_remove_sd_cpp_extra_args(std::string& text) {
+     std::regex re("<sd_cpp_extra_args>(.*?)</sd_cpp_extra_args>");
+@@ -224,14 +225,17 @@ static bool build_openai_edit_request(const httplib::Request& req,
+ }
+ 
+ static bool execute_sync_img_gen_request(ServerRuntime& runtime,
++                                         const char* activity_kind,
+                                          ImgGenJobRequest& request,
+                                          SDImageVec& results,
+                                          std::string& error_message) {
+     sd_img_gen_params_t img_gen_params = request.to_sd_img_gen_params_t();
+     int num_results                    = 0;
++    ActivityJob activity(activity_kind, request.gen_params);
+ 
+     {
+         std::lock_guard<std::mutex> lock(*runtime.sd_ctx_mutex);
++        activity.begin();
+         sd_image_t* raw_results = nullptr;
+         if (!generate_image(runtime.sd_ctx, &img_gen_params, &raw_results, &num_results)) {
+             raw_results = nullptr;
+@@ -239,6 +243,7 @@ static bool execute_sync_img_gen_request(ServerRuntime& runtime,
+         }
+         results.adopt(raw_results, num_results);
+     }
++    activity.finish(!results.empty(), "");
+ 
+     if (results.empty()) {
+         error_message = "generate_image returned no results";
+@@ -276,7 +281,7 @@ void register_openai_api_endpoints(httplib::Server& svr, ServerRuntime& rt) {
+             LOG_VERBOSE("%s\n", request.gen_params.to_string().c_str());
+ 
+             SDImageVec results;
+-            if (!execute_sync_img_gen_request(*runtime, request, results, error_message)) {
++            if (!execute_sync_img_gen_request(*runtime, "openai_generations", request, results, error_message)) {
+                 res.status = 500;
+                 res.set_content(json({{"error", error_message}}).dump(), "application/json");
+                 return;
+@@ -350,7 +355,7 @@ void register_openai_api_endpoints(httplib::Server& svr, ServerRuntime& rt) {
+             LOG_VERBOSE("%s\n", request.gen_params.to_string().c_str());
+ 
+             SDImageVec results;
+-            if (!execute_sync_img_gen_request(*runtime, request, results, error_message)) {
++            if (!execute_sync_img_gen_request(*runtime, "openai_edits", request, results, error_message)) {
+                 res.status = 500;
+                 res.set_content(json({{"error", error_message}}).dump(), "application/json");
+                 return;
+diff --git a/examples/server/routes_sdapi.cpp b/examples/server/routes_sdapi.cpp
+index 158b2af..076a359 100644
+--- a/examples/server/routes_sdapi.cpp
++++ b/examples/server/routes_sdapi.cpp
+@@ -10,6 +10,7 @@
+ #include "common/common.h"
+ #include "common/media_io.h"
+ #include "common/resource_owners.hpp"
++#include "server_activity.h"
+ 
+ namespace fs = std::filesystem;
+ 
+@@ -325,6 +326,10 @@ static void preview_callback(int step, int frame_count, sd_image_t* frames, bool
+     const sd_image_t& frame      = frames[0];
+     const sd_preview_info_t info = sd_get_preview_info();
+ 
++    if (frame.channel == 3) {
++        sd_activity_preview(frame.data, static_cast<int>(frame.width), static_cast<int>(frame.height));
++    }
++
+     auto image_bytes = encode_image_to_vector(EncodedImageFormat::JPEG,
+                                               frame.data,
+                                               frame.width,
+@@ -403,10 +408,12 @@ void register_sdapi_endpoints(httplib::Server& svr, ServerRuntime& rt) {
+             sd_img_gen_params_t img_gen_params = request.to_sd_img_gen_params_t();
+             SDImageVec results;
+             int num_results = 0;
++            ActivityJob activity(img2img ? "img2img" : "txt2img", request.gen_params);
+ 
+             {
+                 std::lock_guard<std::mutex> lock(*runtime->sd_ctx_mutex);
+                 SDAPIPreviewGuard preview_guard(id_task, img_gen_params, img2img ? "img2img" : "txt2img");
++                activity.begin();
+                 sd_image_t* raw_results = nullptr;
+                 if (!generate_image(runtime->sd_ctx, &img_gen_params, &raw_results, &num_results)) {
+                     raw_results = nullptr;
+@@ -414,6 +421,7 @@ void register_sdapi_endpoints(httplib::Server& svr, ServerRuntime& rt) {
+                 }
+                 results.adopt(raw_results, num_results);
+             }
++            activity.finish(!results.empty(), "");
+ 
+             if (results.empty()) {
+                 res.status = 500;
+diff --git a/examples/server/server_activity.h b/examples/server/server_activity.h
+new file mode 100644
+index 0000000..e344cf6
+--- /dev/null
++++ b/examples/server/server_activity.h
+@@ -0,0 +1,49 @@
++#pragma once
++
++#include <string>
++
++#include "common/common.h"
++#include "server_hooks.h"
++
++// One generation as seen by the activity hooks: begin() when the generation
++// starts, finish() when it is over. If finish() is never reached (an early
++// return, an exception) the destructor reports the job as failed.
++class ActivityJob {
++public:
++    ActivityJob(const char* kind, const SDGenerationParams& gen_params)
++        : kind_(kind),
++          prompt_(gen_params.prompt),
++          width_(gen_params.get_resolved_width()),
++          height_(gen_params.get_resolved_height()),
++          steps_(gen_params.sample_params.sample_steps) {}
++
++    ~ActivityJob() {
++        finish(false, "");
++    }
++
++    ActivityJob(const ActivityJob&)            = delete;
++    ActivityJob& operator=(const ActivityJob&) = delete;
++
++    void begin() {
++        if (!begun_) {
++            begun_ = true;
++            sd_activity_job_begin(kind_, prompt_.c_str(), width_, height_, steps_);
++        }
++    }
++
++    void finish(bool ok, const std::string& output_path) {
++        if (begun_ && !finished_) {
++            finished_ = true;
++            sd_activity_job_end(ok ? 1 : 0, output_path.c_str());
++        }
++    }
++
++private:
++    const char* kind_;
++    std::string prompt_;
++    int width_;
++    int height_;
++    int steps_;
++    bool begun_    = false;
++    bool finished_ = false;
++};
+diff --git a/examples/server/server_hooks.cpp b/examples/server/server_hooks.cpp
+new file mode 100644
+index 0000000..b800b95
+--- /dev/null
++++ b/examples/server/server_hooks.cpp
+@@ -0,0 +1,22 @@
++// PS5SD: default (do nothing) implementations of the activity hooks. They are
++// weak: a definition of the same name in the application replaces them.
++// A hook defined in a static library is not pulled in to replace these
++// unless that library is linked with --whole-archive / -force_load; define the
++// hooks in an object file of the executable itself.
++
++#include "server_hooks.h"
++
++#if defined(__GNUC__) || defined(__clang__)
++#define SD_SERVER_WEAK __attribute__((weak))
++#else
++#define SD_SERVER_WEAK
++#endif
++
++extern "C" {
++
++SD_SERVER_WEAK void sd_activity_job_begin(const char*, const char*, int, int, int) {}
++SD_SERVER_WEAK void sd_activity_progress(int, int, float) {}
++SD_SERVER_WEAK void sd_activity_preview(const uint8_t*, int, int) {}
++SD_SERVER_WEAK void sd_activity_job_end(int, const char*) {}
++
++}
+diff --git a/examples/server/server_hooks.h b/examples/server/server_hooks.h
+new file mode 100644
+index 0000000..0592f70
+--- /dev/null
++++ b/examples/server/server_hooks.h
+@@ -0,0 +1,39 @@
++// PS5SD: activity hooks.
++//
++// The server calls these around every generation. They are weak no-ops in
++// server_hooks.cpp; an embedding application (the PS5 app) defines the real
++// ones in an object file that is linked into the executable directly, and they
++// replace the no-ops. Keep this file identical to ps5/app/server_hooks.h.
++//
++// Threads: every hook is called from the thread that runs the generation
++// (the async job worker, or the HTTP thread of a synchronous request), one job
++// at a time (the generation context is locked), never concurrently with each
++// other. The pointers are only valid during the call.
++#pragma once
++
++#include <stdint.h>
++
++#ifdef __cplusplus
++extern "C" {
++#endif
++
++// A generation starts. kind: "txt2img", "img2img", "openai_generations",
++// "openai_edits", "img_gen" or "vid_gen". prompt is UTF-8 and may be empty.
++void sd_activity_job_begin(const char* kind, const char* prompt, int w, int h, int steps);
++
++// A sampling step finished: step of steps, secs is the duration of that step
++// (seconds per iteration). Also called for the other passes of a job (hires,
++// upscale), so step may restart from 1.
++void sd_activity_progress(int step, int steps, float secs);
++
++// A preview of the image being denoised: w * h * 3 bytes, RGB, row after row.
++// Only called when the request asked for previews (the web UI does).
++void sd_activity_preview(const uint8_t* rgb, int w, int h);
++
++// The job ended. ok is 0 or 1. output_path is the first image saved to
++// --output-dir ("" when there is no --output-dir or nothing was saved; never NULL).
++void sd_activity_job_end(int ok, const char* output_path);
++
++#ifdef __cplusplus
++}
++#endif

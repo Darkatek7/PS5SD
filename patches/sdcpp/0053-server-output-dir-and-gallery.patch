@@ -1,0 +1,345 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: ps5sd <ps5sd@localhost>
+Date: Mon, 19 Oct 2026 15:51:55 +0200
+Subject: [PATCH 4/4] server: --output-dir and gallery endpoints
+
+
+diff --git a/examples/server/CMakeLists.txt b/examples/server/CMakeLists.txt
+index 0791f9f..5a383c9 100644
+--- a/examples/server/CMakeLists.txt
++++ b/examples/server/CMakeLists.txt
+@@ -74,6 +74,7 @@ set(SD_SERVER_SOURCES
+     runtime.cpp
+     async_jobs.cpp
+     server_hooks.cpp
++    gallery.cpp
+     routes_index.cpp
+     routes_openai.cpp
+     routes_sdapi.cpp
+diff --git a/examples/server/async_jobs.cpp b/examples/server/async_jobs.cpp
+index bb9f304..2234905 100644
+--- a/examples/server/async_jobs.cpp
++++ b/examples/server/async_jobs.cpp
+@@ -9,6 +9,7 @@
+ #include "common/log.h"
+ #include "common/media_io.h"
+ #include "common/resource_owners.hpp"
++#include "gallery.h"
+ #include "server_activity.h"
+ 
+ static void preview_callback(int step, int frame_count, sd_image_t* frames, bool is_noisy, void* data) {
+@@ -254,7 +255,8 @@ bool execute_img_gen_job(ServerRuntime& runtime,
+     }
+ 
+     const int num_results = results.count();
+-    activity.finish(num_results > 0, "");
++    const std::vector<std::string> saved = save_output_images(*runtime.svr_params, results);
++    activity.finish(num_results > 0, saved.empty() ? "" : saved[0]);
+     if (num_results <= 0) {
+         error_message = "generate_image returned no results";
+         return false;
+diff --git a/examples/server/gallery.cpp b/examples/server/gallery.cpp
+new file mode 100644
+index 0000000..eb5fbb2
+--- /dev/null
++++ b/examples/server/gallery.cpp
+@@ -0,0 +1,168 @@
++// PS5SD: --output-dir, and the gallery endpoints that list and serve what was
++// saved there:
++//   GET /ps5sd/v1/gallery         JSON array, newest first:
++//                                 [{"name","url","size","created"}]  (?limit=N, default 100)
++//   GET /ps5sd/v1/gallery/<file>  the PNG
++
++#include <algorithm>
++#include <atomic>
++#include <chrono>
++#include <cstdio>
++#include <ctime>
++#include <filesystem>
++#include <fstream>
++
++#include "common/log.h"
++#include "common/media_io.h"
++#include "gallery.h"
++#include "routes.h"
++
++namespace fs = std::filesystem;
++
++static bool is_png_name(const std::string& name) {
++    if (name.size() < 5 || name == "." || name == ".." || name.find("..") != std::string::npos) {
++        return false;
++    }
++    std::string ext = name.substr(name.size() - 4);
++    std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
++    return ext == ".png";
++}
++
++static std::string next_output_name(const fs::path& dir) {
++    static std::atomic<unsigned> counter{0};
++
++    const std::time_t now = std::time(nullptr);
++    std::tm tm_now{};
++#ifdef _WIN32
++    localtime_s(&tm_now, &now);
++#else
++    localtime_r(&now, &tm_now);
++#endif
++    char stamp[32];
++    std::strftime(stamp, sizeof(stamp), "%Y%m%d_%H%M%S", &tm_now);
++
++    // The clock of a console is not always set, and restarts begin counting
++    // again: never overwrite an earlier image.
++    for (;;) {
++        char name[64];
++        std::snprintf(name, sizeof(name), "sd_%s_%03u.png", stamp, counter++ % 1000u);
++        std::error_code ec;
++        if (!fs::exists(dir / name, ec)) {
++            return name;
++        }
++    }
++}
++
++std::vector<std::string> save_output_images(const SDSvrParams& svr_params, SDImageVec& images) {
++    std::vector<std::string> saved;
++    if (svr_params.output_dir.empty()) {
++        return saved;
++    }
++
++    const fs::path dir = fs::u8path(svr_params.output_dir);
++    std::error_code ec;
++    fs::create_directories(dir, ec);
++
++    for (int i = 0; i < images.count(); ++i) {
++        const sd_image_t& image = images[i];
++        if (image.data == nullptr) {
++            continue;
++        }
++        std::vector<uint8_t> bytes = encode_image_to_vector(EncodedImageFormat::PNG,
++                                                            image.data,
++                                                            image.width,
++                                                            image.height,
++                                                            image.channel);
++        if (bytes.empty()) {
++            LOG_ERROR("could not encode the image for --output-dir");
++            continue;
++        }
++        const fs::path path = dir / next_output_name(dir);
++        std::ofstream file(path, std::ios::binary);
++        file.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
++        file.close();
++        if (!file) {
++            LOG_ERROR("could not write %s", path.u8string().c_str());
++            continue;
++        }
++        saved.push_back(path.u8string());
++    }
++    return saved;
++}
++
++namespace {
++
++struct GalleryEntry {
++    std::string name;
++    int64_t created = 0;
++    uintmax_t size  = 0;
++};
++
++}  // namespace
++
++void register_ps5sd_endpoints(httplib::Server& svr, ServerRuntime& rt) {
++    const SDSvrParams* svr_params = rt.svr_params;
++
++    svr.Get("/ps5sd/v1/gallery", [svr_params](const httplib::Request& req, httplib::Response& res) {
++        size_t limit = 100;
++        if (req.has_param("limit")) {
++            try {
++                limit = static_cast<size_t>(std::max(1, std::min(1000, std::stoi(req.get_param_value("limit")))));
++            } catch (...) {
++            }
++        }
++
++        std::vector<GalleryEntry> entries;
++        if (!svr_params->output_dir.empty()) {
++            std::error_code ec;
++            for (fs::directory_iterator it(fs::u8path(svr_params->output_dir), ec), end; !ec && it != end; it.increment(ec)) {
++                const std::string name = it->path().filename().u8string();
++                if (!is_png_name(name) || !it->is_regular_file(ec)) {
++                    continue;
++                }
++                GalleryEntry entry;
++                entry.name = name;
++                entry.size = it->file_size(ec);
++                // file_time_type -> unix seconds, without C++20 clock_cast
++                const auto ftime = it->last_write_time(ec);
++                const auto stime = std::chrono::system_clock::now() +
++                                   std::chrono::duration_cast<std::chrono::system_clock::duration>(
++                                       ftime - fs::file_time_type::clock::now());
++                entry.created = static_cast<int64_t>(std::chrono::system_clock::to_time_t(stime));
++                entries.push_back(std::move(entry));
++            }
++        }
++        // newest first; names carry a date and a counter, so they break ties
++        std::sort(entries.begin(), entries.end(), [](const GalleryEntry& a, const GalleryEntry& b) {
++            return a.created != b.created ? a.created > b.created : a.name > b.name;
++        });
++        if (entries.size() > limit) {
++            entries.resize(limit);
++        }
++
++        json list = json::array();
++        for (const auto& entry : entries) {
++            list.push_back({{"name", entry.name},
++                            {"url", "/ps5sd/v1/gallery/" + entry.name},
++                            {"size", entry.size},
++                            {"created", entry.created}});
++        }
++        res.set_header("Cache-Control", "no-store");
++        res.set_content(list.dump(), "application/json");
++    });
++
++    svr.Get(R"(/ps5sd/v1/gallery/([A-Za-z0-9_.\-]+))", [svr_params](const httplib::Request& req, httplib::Response& res) {
++        const std::string name = req.matches[1];
++        const fs::path path    = fs::u8path(svr_params->output_dir) / name;
++        std::error_code ec;
++        if (svr_params->output_dir.empty() || !is_png_name(name) || !fs::is_regular_file(path, ec)) {
++            res.status = 404;
++            res.set_content(R"({"error":"not found"})", "application/json");
++            return;
++        }
++        std::ifstream file(path, std::ios::binary);
++        std::string content((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
++        res.set_header("Cache-Control", "public, max-age=31536000, immutable");
++        res.set_content(content, "image/png");
++    });
++}
+diff --git a/examples/server/gallery.h b/examples/server/gallery.h
+new file mode 100644
+index 0000000..775f8bf
+--- /dev/null
++++ b/examples/server/gallery.h
+@@ -0,0 +1,12 @@
++#pragma once
++
++#include <string>
++#include <vector>
++
++#include "common/resource_owners.hpp"
++#include "runtime.h"
++
++// PS5SD: --output-dir. Saves every generated image there as a PNG
++// (sd_<date>_<time>_<n>.png) and returns the full paths that were written.
++// Does nothing, and returns an empty list, when --output-dir is not set.
++std::vector<std::string> save_output_images(const SDSvrParams& svr_params, SDImageVec& images);
+diff --git a/examples/server/main.cpp b/examples/server/main.cpp
+index 6c98059..a64ef9d 100644
+--- a/examples/server/main.cpp
++++ b/examples/server/main.cpp
+@@ -236,6 +236,7 @@ extern "C" int sd_server(int argc, char** argv_in) {
+     register_openai_api_endpoints(svr, runtime);
+     register_sdapi_endpoints(svr, runtime);
+     register_sdcpp_api_endpoints(svr, runtime);
++    register_ps5sd_endpoints(svr, runtime);
+ 
+     LOG_INFO("listening on: http://%s:%d\n", svr_params.listen_ip.c_str(), svr_params.listen_port);
+     g_sd_server_svr = &svr;
+diff --git a/examples/server/routes.h b/examples/server/routes.h
+index 1a4efb5..340eb6e 100644
+--- a/examples/server/routes.h
++++ b/examples/server/routes.h
+@@ -9,3 +9,4 @@ void register_index_endpoints(httplib::Server& svr, const SDSvrParams& svr_param
+ void register_openai_api_endpoints(httplib::Server& svr, ServerRuntime& rt);
+ void register_sdapi_endpoints(httplib::Server& svr, ServerRuntime& rt);
+ void register_sdcpp_api_endpoints(httplib::Server& svr, ServerRuntime& rt);
++void register_ps5sd_endpoints(httplib::Server& svr, ServerRuntime& rt);  // gallery.cpp
+diff --git a/examples/server/routes_openai.cpp b/examples/server/routes_openai.cpp
+index cb962cb..165b568 100644
+--- a/examples/server/routes_openai.cpp
++++ b/examples/server/routes_openai.cpp
+@@ -7,6 +7,7 @@
+ #include "common/common.h"
+ #include "common/media_io.h"
+ #include "common/resource_owners.hpp"
++#include "gallery.h"
+ #include "server_activity.h"
+ 
+ static std::string extract_and_remove_sd_cpp_extra_args(std::string& text) {
+@@ -243,7 +244,8 @@ static bool execute_sync_img_gen_request(ServerRuntime& runtime,
+         }
+         results.adopt(raw_results, num_results);
+     }
+-    activity.finish(!results.empty(), "");
++    const std::vector<std::string> saved = save_output_images(*runtime.svr_params, results);
++    activity.finish(!results.empty(), saved.empty() ? "" : saved[0]);
+ 
+     if (results.empty()) {
+         error_message = "generate_image returned no results";
+diff --git a/examples/server/routes_sdapi.cpp b/examples/server/routes_sdapi.cpp
+index 076a359..0dac424 100644
+--- a/examples/server/routes_sdapi.cpp
++++ b/examples/server/routes_sdapi.cpp
+@@ -10,6 +10,7 @@
+ #include "common/common.h"
+ #include "common/media_io.h"
+ #include "common/resource_owners.hpp"
++#include "gallery.h"
+ #include "server_activity.h"
+ 
+ namespace fs = std::filesystem;
+@@ -421,7 +422,8 @@ void register_sdapi_endpoints(httplib::Server& svr, ServerRuntime& rt) {
+                 }
+                 results.adopt(raw_results, num_results);
+             }
+-            activity.finish(!results.empty(), "");
++            const std::vector<std::string> saved = save_output_images(*runtime->svr_params, results);
++            activity.finish(!results.empty(), saved.empty() ? "" : saved[0]);
+ 
+             if (results.empty()) {
+                 res.status = 500;
+diff --git a/examples/server/runtime.cpp b/examples/server/runtime.cpp
+index 76d89d3..d72fec2 100644
+--- a/examples/server/runtime.cpp
++++ b/examples/server/runtime.cpp
+@@ -192,6 +192,7 @@ ArgOptions SDSvrParams::get_options() {
+     options.string_options = {
+         {"-l", "--listen-ip", "server listen ip (default: 127.0.0.1)", 0, &listen_ip},
+         {"", "--serve-html-path", "path to HTML file to serve at root (optional)", 0, &serve_html_path},
++        {"", "--output-dir", "directory where every generated image is also saved as PNG; listed at GET /ps5sd/v1/gallery (optional)", 0, &output_dir},
+     };
+ 
+     options.int_options = {
+@@ -230,6 +231,15 @@ bool SDSvrParams::validate() {
+         LOG_ERROR("error: serve_html_path file does not exist: %s", serve_html_path.c_str());
+         return false;
+     }
++
++    if (!output_dir.empty()) {
++        std::error_code ec;
++        fs::create_directories(fs::u8path(output_dir), ec);
++        if (!fs::is_directory(fs::u8path(output_dir), ec)) {
++            LOG_ERROR("error: output_dir is not a directory and could not be created: %s", output_dir.c_str());
++            return false;
++        }
++    }
+     return true;
+ }
+ 
+@@ -247,6 +257,7 @@ std::string SDSvrParams::to_string() const {
+         << "  listen_ip: " << listen_ip << ",\n"
+         << "  listen_port: \"" << listen_port << "\",\n"
+         << "  serve_html_path: \"" << serve_html_path << "\",\n"
++        << "  output_dir: \"" << output_dir << "\",\n"
+         << "}";
+     return oss.str();
+ }
+diff --git a/examples/server/runtime.h b/examples/server/runtime.h
+index 5baa633..3d47021 100644
+--- a/examples/server/runtime.h
++++ b/examples/server/runtime.h
+@@ -22,6 +22,7 @@ struct SDSvrParams {
+     std::string listen_ip = "127.0.0.1";
+     int listen_port       = 1234;
+     std::string serve_html_path;
++    std::string output_dir;  // --output-dir: every generated image is also saved here as PNG
+     bool normal_exit = false;
+     sd_log_level_t log_level = SD_LOG_INFO;
+     bool color       = false;

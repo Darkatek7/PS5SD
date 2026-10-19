@@ -1,0 +1,746 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PS5SD</title>
+<!--
+  The page sd-server serves on the PS5 (embedded into ps5sd.elf; see
+  scripts/embed-file.sh and the SD_SERVER_EMBED_INDEX CMake option).
+  Plain ES5 and XMLHttpRequest, one file and no external requests, because the
+  PS5 browser renders modern bundles blank: no modules, no arrow functions, no
+  let/const, no fetch, no CSS grid. Flexbox, sized from the viewport, so it
+  works with a DualSense cursor on a TV (large controls, a white focus frame)
+  and on a phone.
+
+  Talks to:
+    GET  /sdapi/v1/sd-models  /sdapi/v1/samplers  /sdapi/v1/schedulers  /v1/models
+    GET  /sdcpp/v1/capabilities                  (defaults, and "is async available")
+    POST /sdcpp/v1/img_gen, GET /sdcpp/v1/jobs/<id>, POST .../cancel   (async, with previews)
+    POST /sdapi/v1/txt2img + GET /sdapi/v1/progress                    (fallback: synchronous)
+    GET  /ps5sd/v1/gallery, /ps5sd/v1/gallery/<file>                   (saved images, --output-dir)
+  SPDX-License-Identifier: MIT
+-->
+<style>
+  :root {
+    --bg: #000000; --surface: #0b0b0b; --raised: #0f0f0f; --field: #0d0b0b;
+    --border: #2b2523; --text: #fafafa; --body: #ebebeb; --muted: #b5aea9; --faint: #9a9a9a;
+    --accent: #6e81e4; --button: #fafafa; --quiet: #141414; --ok: #8fd19e; --bad: #e5a29a;
+  }
+  html { font-size: 20px; font-size: clamp(17px, 1.3vw, 26px); -webkit-text-size-adjust: 100%; }
+  html, body { margin: 0; background: var(--bg); color: var(--body);
+    font-family: "SST", "SST Roman", "SST-Roman", -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; line-height: 1.5; }
+  a { color: var(--accent); text-decoration: none; }
+  /* The PS5's own focus: a white frame around what the cursor is on. Kept
+     apart from :focus-visible, since a browser that does not know it drops
+     the whole rule, frame included. */
+  button:focus, input:focus, select:focus, textarea:focus, a:focus { outline: 3px solid var(--text); outline-offset: 2px; }
+  :focus-visible { outline: 3px solid var(--text); outline-offset: 2px; }
+
+  .top { display: flex; align-items: center; height: 3.5rem; padding: 0 1.5rem;
+    border-bottom: 1px solid var(--border); }
+  .brand { color: var(--text); font-weight: 500; margin-right: 1rem; }
+  .model { color: var(--muted); font-size: 0.875rem; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pill { font-size: 0.8125rem; color: var(--faint); border: 1px solid var(--border); border-radius: 1rem;
+    padding: 0.1rem 0.8rem; margin-left: 1rem; white-space: nowrap; }
+  .pill.on { color: var(--ok); } .pill.off { color: var(--bad); }
+
+  .main { display: flex; flex-wrap: wrap; align-items: flex-start; max-width: 90rem; margin: 0 auto; padding: 0.75rem; }
+  .panel { box-sizing: border-box; margin: 0.75rem; background: var(--surface); border: 1px solid var(--border);
+    border-radius: 6px; padding: 1.25rem; }
+  .controls { flex: 1 1 26rem; min-width: 0; }
+  .result { flex: 1.4 1 26rem; min-width: 0; }
+
+  label, .lbl { display: block; color: var(--muted); font-size: 0.875rem; margin: 1rem 0 0.35rem; }
+  label:first-child { margin-top: 0; }
+  textarea, input, select { box-sizing: border-box; width: 100%; font: inherit; color: var(--text); background: var(--field);
+    border: 1px solid var(--border); border-radius: 4px; padding: 0.7rem 0.9rem; }
+  textarea { display: block; resize: vertical; min-height: 5.5rem; }
+  textarea.small { min-height: 3.5rem; }
+  select { height: 3rem; }
+  input { height: 3rem; }
+  textarea::placeholder, input::placeholder { color: var(--faint); }
+
+  button { font: inherit; font-size: 1rem; color: var(--text); background: var(--quiet); border: 1px solid var(--border);
+    border-radius: 4px; min-height: 3rem; padding: 0 1.1rem; cursor: pointer; }
+  button:hover { background: #1d1d1d; }
+  button.on { background: var(--text); color: #000; border-color: var(--text); }
+  button:disabled { opacity: 0.45; cursor: default; }
+  button.go { width: 100%; min-height: 3.75rem; font-size: 1.15rem; font-weight: 500; color: #000;
+    background: var(--button); border: 0; margin-top: 1.4rem; }
+  button.go:hover { background: #ffffff; }
+  button.go:disabled { background: #555; color: #111; }
+
+  .presets { display: flex; flex-wrap: wrap; margin: 0 -0.25rem; }
+  .presets button { margin: 0.25rem; }
+  .row { display: flex; flex-wrap: wrap; margin: 0 -0.5rem; }
+  .row > div { flex: 1 1 11rem; min-width: 0; margin: 0 0.5rem; }
+  .step { display: flex; }
+  .step button { width: 3rem; padding: 0; flex: none; }
+  .step input { text-align: center; margin: 0 0.3rem; min-width: 0; }
+  .seed { display: flex; }
+  .seed input { margin-right: 0.4rem; min-width: 0; }
+  .seed button { flex: none; }
+  .hint { color: var(--faint); font-size: 0.8125rem; margin: 0.35rem 0 0; }
+
+  #status { color: var(--text); min-height: 1.5rem; }
+  #status.error { color: var(--bad); }
+  #sub { color: var(--faint); font-size: 0.875rem; min-height: 1.3rem; }
+  .bar { height: 0.6rem; background: var(--quiet); border: 1px solid var(--border); border-radius: 0.3rem; margin: 0.8rem 0 1rem; overflow: hidden; }
+  .bar div { height: 100%; width: 0%; background: var(--accent); }
+  .stage { background: var(--field); border: 1px solid var(--border); border-radius: 4px; text-align: center; padding: 0.5rem; }
+  .stage img { display: block; max-width: 100%; height: auto; margin: 0 auto; }
+  .stage .empty { color: var(--faint); padding: 5rem 1rem; }
+  .actions { margin-top: 0.9rem; min-height: 3rem; }
+  .actions a { display: inline-block; margin: 0 0.5rem 0.5rem 0; padding: 0.7rem 1.2rem; min-height: 1.5rem; line-height: 1.5rem;
+    background: var(--quiet); border: 1px solid var(--border); border-radius: 4px; color: var(--text); }
+  .actions a:hover { background: #1d1d1d; }
+
+  .gallery { max-width: 90rem; margin: 0 auto; padding: 0 1.5rem 3rem; }
+  .gallery h2 { color: var(--text); font-size: 1.1rem; font-weight: 500; margin: 0.5rem 0 0.75rem; }
+  .thumbs { display: flex; flex-wrap: wrap; margin: 0 -0.4rem; }
+  .thumbs a { display: block; width: 10rem; height: 10rem; margin: 0.4rem; background: var(--field);
+    border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
+  .thumbs img { display: block; width: 100%; height: 100%; object-fit: cover; }
+  .gallery .none { color: var(--faint); font-size: 0.9rem; }
+  .gallery button { margin: 0.5rem 0.5rem 0 0; }
+
+  @media (max-width: 720px) {
+    html { font-size: 17px; }
+    .top { padding: 0 1rem; }
+    .panel { margin: 0.5rem 0; padding: 1rem; }
+    .main { padding: 0.5rem 0.75rem; }
+    .gallery { padding: 0 0.75rem 2rem; }
+    .thumbs a { width: 7.5rem; height: 7.5rem; }
+  }
+</style>
+</head>
+<body>
+<header class="top">
+  <span class="brand">ps5sd</span>
+  <span class="model" id="model">connecting&hellip;</span>
+  <span class="pill" id="pill">offline</span>
+</header>
+
+<div class="main">
+  <section class="panel controls">
+    <label for="prompt">Prompt</label>
+    <textarea id="prompt" rows="4" placeholder="What should it draw?"></textarea>
+
+    <label for="neg">Negative prompt</label>
+    <textarea id="neg" class="small" rows="2" placeholder="What to avoid (optional)"></textarea>
+
+    <div class="lbl">Size</div>
+    <div class="presets" id="presets"></div>
+    <div class="row" style="margin-top:0.5rem">
+      <div><label for="w">Width</label><input id="w" type="number" min="64" max="2048" step="64"></div>
+      <div><label for="h">Height</label><input id="h" type="number" min="64" max="2048" step="64"></div>
+    </div>
+
+    <div class="row">
+      <div>
+        <div class="lbl">Steps</div>
+        <div class="step"><button type="button" id="steps-">&minus;</button><input id="steps" type="number" min="1" max="150" step="1"><button type="button" id="steps+">+</button></div>
+      </div>
+      <div>
+        <div class="lbl">CFG scale</div>
+        <div class="step"><button type="button" id="cfg-">&minus;</button><input id="cfg" type="number" min="0" max="30" step="0.5"><button type="button" id="cfg+">+</button></div>
+      </div>
+    </div>
+
+    <div class="row">
+      <div><label for="sampler">Sampler</label><select id="sampler"><option value="default">default</option></select></div>
+      <div><label for="scheduler">Scheduler</label><select id="scheduler"><option value="default">default</option></select></div>
+    </div>
+
+    <label for="seed">Seed</label>
+    <div class="seed"><input id="seed" type="number" step="1" value="-1"><button type="button" id="rnd">Random</button></div>
+    <p class="hint">-1 picks a random seed. One image per run.</p>
+
+    <button type="button" class="go" id="go">Generate</button>
+    <button type="button" id="cancel" style="display:none; width:100%; margin-top:0.6rem">Cancel</button>
+  </section>
+
+  <section class="panel result">
+    <div id="status">Ready.</div>
+    <div id="sub"></div>
+    <div class="bar"><div id="fill"></div></div>
+    <div class="stage" id="stage"><div class="empty">Your image appears here.</div></div>
+    <div class="actions" id="actions"></div>
+  </section>
+</div>
+
+<section class="gallery">
+  <h2>Gallery</h2>
+  <div class="thumbs" id="thumbs"></div>
+  <div class="none" id="none">Nothing saved yet.</div>
+  <button type="button" id="more" style="display:none">Show more</button>
+  <button type="button" id="refresh">Refresh</button>
+</section>
+
+<script>
+(function () {
+  var PRESETS = [[512, 512], [512, 768], [768, 512], [640, 640], [768, 768], [768, 1024], [1024, 768], [1024, 1024]];
+  var PAGE = 12;
+  var $ = function (id) { return document.getElementById(id); };
+
+  var st = {
+    useJobs: false,      // /sdcpp/v1/img_gen is available (job polling with previews)
+    busy: false,
+    job: null,         // id of the async job being watched
+    token: 0,          // bumps when a run is over, so late replies are ignored
+    t0: 0,             // when the run started (ms)
+    seed: 0,
+    fails: 0,
+    galleryLimit: PAGE,
+    sub: ''
+  };
+
+  // ---------- small helpers ----------
+  function save(key, value) { try { localStorage.setItem('ps5sd.' + key, String(value)); } catch (e) {} }
+  function load(key) { try { return localStorage.getItem('ps5sd.' + key); } catch (e) { return null; } }
+  function drop(key) { try { localStorage.removeItem('ps5sd.' + key); } catch (e) {} }
+
+  function clear(node) { while (node.firstChild) node.removeChild(node.firstChild); }
+  function text(node, value) { node.textContent = value; }
+
+  function req(method, url, body, cb) {
+    var x = new XMLHttpRequest();
+    var done = false;
+    function finish(code, data) {
+      if (done) return;
+      done = true;
+      cb(code, data);
+    }
+    x.open(method, url, true);
+    x.onreadystatechange = function () {
+      if (x.readyState !== 4) return;
+      var data = null;
+      try { data = JSON.parse(x.responseText); } catch (e) {}
+      finish(x.status, data);
+    };
+    x.onerror = function () { finish(0, null); };
+    try { x.timeout = 0; } catch (e) {}
+    if (body !== null && body !== undefined) {
+      x.setRequestHeader('Content-Type', 'application/json');
+      x.send(JSON.stringify(body));
+    } else {
+      x.send();
+    }
+  }
+
+  function setPill(online) {
+    var pill = $('pill');
+    pill.className = 'pill ' + (online ? 'on' : 'off');
+    text(pill, online ? (st.busy ? 'generating' : 'online') : 'offline');
+  }
+
+  function num(id, fallback, min, max) {
+    var v = parseFloat($(id).value);
+    if (isNaN(v)) v = fallback;
+    if (v < min) v = min;
+    if (v > max) v = max;
+    return v;
+  }
+
+  function size8(id, fallback) {
+    var v = Math.round(num(id, fallback, 64, 2048) / 8) * 8;
+    $(id).value = v;
+    return v;
+  }
+
+  function clock(seconds) {
+    seconds = Math.max(0, Math.round(seconds));
+    var m = Math.floor(seconds / 60), s = seconds % 60;
+    return m + ':' + (s < 10 ? '0' : '') + s;
+  }
+
+  function mime(b64) { return b64.indexOf('/9j/') === 0 ? 'image/jpeg' : 'image/png'; }
+  function dataUrl(b64) { return 'data:' + mime(b64) + ';base64,' + b64; }
+
+  // ---------- result panel ----------
+  function status(message, isError) {
+    var el = $('status');
+    text(el, message);
+    el.className = isError ? 'error' : '';
+  }
+
+  function progress(fraction) {
+    $('fill').style.width = Math.max(0, Math.min(100, Math.round(fraction * 100))) + '%';
+  }
+
+  function showImage(src, label) {
+    var stage = $('stage');
+    var img = stage.getElementsByTagName('img')[0];
+    if (!img) {
+      clear(stage);
+      img = document.createElement('img');
+      img.alt = label || 'generated image';
+      stage.appendChild(img);
+    }
+    img.src = src;
+  }
+
+  function showActions(href, name, openHref) {
+    var box = $('actions');
+    clear(box);
+    if (!href) return;
+    var dl = document.createElement('a');
+    dl.href = href;
+    dl.setAttribute('download', name);
+    text(dl, 'Download');
+    box.appendChild(dl);
+    if (openHref) {
+      var open = document.createElement('a');
+      open.href = openHref;
+      open.target = '_blank';
+      text(open, 'Open full size');
+      box.appendChild(open);
+    }
+  }
+
+  // ---------- run state ----------
+  function setBusy(busy) {
+    st.busy = busy;
+    $('go').disabled = busy;
+    $('cancel').style.display = busy ? 'block' : 'none';
+    setPill(true);
+  }
+
+  function tick() {
+    if (!st.busy) return;
+    var elapsed = (new Date().getTime() - st.t0) / 1000;
+    text($('sub'), (st.sub ? st.sub + ' · ' : '') + clock(elapsed) + ' elapsed');
+    setTimeout(tick, 1000);
+  }
+
+  function begin(job) {
+    st.token++;
+    st.job = job || null;
+    st.fails = 0;
+    st.sub = '';
+    progress(0);
+    setBusy(true);
+    tick();
+  }
+
+  function end() {
+    st.token++;
+    st.job = null;
+    drop('job');
+    setBusy(false);
+  }
+
+  function fail(message) {
+    status(message, true);
+    progress(0);
+    end();
+    text($('sub'), '');
+  }
+
+  function succeed(b64, seed) {
+    var seconds = (new Date().getTime() - st.t0) / 1000;
+    var src = dataUrl(b64);
+    showImage(src, 'generated image');
+    showActions(src, 'sd_' + seed + '.png', null);
+    progress(1);
+    status('Done in ' + clock(seconds) + '.');
+    text($('sub'), 'seed ' + seed);
+    end();
+    // the server saved it (with --output-dir): download that file instead of a huge data URL
+    var started = Math.floor(st.t0 / 1000) - 5;
+    loadGallery(function (list) {
+      if (list && list.length && list[0].created >= started) {
+        showActions(list[0].url, list[0].name, list[0].url);
+      }
+    });
+  }
+
+  // ---------- generation ----------
+  function readParams() {
+    var seed = parseInt($('seed').value, 10);
+    if (isNaN(seed) || seed < 0) seed = Math.floor(Math.random() * 2147483647);
+    return {
+      prompt: $('prompt').value,
+      negative: $('neg').value,
+      width: size8('w', 512),
+      height: size8('h', 512),
+      steps: Math.round(num('steps', 20, 1, 150)),
+      cfg: num('cfg', 7, 0, 30),
+      sampler: $('sampler').value,
+      scheduler: $('scheduler').value,
+      seed: seed
+    };
+  }
+
+  function remember(p) {
+    save('prompt', p.prompt); save('neg', p.negative); save('w', p.width); save('h', p.height);
+    save('steps', p.steps); save('cfg', p.cfg); save('sampler', p.sampler); save('scheduler', p.scheduler);
+    save('seed', $('seed').value);
+  }
+
+  function generate() {
+    if (st.busy) return;
+    var p = readParams();
+    if (!p.prompt.replace(/^\s+|\s+$/g, '')) {
+      status('Type a prompt first.', true);
+      $('prompt').focus();
+      return;
+    }
+    remember(p);
+    st.seed = p.seed;
+    st.t0 = new Date().getTime();
+    status('Sending…');
+    showActions(null);
+    if (st.useJobs) startAsync(p); else startSync(p);
+  }
+
+  // Asynchronous: the server queues a job; we poll it once a second.
+  function startAsync(p) {
+    var body = {
+      prompt: p.prompt,
+      negative_prompt: p.negative,
+      width: p.width,
+      height: p.height,
+      seed: p.seed,
+      batch_count: 1,
+      sample_params: { sample_steps: p.steps, guidance: { txt_cfg: p.cfg } },
+      preview: 'proj',
+      preview_interval: 1,
+      output_format: 'png'
+    };
+    if (p.sampler !== 'default') body.sample_params.sample_method = p.sampler;
+    if (p.scheduler !== 'default') body.sample_params.scheduler = p.scheduler;
+    begin(null);
+    var token = st.token;
+    req('POST', '/sdcpp/v1/img_gen', body, function (code, data) {
+      if (token !== st.token) return;
+      if (code === 202 && data && data.id) {
+        st.job = data.id;
+        save('job', data.id + ' ' + st.t0 + ' ' + st.seed);
+        status('Queued…');
+        pollJob();
+      } else {
+        setPill(code !== 0);
+        fail(code === 0 ? 'Cannot reach the server.' :
+          'The server refused the request' + (data && data.error ? ': ' + (data.message || data.error) : ' (' + code + ').'));
+      }
+    });
+  }
+
+  function pollJob() {
+    var token = st.token;
+    var job = st.job;
+    if (!job) return;
+    req('GET', '/sdcpp/v1/jobs/' + job, null, function (code, data) {
+      if (token !== st.token) return;
+      if (code === 0) {
+        st.fails++;
+        setPill(false);
+        if (st.fails > 300) { fail('Lost the connection to the server.'); return; }
+        status('Connection lost, retrying…');
+        setTimeout(pollJob, 1000);
+        return;
+      }
+      st.fails = 0;
+      setPill(true);
+      if (code === 404 || code === 410) { fail('The server no longer has this job.'); return; }
+      if (!data) { setTimeout(pollJob, 1000); return; }
+
+      if (data.status === 'completed') {
+        var images = data.result && data.result.images;
+        if (images && images.length) succeed(images[0].b64_json, st.seed);
+        else fail('The job finished without an image.');
+        return;
+      }
+      if (data.status === 'failed' || data.status === 'cancelled') {
+        fail(data.error && data.error.message ? data.error.message : 'Generation failed.');
+        return;
+      }
+      if (data.status === 'queued') {
+        status(data.queue_position > 1 ? 'Queued, ' + (data.queue_position - 1) + ' ahead of you…' : 'Queued…');
+        st.sub = '';
+      } else {
+        var pv = data.preview;
+        if (pv && pv.total_steps > 0) {
+          status('Step ' + pv.step + ' of ' + pv.total_steps);
+          progress(pv.step / pv.total_steps);
+          st.sub = eta(pv.step, pv.total_steps);
+          if (pv.b64_json) showImage(dataUrl(pv.b64_json), 'preview');
+        } else {
+          status('Generating…');
+          st.sub = '';
+        }
+      }
+      setTimeout(pollJob, 1000);
+    });
+  }
+
+  function eta(step, steps) {
+    if (step < 1) return '';
+    var elapsed = (new Date().getTime() - st.t0) / 1000;
+    // the clock started before the first step (model warm-up), so this reads long early on
+    return 'about ' + clock(elapsed / step * (steps - step)) + ' left';
+  }
+
+  // Synchronous (older servers): one long POST, progress from /sdapi/v1/progress.
+  function startSync(p) {
+    var task = 'ps5sd-' + new Date().getTime();
+    var body = {
+      id_task: task,
+      prompt: p.prompt,
+      negative_prompt: p.negative,
+      width: p.width,
+      height: p.height,
+      steps: p.steps,
+      cfg_scale: p.cfg,
+      seed: p.seed,
+      batch_size: 1
+    };
+    if (p.sampler !== 'default') body.sampler_name = p.sampler;
+    if (p.scheduler !== 'default') body.scheduler = p.scheduler;
+    begin(null);
+    var token = st.token;
+    status('Generating…');
+    req('POST', '/sdapi/v1/txt2img', body, function (code, data) {
+      if (token !== st.token) return;
+      if (code === 200 && data && data.images && data.images.length) {
+        succeed(data.images[0], st.seed);
+      } else {
+        setPill(code !== 0);
+        fail(code === 0 ? 'Lost the connection to the server.' :
+          'Generation failed' + (data && (data.message || data.error) ? ': ' + (data.message || data.error) : ' (' + code + ').'));
+      }
+    });
+    setTimeout(function () { pollProgress(token, task); }, 1000);
+  }
+
+  function pollProgress(token, task) {
+    if (token !== st.token) return;
+    req('GET', '/sdapi/v1/progress?id_task=' + encodeURIComponent(task), null, function (code, data) {
+      if (token !== st.token) return;
+      var state = data && data.state;
+      if (state && state.sampling_steps > 0) {
+        status('Step ' + state.sampling_step + ' of ' + state.sampling_steps);
+        progress(data.progress || 0);
+        st.sub = eta(state.sampling_step, state.sampling_steps);
+        if (data.current_image) showImage(dataUrl(data.current_image), 'preview');
+      }
+      setTimeout(function () { pollProgress(token, task); }, 1000);
+    });
+  }
+
+  function cancel() {
+    if (!st.busy) return;
+    var job = st.job;
+    var queued = st.useJobs && job;
+    end();
+    progress(0);
+    text($('sub'), '');
+    if (queued) {
+      // A queued job is cancelled; one that is generating cannot be interrupted yet,
+      // so the page stops waiting and the image still lands in the gallery.
+      status('Cancelling\u2026');
+      req('POST', '/sdcpp/v1/jobs/' + job + '/cancel', {}, function (code) {
+        if (code === 200) status('Cancelled.');
+        else status('Stopped waiting. The server finishes this image; it will appear in the gallery.');
+        setTimeout(refreshGallery, 2000);
+      });
+    } else {
+      status('Stopped waiting. The server finishes this image.');
+    }
+  }
+
+  // Back on the page while a job is still running on the server.
+  function resume() {
+    var saved = load('job');
+    if (!saved) return;
+    var parts = saved.split(' ');
+    if (parts.length < 3) { drop('job'); return; }
+    req('GET', '/sdcpp/v1/jobs/' + parts[0], null, function (code, data) {
+      if (code !== 200 || !data) { drop('job'); return; }
+      if (st.busy) return;
+      st.t0 = parseInt(parts[1], 10) || new Date().getTime();
+      st.seed = parts[2];
+      if (data.status === 'completed' || data.status === 'queued' || data.status === 'generating') {
+        begin(parts[0]);
+        status('Back on a running job…');
+        pollJob();
+      } else {
+        drop('job');
+      }
+    });
+  }
+
+  // ---------- controls ----------
+  function buildPresets() {
+    var box = $('presets');
+    for (var i = 0; i < PRESETS.length; i++) {
+      (function (w, h) {
+        var b = document.createElement('button');
+        b.type = 'button';
+        b.id = 'p' + w + 'x' + h;
+        text(b, w + '×' + h);
+        b.onclick = function () { $('w').value = w; $('h').value = h; markPreset(); };
+        box.appendChild(b);
+      })(PRESETS[i][0], PRESETS[i][1]);
+    }
+  }
+
+  function markPreset() {
+    var w = parseInt($('w').value, 10), h = parseInt($('h').value, 10);
+    for (var i = 0; i < PRESETS.length; i++) {
+      var b = $('p' + PRESETS[i][0] + 'x' + PRESETS[i][1]);
+      b.className = (PRESETS[i][0] === w && PRESETS[i][1] === h) ? 'on' : '';
+    }
+  }
+
+  function stepper(id, delta, min, max, digits) {
+    var input = $(id);
+    var v = parseFloat(input.value);
+    if (isNaN(v)) v = min;
+    v = Math.min(max, Math.max(min, v + delta));
+    input.value = digits ? v.toFixed(digits).replace(/\.0+$/, '') : Math.round(v);
+  }
+
+  function fill(select, names, wanted) {
+    clear(select);
+    var list = ['default'];
+    for (var i = 0; i < names.length; i++) if (names[i] !== 'default') list.push(names[i]);
+    for (var j = 0; j < list.length; j++) {
+      var o = document.createElement('option');
+      o.value = list[j];
+      text(o, list[j]);
+      select.appendChild(o);
+    }
+    select.value = 'default';
+    if (wanted) {
+      for (var k = 0; k < list.length; k++) if (list[k] === wanted) select.value = wanted;
+    }
+  }
+
+  function names(data) {
+    var out = [];
+    if (data && data.length) {
+      for (var i = 0; i < data.length; i++) {
+        var n = typeof data[i] === 'string' ? data[i] : (data[i] && data[i].name);
+        if (n) out.push(n);
+      }
+    }
+    return out;
+  }
+
+  // ---------- gallery ----------
+  var galleryList = [];
+
+  function loadGallery(cb) {
+    req('GET', '/ps5sd/v1/gallery?limit=200', null, function (code, data) {
+      galleryList = (code === 200 && data && data.length) ? data : [];
+      drawGallery();
+      if (cb) cb(galleryList);
+    });
+  }
+
+  function refreshGallery() { loadGallery(null); }
+
+  function drawGallery() {
+    var box = $('thumbs');
+    clear(box);
+    var shown = Math.min(galleryList.length, st.galleryLimit);
+    for (var i = 0; i < shown; i++) {
+      (function (item) {
+        var a = document.createElement('a');
+        a.href = item.url;
+        a.target = '_blank';
+        var img = document.createElement('img');
+        img.src = item.url;
+        img.alt = item.name;
+        a.appendChild(img);
+        a.onclick = function () {
+          showImage(item.url, item.name);
+          showActions(item.url, item.name, item.url);
+          status(item.name);
+          text($('sub'), '');
+          if (window.scrollTo) window.scrollTo(0, 0);
+          return false;
+        };
+        box.appendChild(a);
+      })(galleryList[i]);
+    }
+    $('none').style.display = galleryList.length ? 'none' : 'block';
+    $('more').style.display = galleryList.length > shown ? 'inline-block' : 'none';
+  }
+
+  // ---------- start up ----------
+  function restore() {
+    var map = { prompt: 'prompt', neg: 'neg', w: 'w', h: 'h', steps: 'steps', cfg: 'cfg', seed: 'seed' };
+    for (var id in map) {
+      if (map.hasOwnProperty(id)) {
+        var v = load(map[id]);
+        if (v !== null) $(id).value = v;
+      }
+    }
+  }
+
+  function init() {
+    buildPresets();
+    $('w').value = 512; $('h').value = 512; $('steps').value = 20; $('cfg').value = 7;
+    restore();
+    markPreset();
+
+    $('w').onchange = $('h').onchange = $('w').oninput = $('h').oninput = markPreset;
+    $('steps-').onclick = function () { stepper('steps', -1, 1, 150, 0); };
+    $('steps+').onclick = function () { stepper('steps', 1, 1, 150, 0); };
+    $('cfg-').onclick = function () { stepper('cfg', -0.5, 0, 30, 1); };
+    $('cfg+').onclick = function () { stepper('cfg', 0.5, 0, 30, 1); };
+    $('rnd').onclick = function () { $('seed').value = -1; };
+    $('go').onclick = generate;
+    $('cancel').onclick = cancel;
+    $('more').onclick = function () { st.galleryLimit += PAGE; drawGallery(); };
+    $('refresh').onclick = refreshGallery;
+
+    // model
+    req('GET', '/sdapi/v1/sd-models', null, function (code, data) {
+      var name = '';
+      if (code === 200 && data && data.length) name = data[0].model_name || data[0].title || data[0].filename || '';
+      if (name) {
+        text($('model'), name);
+        setPill(true);
+      } else {
+        req('GET', '/v1/models', null, function (c, d) {
+          if (c === 200 && d && d.data && d.data.length) { text($('model'), d.data[0].id); setPill(true); }
+          else { text($('model'), c === 0 ? 'server not reachable' : 'no model'); setPill(c !== 0); }
+        });
+      }
+    });
+
+    // samplers and schedulers, then the server's own defaults
+    var savedSampler = load('sampler'), savedScheduler = load('scheduler');
+    req('GET', '/sdapi/v1/samplers', null, function (code, data) {
+      fill($('sampler'), names(data), savedSampler);
+      req('GET', '/sdapi/v1/schedulers', null, function (c2, d2) {
+        fill($('scheduler'), names(d2), savedScheduler);
+        req('GET', '/sdcpp/v1/capabilities', null, function (c3, caps) {
+          if (c3 !== 200 || !caps) return;
+          var modes = caps.supported_modes || [];
+          for (var i = 0; i < modes.length; i++) if (modes[i] === 'img_gen') st.useJobs = true;
+          var d = caps.defaults_by_mode && caps.defaults_by_mode.img_gen;
+          if (!d) return;
+          if (load('steps') === null && d.sample_params && d.sample_params.sample_steps > 0) $('steps').value = d.sample_params.sample_steps;
+          if (load('cfg') === null && d.sample_params && d.sample_params.guidance && d.sample_params.guidance.txt_cfg > 0) $('cfg').value = d.sample_params.guidance.txt_cfg;
+          if (load('w') === null && d.width >= 64 && d.height >= 64) { $('w').value = d.width; $('h').value = d.height; markPreset(); }
+          if (savedSampler === null && d.sample_params && d.sample_params.sample_method) fill($('sampler'), names(data), d.sample_params.sample_method);
+          if (savedScheduler === null && d.sample_params && d.sample_params.scheduler) fill($('scheduler'), names(d2), d.sample_params.scheduler);
+          resume();
+        });
+      });
+    });
+
+    loadGallery(null);
+  }
+
+  init();
+})();
+</script>
+</body>
+</html>

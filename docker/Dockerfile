@@ -8,7 +8,8 @@
 # Then build the title the same way:
 #
 #   docker run --rm -it --platform linux/amd64 -v "$PWD":/work ps5sd-build scripts/build-app.sh
-FROM --platform=linux/amd64 archlinux:latest
+# The platform comes from --platform on the command line (and the workflow).
+FROM archlinux:latest
 
 COPY packages.txt /tmp/packages.txt
 
