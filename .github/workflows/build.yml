@@ -77,6 +77,14 @@ jobs:
           docker run --rm --platform linux/amd64 -v "$PWD":/work -w /work "$IMAGE" \
             bash -c 'git config --global --add safe.directory "*" && scripts/build-app.sh'
 
+      # The launch payload (ps5-homebrew-dev-protocol, title id compiled in), so the PC that
+      # deploys needs no payload SDK: scripts/fetch-artifact.sh downloads it with the title.
+      - name: Build the launch payload
+        if: steps.have.outputs.build == 'true'
+        run: |
+          docker run --rm --platform linux/amd64 -v "$PWD":/work -w /work "$IMAGE" \
+            bash -c 'git config --global --add safe.directory "*" && scripts/build-launcher.sh'
+
       - name: Preview the UI
         if: steps.have.outputs.preview == 'true'
         run: |
@@ -95,6 +103,14 @@ jobs:
         with:
           name: ps5sd-title
           path: build/app-ps5/title
+          if-no-files-found: error
+
+      - name: Upload the tools
+        if: steps.have.outputs.build == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ps5sd-tools
+          path: build/tools/launch.elf
           if-no-files-found: error
 
       - name: Upload the UI preview

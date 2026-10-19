@@ -331,3 +331,16 @@ __attribute__((weak)) int dlclose(void *handle) {
     (void)handle;
     return 0;
 }
+
+/*
+ * sd.cpp declares its parallel-for state as `extern thread_local` in
+ * src/core/parallel.h, so every user references the TLS init functions
+ * weakly. The definitions are constant-initialised (nullptr, false), so
+ * parallel.cpp emits none, and the title's linker wants an export for the
+ * leftover references. They have nothing to do. Weak, in case a later sd.cpp
+ * gives them a real initialiser.
+ */
+__attribute__((weak)) void ps5sd_tls_init_executor(void) __asm__("_ZTHN2sd15parallel_detail8executorE");
+__attribute__((weak)) void ps5sd_tls_init_executor(void) {}
+__attribute__((weak)) void ps5sd_tls_init_active(void) __asm__("_ZTHN2sd15parallel_detail6activeE");
+__attribute__((weak)) void ps5sd_tls_init_active(void) {}
