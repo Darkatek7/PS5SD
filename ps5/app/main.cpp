@@ -123,6 +123,8 @@ constexpr const char * kModel   = "/data/PS5SD/model.txt";
 constexpr const char * kEnv     = "/data/PS5SD/env.txt";  // driver and ggml switches, for measuring
 constexpr const char * kQuit    = "/data/PS5SD/quit";
 constexpr const char * kOutputs = "/data/PS5SD/outputs";
+constexpr const char * kLoras   = "/data/PS5SD/loras";
+constexpr const char * kEmbeddings = "/data/PS5SD/embeddings";
 #ifndef PS5SD_NO_DISPLAY
 constexpr const char * kFont    = "/app0/assets/fonts/dejavu-sans-mono.huifont";
 #endif
@@ -430,6 +432,17 @@ std::vector<std::string> server_args(std::string & error) {
     if (!names({ "--auto-fit" })) {
         args.insert(args.end(), { "--auto-fit", "off" });
     }
+    // Directories sd-server looks in (`<lora:name:1>` in a prompt, textual
+    // inversions); they need not exist. Never left empty: the server checks
+    // the embeddings directory with the throwing std::filesystem::exists, and
+    // on the console stat("") fails with EINVAL, not ENOENT, which libc++
+    // throws on.
+    if (!names({ "--lora-model-dir" })) {
+        args.insert(args.end(), { "--lora-model-dir", kLoras });
+    }
+    if (!names({ "--embd-dir" })) {
+        args.insert(args.end(), { "--embd-dir", kEmbeddings });
+    }
     args.insert(args.end(), extra.begin(), extra.end());
     for (size_t i = 0; i + 1 < args.size(); i++) {
         if (args[i] == "--listen-port") {
@@ -463,6 +476,11 @@ void run_server() {
     argv.push_back(nullptr);
 
     set_phase("Loading the model", "then the API on port " + std::to_string(g_server_port.load()));
+    // Done however sd_server() ends, an exception included (start_thread
+    // reports it), so a quit request does not wait out its time for nothing.
+    struct MarkDone {
+        ~MarkDone() { g_server_done = true; }
+    } mark_done;
     g_server_started = true;
     const int rc     = sd_server((int) args.size(), argv.data());
     std::printf("ps5sd: sd_server returned %d\n", rc);
@@ -478,7 +496,6 @@ void run_server() {
         set_phase("The server stopped", "See /data/PS5SD/app.log");
         notify_outcome("PS5SD: the server stopped, see /data/PS5SD/app.log");
     }
-    g_server_done = true;
 }
 
 // Once the server accepts connections, says so: the phase, and a

@@ -172,8 +172,11 @@ instead of trapping, so `main.cpp` reports an out-of-memory load or generation a
   `parameters` text chunk) in `/data/PS5SD/outputs`.
 - The server: `sd_server()` from `sd-server-lib` (`build-app.sh` builds it with `SD_SERVER_LIBRARY=ON`
   and `ps5/webui/index.html` embedded), started with `-m <model.txt>`, `--listen-ip 0.0.0.0`,
-  `--listen-port 7860`, `--output-dir /data/PS5SD/outputs`, `--backend Vulkan` and `--auto-fit off`,
-  then the lines of `/data/PS5SD/server-args.txt` (`scripts/ps5sd-app.sh server-args <file>`). A default
+  `--listen-port 7860`, `--output-dir /data/PS5SD/outputs`, `--backend Vulkan`, `--auto-fit off`,
+  `--lora-model-dir /data/PS5SD/loras` and `--embd-dir /data/PS5SD/embeddings` (neither has to exist;
+  an empty one would stop the server at start, because sd-server checks the embeddings directory with
+  the throwing `std::filesystem::exists` and on the console `stat("")` fails with `EINVAL` rather than
+  `ENOENT`, which libc++ throws on; measured on the first server start), then the lines of `/data/PS5SD/server-args.txt` (`scripts/ps5sd-app.sh server-args <file>`). A default
   is left out when the file names that option, since sd-server appends a string option given twice.
   The request's own settings (steps, CFG, size) win over the server's defaults, which are sd.cpp's, not
   the one-shot's SD-Turbo ones. `main.cpp` defines the activity hooks of `server_hooks.h` (in its own
