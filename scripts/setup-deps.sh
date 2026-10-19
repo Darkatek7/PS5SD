@@ -8,6 +8,8 @@
 #     build/host/ps5-native-tool, runtime/libc.prx         from `make app`
 #   .deps/src/PS5_Mesa, .deps/src/PS5_PayloadSDK           its forks, next to it
 #   .deps/src/ps5-homebrew-dev-protocol                    the launch payload the deploy script uses
+#   .deps/ps5-opengl-sdk                                   ps5-opengl, for the screen (scripts/build-opengl-sdk.sh:
+#                                                          the original release if it verifies, else built from source)
 #
 # Every repository is fetched at a pinned commit (override with the environment
 # variables below). Re-runnable: what is in place is kept, and RADV is only rebuilt
@@ -16,6 +18,10 @@
 #
 #   scripts/setup-deps.sh               fetch, patch, build everything
 #   scripts/setup-deps.sh --fetch-only  only clone and patch (any host with git)
+#
+# PS5SD_DISPLAY=0 skips ps5-opengl (for a build without a screen). Otherwise a
+# failed ps5-opengl build is a warning, and build-app.sh with
+# PS5SD_DISPLAY=auto then builds without a screen; PS5SD_DISPLAY=1 makes it fatal.
 set -euo pipefail
 
 # PS5_Vulkan main at 2026-10-13 (PS5LM v0.9.0 builds against it). Its own
@@ -158,6 +164,21 @@ for f in "$sdk/bin/prospero-lld" "$archive" "$tool" "$libc"; do
 done
 [ "$missing" = 0 ] || die "the build did not produce everything scripts/build-app.sh needs"
 
+# ps5-opengl, for the screen. build-app.sh finds it in .deps/ps5-opengl-sdk
+# (or takes PS5_OPENGL_SDK; scripts/env.sh exports that path).
+glsdk="(skipped, PS5SD_DISPLAY=0)"
+if [ "${PS5SD_DISPLAY:-auto}" != 0 ]; then
+    log "ps5-opengl SDK: scripts/build-opengl-sdk.sh"
+    if glsdk=$(bash "$root/scripts/build-opengl-sdk.sh"); then
+        :
+    elif [ "${PS5SD_DISPLAY:-auto}" = 1 ]; then
+        die "no ps5-opengl SDK (PS5SD_DISPLAY=1)"
+    else
+        echo "setup-deps: WARNING: no ps5-opengl SDK; build-app.sh will build without a display" >&2
+        glsdk="(none)"
+    fi
+fi
+
 # the deploy script builds the launch payload with $root/.deps/ps5-payload-sdk.
 if [ ! -e "$root/.deps/ps5-payload-sdk" ]; then
     ln -s "$sdk" "$root/.deps/ps5-payload-sdk"
@@ -172,3 +193,4 @@ echo "  RADV         $archive"
 echo "  host tool    $tool"
 echo "  libc.prx     $libc"
 echo "  protocol     $protocol @ ${PS5_PROTOCOL_REV:0:12}"
+echo "  ps5-opengl   $glsdk"

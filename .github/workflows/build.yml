@@ -56,14 +56,44 @@ jobs:
         uses: actions/cache@v4
         with:
           path: .deps
-          key: ps5sd-deps-${{ runner.os }}-${{ hashFiles('scripts/setup-deps.sh', 'patches/mesa/**') }}
+          key: ps5sd-deps-${{ runner.os }}-${{ hashFiles('scripts/setup-deps.sh', 'scripts/build-opengl-sdk.sh', 'patches/mesa/**') }}
           restore-keys: |
             ps5sd-deps-${{ runner.os }}-
 
-      - name: Dependencies (PS5_Vulkan, RADV, payload SDK)
+      # ps5-opengl built from source takes the better part of an hour, so it has a cache of its
+      # own, saved as soon as it is built (the .deps cache is only saved when the whole job passes).
+      - name: Restore the ps5-opengl SDK
+        id: glcache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            .deps/ps5-opengl-sdk
+            .deps/ps5-opengl-sdk.stamp
+          key: ps5-opengl-sdk-${{ hashFiles('scripts/build-opengl-sdk.sh') }}
+
+      - name: Dependencies (PS5_Vulkan, RADV, payload SDK, ps5-opengl)
+        env:
+          PS5SD_DISPLAY: "1"
         run: |
-          docker run --rm --platform linux/amd64 -v "$PWD":/work -w /work "$IMAGE" \
+          docker run --rm --platform linux/amd64 -e PS5SD_DISPLAY -v "$PWD":/work -w /work "$IMAGE" \
             bash -c 'git config --global --add safe.directory "*" && scripts/setup-deps.sh'
+
+      - name: Save the ps5-opengl SDK
+        if: always() && steps.glcache.outputs.cache-hit != 'true' && hashFiles('.deps/ps5-opengl-sdk.stamp') != ''
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            .deps/ps5-opengl-sdk
+            .deps/ps5-opengl-sdk.stamp
+          key: ps5-opengl-sdk-${{ hashFiles('scripts/build-opengl-sdk.sh') }}
+
+      - name: ps5-opengl build log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ps5-opengl-build-log
+          path: .deps/ps5-opengl-work/build.log
+          if-no-files-found: ignore
 
       - name: What can be built
         id: have
@@ -71,12 +101,11 @@ jobs:
           [ -f scripts/build-app.sh ] && echo "build=true" >> "$GITHUB_OUTPUT" || echo "build=false" >> "$GITHUB_OUTPUT"
           [ -f scripts/preview-app-ui.sh ] && echo "preview=true" >> "$GITHUB_OUTPUT" || echo "preview=false" >> "$GITHUB_OUTPUT"
 
-      # Without a display until ps5-opengl is built from source: its pinned release download is
-      # gone with the blackbearreloaded account (docs/BUILDING.md).
+      # With the screen, or fail: ps5-opengl comes from scripts/build-opengl-sdk.sh (docs/BUILDING.md).
       - name: Build the title
         if: steps.have.outputs.build == 'true'
         env:
-          PS5SD_DISPLAY: "0"
+          PS5SD_DISPLAY: "1"
         run: |
           docker run --rm --platform linux/amd64 -e PS5SD_DISPLAY -v "$PWD":/work -w /work "$IMAGE" \
             bash -c 'git config --global --add safe.directory "*" && scripts/build-app.sh'
