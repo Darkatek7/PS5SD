@@ -10,3 +10,6 @@ build/
 *.ckpt
 out/
 __pycache__/
+
+# release packages (scripts/package-release.sh)
+/dist/

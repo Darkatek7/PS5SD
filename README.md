@@ -3,8 +3,13 @@
 stable-diffusion.cpp on the PS5 GPU — a native title running ggml-vulkan on RADV, with an
 OpenAI/A1111-compatible image API, a browser UI and a TV dashboard.
 
-> **Status: work in progress.** The title runs on a console and generates images; the API and the
-> dashboard are not wired up yet.
+> **Status: 0.1.0, work in progress, no release yet.** The title runs the server, the web UI, the
+> model downloader and the TV dashboard on the console. Known problems:
+> - After about 1.4 GB, a download's writes to `/data` slow to about 2 MB/s.
+> - Closing the title from the home screen during a download can end in a crash report. A download
+>   still resumes after that.
+>
+> Both are in [docs/CONSOLE.md](docs/CONSOLE.md).
 
 ## Milestone: the first image made on a PS5
 
@@ -22,6 +27,27 @@ seed 42, on the console's GPU through ggml-vulkan and RADV, in 2.6 s. Measuremen
   - elfldr
   - ftpsrv
 - A host with a Vulkan-capable toolchain for building the payload and the driver patches.
+
+## Models
+
+The title downloads models itself, from the web UI: a starter catalog (SDXL Base 1.0, FLUX.3 Image
+Klein, Z-Image Turbo and a few smaller ones; one click installs the files and a preset) or any
+Hugging Face or Civitai file URL, with progress, cancel and resume. Downloads keep going while
+images are generated. A gated or private Hugging Face repository needs a token in
+`/data/PS5SD/hf-token.txt`, a Civitai model that asks for a login one in
+`/data/PS5SD/civitai-token.txt` (one line each). How the downloader works is in
+[docs/PORTING.md](docs/PORTING.md#the-model-downloader-downloadercpp-https_clientcpp-download_corecpp-cataloghpp).
+
+## API
+
+Port 7860 serves the web UI and the A1111, OpenAI and sd-server APIs, plus PS5SD's own routes:
+- the model library;
+- switching and deleting models;
+- the downloader;
+- the job queue and cancel.
+
+With no model yet, the title starts in standby, so a fresh install can fetch its first model from the
+web UI. Every route is in [docs/API.md](docs/API.md).
 
 ## Building
 

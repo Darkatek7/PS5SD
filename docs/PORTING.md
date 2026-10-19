@@ -171,7 +171,7 @@ instead of trapping, so `main.cpp` reports an out-of-memory load or generation a
   and the direct-memory figure before and after each phase in the log, the PNG (with a
   `parameters` text chunk) in `/data/PS5SD/outputs`.
 - The server: `sd_server()` from `sd-server-lib` (`build-app.sh` builds it with `SD_SERVER_LIBRARY=ON`
-  and `ps5/webui/index.html` embedded), started with `-m <model.txt>`, `--listen-ip 0.0.0.0`,
+  and `ps5/webui/index.html` embedded), started with the active model's arguments, `--listen-ip 0.0.0.0`,
   `--listen-port 7860`, `--output-dir /data/PS5SD/outputs`, `--backend Vulkan`, `--auto-fit off`,
   `--lora-model-dir /data/PS5SD/loras` and `--embd-dir /data/PS5SD/embeddings` (neither has to exist;
   an empty one would stop the server at start, because sd-server checks the embeddings directory with
@@ -185,6 +185,31 @@ instead of trapping, so `main.cpp` reports an out-of-memory load or generation a
   request calls `sd_server_terminate()` and ends the title only once `sd_server()` has returned (its
   HTTP threads and job worker ended, the model freed), at most 120 s later, so no generation is on the
   GPU when the title goes.
+- The models (`models.cpp`): `model.txt` holds the id of a library entry, or (as before) a
+  checkpoint's path. An entry is a checkpoint directly in `/data/PS5SD/models` (`.gguf`,
+  `.safetensors`, `.ckpt`, `.sft`; its id is the file name, loaded with `-m`) or a preset,
+  `/data/PS5SD/presets/<id>.txt`: sd-server arguments one a line, with `# name:` and
+  `# defaults: steps=25 cfg=6 ...` comment lines. A relative path after a model option (`-m`, `--vae`,
+  `--llm`, ...) is taken from the models directory, so the parts of a model can sit in subdirectories
+  without being listed as checkpoints. With an entry, the model options of `server-args.txt` are left
+  out (logged), the rest of it still applies. Without `model.txt`, `server-args.txt` must name the
+  model itself. `models.cpp` uses only the `error_code` overloads of `std::filesystem` (the `EINVAL`
+  above) and dumps JSON with invalid UTF-8 replaced, since it runs on the server's HTTP threads.
+- The app's routes (`patches/sdcpp/0054`, `sd_app_request` in `main.cpp`): `GET /ps5sd/v1/app/models`
+  gives the library with `active` (`model.txt`), `loaded` (what the server has up, empty while it
+  loads) and `switching`. `POST /ps5sd/v1/app/models/active` with `{"id": ...}` writes `model.txt`
+  (through a `.tmp` and a rename) and answers 202 with the same JSON; 400 for a body without an id,
+  404 for an unknown id or a preset whose files are missing, 409 while a switch or a quit runs, 200
+  when that model is loaded already. The switch itself waits for the main loop, which calls
+  `sd_server_terminate()` after the answer is out; the worker then starts `sd_server()` again with the
+  new arguments (the job that runs ends first). When the new model does not load (`sd_server()`
+  returns non-zero), the worker writes back the last model that came up and starts that, so the web UI
+  stays reachable. A quit between two starts ends the loop before the next one.
+- `DELETE /ps5sd/v1/app/models/<id>` deletes a preset with the files it names, or a checkpoint
+  (`ModelLibrary::remove`). A file that another preset or the model in use names stays, and the answer
+  lists it under `kept` next to `deleted` (with the library as `GET models` gives it). 409 for the model
+  in use, during a switch, and for a checkpoint that a preset names; 404 for an unknown id. Only files
+  under `/data/PS5SD/models` are deleted, and a preset whose files are missing can be deleted too.
 - Without a display (`PS5SD_NO_DISPLAY`): no `Display`, no renderer. Every phase (`set_phase`)
   goes to `app.log` as `ps5sd: status: ...`, to the kernel log through `sceKernelDebugOutText`
   (klogsrv, `scripts/ps5sd-app.sh log -f`) and to a system notification; the sampling progress
@@ -205,7 +230,110 @@ instead of trapping, so `main.cpp` reports an out-of-memory load or generation a
   runtime's empty thread-local initialiser.
 - `status_view.cpp`: the screen for now, one monospaced font drawn with ps5-homebrew-ui into a
   DrawList, the slot a dashboard takes later.
-- `tests/`: host-side tests for the parts with no console code (the argument parser).
+- `tests/`: host-side tests for the parts with no console code (the argument parser, the model
+  library, the downloader's URLs, catalog and queue in `test_downloads.cpp`), and
+  `smoke_downloader.cpp`, the downloader against the real Hugging Face and Civitai from the PC
+  (needs the network and a host mbedTLS; not run by ctest).
 
-The icon and background in `ps5/app/sce_sys` are generated placeholders, to be replaced with real
-artwork.
+The icon (`ps5/app/sce_sys/icon0.png`) was made by PS5SD itself, on the console: FLUX.3 Image Klein
+Q4_K (preset `flux3-klein-q4`), 1024x1024, 16 steps, CFG 1, euler, seed 5050, with the prompt "a
+four-pointed sparkle star made of liquid iridescent glass in blue, violet and pink, with two small
+sparkles beside it, square app icon, one bold symbol centered with generous margin, dark background
+with a soft deep blue to violet gradient glow, glossy 3D, soft studio lighting, clean minimal design,
+modern game console homebrew store icon, high quality render, no text". FLUX drew it as a rounded
+tile with a rim, but the home screen rounds the tiles itself and wants the picture to fill the
+square; with its own corners the icon looked like a tile in a tile. So 64 px of 1024 are cut from
+each edge, inside FLUX's rounded corners. The rest is scaled to 512x512 and saved as RGBA, as
+Prospero Themes' icon is. The home screen does not draw icon0.png: it draws `sce_sys/icon0.dds`,
+the same picture as a 512x512 BC7 texture with one mip and a DX10 header. That file is committed;
+after a new icon0.png, make it again on Windows with
+`texconv -f BC7_UNORM -m 1 -y -o ps5/app/sce_sys ps5/app/sce_sys/icon0.png`. build-app.sh stops if it is
+older than the PNG. Without it the tile showed no icon at all. The home screen reads both from
+`/user/appmeta/PPSA99576`, which `scripts/ps5sd-app.sh deploy` (or `appmeta`) keeps in step. The home screen background (`sce_sys/source/background.png`) is still a
+generated placeholder.
+
+## The model downloader (`downloader.cpp`, `https_client.cpp`, `download_core.cpp`, `catalog.hpp`)
+
+Models are downloaded on the console itself, from a starter catalog or from any Hugging Face or
+Civitai URL. The recipe is PS5LM's: its payload's downloader (`ps5/ps5lm/app.cpp`: 8 MiB pieces over
+16 connections, a record of finished pieces, retries with backoff, signed links fetched again when
+they expire) and its app's queue (`ps5/app/market.cpp`: `downloads.json`, carried on after a
+restart).
+
+- **The HTTP stack.** PS5LM measured three things: `libSceHttp2` cannot send a request from a
+  payload, though its title uses it (2 connections, 7 to 9.8 MB/s, and the library refuses more than
+  4 requests); the kernel caps `SO_RCVBUF` at 64 KB, so one connection to a CDN about 150 ms away
+  tops out near 0.9 MB/s; and 16 connections with their own TLS (cpp-httplib over mbedTLS 3.6.7) reach
+  about 12.5 MB/s in a payload. PS5SD takes the last route, but not through cpp-httplib: sd-server
+  already links cpp-httplib 0.28, which has no mbedTLS backend, and a second version of it in the
+  same link would share its symbol names. `https_client.cpp` is a small HTTP/1.1 client (keep-alive,
+  `Content-Length` and chunked bodies, redirects followed by hand) over plain sockets and mbedTLS,
+  with the Mozilla CA list (`ps5/app/cacert.pem`, PS5LM's copy) embedded by `build-app.sh` through
+  `embed-file.sh`. Certificates are verified; a failure says to check the console's date.
+- **Names.** The title's `getaddrinfo` (`compat_app.c`) takes numeric addresses only, since the SDK
+  fork's always fails. The client resolves names itself through libSceNet: `sceNetInit`, one
+  `sceNetPoolCreate` (64 KiB), and a `sceNetResolverCreate`/`sceNetResolverStartNtoa`/`Destroy` per
+  lookup (the prototypes of the SDK fork's own `libc/netdb.c`), cached for five minutes. On the PC
+  it uses `getaddrinfo`.
+- **mbedTLS** (`scripts/build-mbedtls.sh`, run by `build-app.sh` and `setup-deps.sh`, skipped when the
+  stamp matches): 3.6.7, sha256-checked, built with the title's compilers (`toolchain.cmake`) into
+  `.deps/mbedtls-ps5`, with `MBEDTLS_THREADING_C` and `MBEDTLS_THREADING_PTHREAD` (16 handshakes at
+  once share PSA's key store). The SDK is FreeBSD 11.4 (`__FreeBSD_version` 1104001): no
+  `getrandom`, so mbedTLS's platform entropy is `sysctl(KERN_ARND)`, which libkernel exports. Its
+  archives go into the link's archive group, so `--exclude-libs` keeps them local. The new imports
+  are `connect`, `send`, `recv`, `setsockopt`, `sysctl`, `gmtime`, `pwrite`, `ftruncate`, `fsync`
+  and the five `sceNet*` above; none is null in a title.
+- **One file.** A one-byte range request, following the redirects with a token only for its own
+  host (`huggingface.co` gets `/data/PS5SD/hf-token.txt`, `civitai.com` gets
+  `/data/PS5SD/civitai-token.txt`, as `Authorization: Bearer`; the CDNs' signed URLs never see it),
+  gives the size (`Content-Range`) and the signed URL. Up to 16 threads, each with its own
+  connection, fetch 8 MiB pieces into a buffer of their own; a whole piece is written into
+  `<dest>.part` with one `pwrite`, one piece at a time (scattered 256 KiB writes from 16 connections
+  were slower). The `.part` grows as pieces land (no `ftruncate` up front), and a resume keeps the
+  recorded pieces only while each lies inside it. For measuring, `env.txt` takes `PS5SD_DL_CONNECTIONS`,
+  `PS5SD_DL_PIECE_MIB`, `PS5SD_DL_TRUNCATE=1` (make the `.part` its full size first),
+  `PS5SD_DL_ORDERED=1` (pieces written in file order only), `PS5SD_DL_SYNC_S` (seconds between
+  `fsync`s, 0 only at the end) and `PS5SD_DL_WRITETEST` (disk write tests without the network before
+  the queue starts, see `write_test`). Sustained writes from the title to `/data` are the limit, not
+  the network (docs/CONSOLE.md). Every 5 s the map of finished pieces is copied, the file `fsync`ed, and the map
+  saved in `downloads.json` (written whole: `.tmp`, `fsync`, rename), so a piece is never recorded
+  before its bytes are on disk. A failed piece goes back in the queue; its connection waits 1, 2, 4, 8
+  then 16 s, and gives up after 8 failures in a row; a 403, 410 or redirect on a piece fetches a
+  fresh signed URL once for all connections; a 4xx other than 403, 408, 410 and 429 fails the file.
+  When every piece is there: `fsync`, rename to `<dest>`. A server without ranges is fetched in one
+  stream (no resume). There is no free-space check (`statfs` is only in `libkernel_sys`, null in a
+  title); a full disk shows up as `ENOSPC` and fails the file.
+- **The queue.** One file at a time, oldest first, on a thread of its own, started in `main()`
+  before the server and independent of it, so a download goes on while the server generates or is
+  stopped and started for a model switch. A file's id is a hash of its destination, so two requests
+  for the same destination are the same entry: 409 while it is queued or running, taken up again
+  (from its `.part`) when it was cancelled or failed. A quit stops the transfers without waiting
+  and saves the queue; a file that was running is queued again at the next start and carries on
+  from the recorded pieces.
+- **The catalog** (`catalog.hpp`) is data compiled into the app: entries of files (URL, destination
+  under `models/`, size, and optionally a second size that counts as the same file) and a preset
+  text. Installing one queues the files that are not there at their size (a VAE two entries share is
+  fetched once), tagged with the entry's id; when the last one is done, the preset is written to
+  `presets/<id>.txt` (`.tmp` and rename), so the model shows in `GET models`. A file at a
+  destination with another size is in the way: 409, nothing is overwritten.
+- **Destinations** are relative to `/data/PS5SD/models`: no absolute path, no `..`, no empty, hidden
+  or backslashed part, at most four parts, and a model extension (`.gguf`, `.safetensors`, `.ckpt`,
+  `.sft`). Hugging Face URLs are `https://huggingface.co/<owner>/<repo>/resolve/<rev>/<path>`
+  (`/blob/` is rewritten to `/resolve/`; the default destination is the path's last part); Civitai
+  URLs are `https://civitai.com/models/<id>?modelVersionId=<v>` or
+  `https://civitai.com/api/download/models/<v>[?fileId=<f>]`, whose file name comes from
+  `/api/v1/model-versions/<v>` (the primary model file, or `fileId`), else from the download's
+  `Content-Disposition`. Other hosts are refused.
+
+The routes, under `/ps5sd/v1/app/` (`sd_app_request` hands them to `downloader_route`; JSON in and
+out, errors as `{"error": ...}`, nothing thrown across the hook):
+
+| Route | Body | Answer |
+|---|---|---|
+| `GET catalog` | | `{"entries": [{"id", "name", "description", "featured", "good_for", "bytes", "installed", "files": [{"url", "dest", "bytes", "installed"}], "preset"}]}`, featured first |
+| `GET downloads` | | `{"downloads": [{"id", "url", "dest", "bytes", "total", "state", "error", "bytes_per_second", "catalog"}]}`, oldest first; `state` is `queued`, `running`, `done`, `failed` or `cancelled` |
+| `POST downloads` | `{"url", "dest"?, "catalog"?}`, or `{"catalog"}` alone to install an entry | 202 `{"downloads": [...]}` with what was queued; 200 and `[]` for an entry with every file there (the preset is written); 400 bad URL or destination, 404 unknown entry, 409 queued already, running, stopping, downloaded or in the way, 502 Civitai's API failed |
+| `DELETE downloads/<id>` | | queued or running: cancelled, `.part` kept (200); cancelled or failed: the entry and its `.part` go; done: the entry goes, the file stays; 404 unknown, 409 while it is still stopping |
+| `POST downloads/<id>/retry` | | a failed or cancelled one queued again, from its `.part` (202) |
+| `POST downloads/clear` | | the finished ones leave the list (200, the list) |
+| `POST hf/search` | `{"q", "limit"?}` (default 20, at most 50) | `{"results": [{"repo", "downloads", "likes", "files": [{"path", "bytes", "url"}]}]}`: Hugging Face's `/api/models` sorted by downloads, repositories without a model file left out, the sizes from `/api/models/<repo>?blobs=true` (four connections), `url` the file's resolve URL on `main` |
