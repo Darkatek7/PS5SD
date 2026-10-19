@@ -344,3 +344,7 @@ __attribute__((weak)) void ps5sd_tls_init_executor(void) __asm__("_ZTHN2sd15para
 __attribute__((weak)) void ps5sd_tls_init_executor(void) {}
 __attribute__((weak)) void ps5sd_tls_init_active(void) __asm__("_ZTHN2sd15parallel_detail6activeE");
 __attribute__((weak)) void ps5sd_tls_init_active(void) {}
+
+/* ps5-homebrew-ui's system.cpp calls this before hiding the splash, for apps
+ * whose runtime holds the request back; PS5SD's does not (as in PS5LM). */
+void hui_release_splash(void) {}
