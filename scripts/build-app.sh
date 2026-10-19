@@ -156,14 +156,18 @@ cxxflags="$flags -fexceptions -fcxx-exceptions -frtti"
 # Zen 2: AVX2, FMA, F16C and BMI2, no AVX-512. One static image: no backend
 # modules (GGML_BACKEND_DL), no OpenMP (ggml's own thread pool), no libm (the
 # math functions are in Sony's libc), no WebP/WebM (thirdparty submodules).
-# TODO(server): add -DSD_BUILD_EXAMPLES=ON -DSD_SERVER_LIBRARY=ON
-# -DSD_SERVER_BUILD_FRONTEND=OFF and the sd-server-lib target once main.cpp
-# starts sd_server() (patches/sdcpp/0050).
+# The HTTP server as the library sd-server-lib (patches/sdcpp/0050, main.cpp
+# calls sd_server()), serving ps5/webui/index.html at / instead of the pnpm
+# frontend.
+index_h="$out/index_html.h"
+sh "$root/scripts/embed-file.sh" "$root/ps5/webui/index.html" sd_server_index_html "$index_h.new"
+cmp -s "$index_h.new" "$index_h" 2> /dev/null && rm -f "$index_h.new" || mv -f "$index_h.new" "$index_h"
 cmake -S "$sd" -B "$out/sd" -G Ninja \
     -DCMAKE_TOOLCHAIN_FILE="$app_src/toolchain.cmake" \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_C_FLAGS="$flags" -DCMAKE_CXX_FLAGS="$cxxflags" \
-    -DBUILD_SHARED_LIBS=OFF -DSD_BUILD_SHARED_LIBS=OFF -DSD_BUILD_EXAMPLES=OFF \
+    -DBUILD_SHARED_LIBS=OFF -DSD_BUILD_SHARED_LIBS=OFF -DSD_BUILD_EXAMPLES=ON \
+    -DSD_SERVER_LIBRARY=ON -DSD_SERVER_BUILD_FRONTEND=OFF -DSD_SERVER_EMBED_INDEX="$index_h" \
     -DSD_VULKAN=ON -DSD_WEBP=OFF -DSD_WEBM=OFF \
     -DGGML_BACKEND_DL=OFF -DGGML_NATIVE=OFF -DGGML_CPU_ALL_VARIANTS=OFF \
     -DGGML_AVX=ON -DGGML_AVX2=ON -DGGML_FMA=ON -DGGML_F16C=ON -DGGML_BMI2=ON -DGGML_AVX512=OFF \
@@ -172,7 +176,7 @@ cmake -S "$sd" -B "$out/sd" -G Ninja \
     -DVulkan_GLSLC_EXECUTABLE="$(command -v glslc)" -DSPIRV-Headers_DIR="$headers/cmake" \
     -DMATH_LIBRARY=SceLibcInternal > "$out/sd.configure.log" 2>&1 ||
     { tail -30 "$out/sd.configure.log" >&2; exit 1; }
-cmake --build "$out/sd" --target stable-diffusion
+cmake --build "$out/sd" --target stable-diffusion sd-server-lib
 
 # ---- the app's own objects, and the title's start code from PS5_Vulkan ---------
 obj="$out/obj"

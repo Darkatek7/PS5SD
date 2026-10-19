@@ -10,7 +10,8 @@
 #   scripts/ps5sd-app.sh cycle                 close, deploy, launch
 #   scripts/ps5sd-app.sh log [-f]              print /data/PS5SD/app.log; -f streams klogsrv instead
 #   scripts/ps5sd-app.sh model <file|name>     upload a model (local path) and select it (model.txt)
-#   scripts/ps5sd-app.sh args <file>           upload app-args.txt (one sd-cli argument a line)
+#   scripts/ps5sd-app.sh args <file>           upload app-args.txt (one sd-cli argument a line; PS5SD_ONESHOT=1)
+#   scripts/ps5sd-app.sh server-args <file>    upload server-args.txt (one sd-server argument a line)
 #   scripts/ps5sd-app.sh env <file>            upload env.txt (NAME=value a line)
 #   scripts/ps5sd-app.sh outputs [dir]         download the PNGs of /data/PS5SD/outputs (default ./out)
 #
@@ -267,6 +268,7 @@ case ${1:-} in
     log) log "${2:-}" ;;
     model) model "${2:-}" ;;
     args) put_config "${2:-}" app-args.txt ;;
+    server-args) put_config "${2:-}" server-args.txt ;;
     env) put_config "${2:-}" env.txt ;;
     outputs) outputs "${2:-}" ;;
     *)

@@ -161,7 +161,8 @@ instead of trapping, so `main.cpp` reports an out-of-memory load or generation a
 - `main.cpp`: PS5LM's boot order: log to `/data/PS5SD/app.log`, `radv_enable_unified_heap_on_apu`
   and `HOME`, `env.txt` switches (`RADV_`, `MESA_`, `ACO_`, `GGML_`, `SD_`, `PS5SD_`) before the GPU opens,
   the screen first (it takes from the same memory as the model), splash hidden, then the work on
-  a 16 MiB-stack thread while the main thread draws and polls for `quit`. The work is one image:
+  a 16 MiB-stack thread while the main thread draws and polls for `quit`. The work is the HTTP server
+  (below), or with `PS5SD_ONESHOT=1` in `env.txt` one image:
   the model from `model.txt`, options from `app-args.txt` (`gen_args.cpp`: `--model`,
   `--diffusion-model`, `--vae`, `--taesd`, `--clip_l`, `--t5xxl`, `--llm`, `-p`, `-n`, `-W`, `-H`,
   `--steps`, `--cfg-scale`, `--sampling-method`, `--scheduler`, `--seed`, `--vae-tiling`,
@@ -169,6 +170,18 @@ instead of trapping, so `main.cpp` reports an out-of-memory load or generation a
   seed 42), backend `Vulkan`, auto-fit and mmap off, per-step timing from the progress callback
   and the direct-memory figure before and after each phase in the log, the PNG (with a
   `parameters` text chunk) in `/data/PS5SD/outputs`.
+- The server: `sd_server()` from `sd-server-lib` (`build-app.sh` builds it with `SD_SERVER_LIBRARY=ON`
+  and `ps5/webui/index.html` embedded), started with `-m <model.txt>`, `--listen-ip 0.0.0.0`,
+  `--listen-port 7860`, `--output-dir /data/PS5SD/outputs`, `--backend Vulkan` and `--auto-fit off`,
+  then the lines of `/data/PS5SD/server-args.txt` (`scripts/ps5sd-app.sh server-args <file>`). A default
+  is left out when the file names that option, since sd-server appends a string option given twice.
+  The request's own settings (steps, CFG, size) win over the server's defaults, which are sd.cpp's, not
+  the one-shot's SD-Turbo ones. `main.cpp` defines the activity hooks of `server_hooks.h` (in its own
+  object: from an archive, lld could take the weak no-ops instead), which feed the status and the
+  notifications. The main loop connects to the port on loopback to say when the API is up. A quit
+  request calls `sd_server_terminate()` and ends the title only once `sd_server()` has returned (its
+  HTTP threads and job worker ended, the model freed), at most 120 s later, so no generation is on the
+  GPU when the title goes.
 - Without a display (`PS5SD_NO_DISPLAY`): no `Display`, no renderer. Every phase (`set_phase`)
   goes to `app.log` as `ps5sd: status: ...`, to the kernel log through `sceKernelDebugOutText`
   (klogsrv, `scripts/ps5sd-app.sh log -f`) and to a system notification; the sampling progress

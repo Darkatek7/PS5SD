@@ -6,12 +6,19 @@
 //
 // A title gets the console's direct memory (12 GiB) where a payload gets none,
 // and RADV turns it into Vulkan device memory, so the whole model sits on the
-// GPU. For now the app generates one image ("hello sd"): the model's path from
-// /data/PS5SD/model.txt, any of sd-cli's arguments that gen_args.cpp knows
-// from /data/PS5SD/app-args.txt (one a line), the PNG to
-// /data/PS5SD/outputs/<time>.png. The generation runs on its own thread with a
-// 16 MiB stack; the main thread draws the screen and waits for
-// /data/PS5SD/quit. The app logs to /data/PS5SD/app.log.
+// GPU. The app runs stable-diffusion.cpp's HTTP server (sd_server() from
+// sd-server-lib, patches/sdcpp/0050-0053) on port 7860: the OpenAI and A1111
+// image APIs, sd.cpp's own, the web UI (ps5/webui) at / and the gallery of
+// /data/PS5SD/outputs. The model's path comes from /data/PS5SD/model.txt,
+// more of sd-server's arguments from /data/PS5SD/server-args.txt (one a
+// line). The server runs on its own thread with a 16 MiB stack; the main
+// thread draws the screen and waits for /data/PS5SD/quit, which stops the
+// server before the title ends.
+//
+// PS5SD_ONESHOT=1 in /data/PS5SD/env.txt makes one image instead ("hello
+// sd"): the model from model.txt, any of sd-cli's arguments that gen_args.cpp
+// knows from /data/PS5SD/app-args.txt (one a line), the PNG to
+// /data/PS5SD/outputs/<time>.png. The app logs to /data/PS5SD/app.log.
 //
 // Built with PS5SD_NO_DISPLAY (scripts/build-app.sh with PS5SD_DISPLAY=0, or
 // when the ps5-opengl SDK is not available), the app has no screen: no
@@ -22,10 +29,14 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+#include <arpa/inet.h>
+#include <netinet/in.h>
 #include <pthread.h>
+#include <sys/socket.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
+#include <atomic>
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
@@ -34,6 +45,7 @@
 #include <exception>
 #include <fstream>
 #include <functional>
+#include <initializer_list>
 #include <string>
 #include <vector>
 
@@ -42,6 +54,7 @@
 #include "app_status.hpp"
 #include "gen_args.hpp"
 #include "ggml-backend.h"
+#include "server_hooks.h"
 #include "stable-diffusion.h"
 #include "version.hpp"
 
@@ -93,6 +106,9 @@ int sceKernelDebugOutText(int channel, const char * text);
 #ifdef PS5SD_NO_DISPLAY
 int sceVideoOutOpen(int32_t user_id, int32_t bus_type, int32_t index, const void * param);
 #endif
+// sd-server-lib (patches/sdcpp/0050): serves until sd_server_terminate().
+int  sd_server(int argc, char ** argv);
+void sd_server_terminate(void);
 }
 
 namespace {
@@ -102,6 +118,7 @@ using namespace ps5sd;
 constexpr const char * kDir     = "/data/PS5SD";
 constexpr const char * kLog     = "/data/PS5SD/app.log";
 constexpr const char * kArgs    = "/data/PS5SD/app-args.txt";
+constexpr const char * kServerArgs = "/data/PS5SD/server-args.txt";
 constexpr const char * kModel   = "/data/PS5SD/model.txt";
 constexpr const char * kEnv     = "/data/PS5SD/env.txt";  // driver and ggml switches, for measuring
 constexpr const char * kQuit    = "/data/PS5SD/quit";
@@ -110,8 +127,18 @@ constexpr const char * kOutputs = "/data/PS5SD/outputs";
 constexpr const char * kFont    = "/app0/assets/fonts/dejavu-sans-mono.huifont";
 #endif
 constexpr double       kGiB     = 1073741824.0;
+constexpr int          kPort    = 7860;  // sd-server's listen port unless server-args.txt names one
+constexpr int          kStopWaitSeconds = 120;  // how long a quit waits for the server to stop
 
 AppStatus g_status;
+
+// The server's life, for the quit request and the "ready" announcement:
+// started just before sd_server() is called, done once it has returned (its
+// HTTP threads and its job worker have ended, the model is freed).
+std::atomic<bool> g_server_started{false};
+std::atomic<bool> g_server_done{false};
+std::atomic<int>  g_server_port{kPort};
+std::atomic<bool> g_quit_requested{false};
 
 std::vector<std::string> read_lines(const char * path) {
     std::vector<std::string> out;
@@ -167,13 +194,33 @@ void notify_outcome(const char * text) {
 
 // A quit request from the PC: the app ends itself the way the system expects
 // (exit() and _Exit() end in SIGSYS for a title; killing one that is
-// rendering has been followed by lost consoles).
+// rendering has been followed by lost consoles). A running server is stopped
+// first and the title ends only once sd_server() has returned, so no
+// generation is on the GPU when it goes. The request is latched: the quit file
+// stays until the very end (scripts/ps5sd-app.sh close waits for it to go),
+// and a withdrawn file does not cancel a stop that has begun.
 void quit_if_asked() {
-    if (access(kQuit, F_OK) != 0) {
-        return;
+    using clock = std::chrono::steady_clock;
+    static clock::time_point asked;
+    if (!g_quit_requested) {
+        if (access(kQuit, F_OK) != 0) {
+            return;
+        }
+        g_quit_requested = true;
+        asked            = clock::now();
+        std::printf("ps5sd: quit requested\n");
+        if (g_server_started && !g_server_done) {
+            set_phase("Stopping the server");
+            sd_server_terminate();
+        }
+    }
+    if (g_server_started && !g_server_done) {
+        if (clock::now() - asked < std::chrono::seconds(kStopWaitSeconds)) {
+            return;  // asked again on the main loop's next pass
+        }
+        std::printf("ps5sd: the server did not stop in %d s; ending anyway\n", kStopWaitSeconds);
     }
     unlink(kQuit);
-    std::printf("ps5sd: quit requested\n");
     std::fflush(nullptr);
     sceSystemServiceLoadExec("exit", nullptr);
 }
@@ -249,9 +296,7 @@ std::string output_path() {
     return name;
 }
 
-// The one-shot generation, on the worker thread: open the GPU, load the
-// model, make one image, save it, free the model.
-void generate_once() {
+void log_devices() {
     for (size_t i = 0; i < ggml_backend_dev_count(); i++) {
         ggml_backend_dev_t dev = ggml_backend_dev_get(i);
         size_t free = 0, total = 0;
@@ -259,6 +304,12 @@ void generate_once() {
         std::printf("ps5sd: device %zu %s (%s): %.2f / %.2f GiB free\n", i, ggml_backend_dev_name(dev),
                     ggml_backend_dev_description(dev), free / kGiB, total / kGiB);
     }
+}
+
+// The one-shot generation (PS5SD_ONESHOT=1), on the worker thread: open the
+// GPU, load the model, make one image, save it, free the model.
+void generate_once() {
+    log_devices();
     log_memory("before loading");
 
     GenOptions options;
@@ -335,6 +386,129 @@ void generate_once() {
     log_memory("after freeing the model");
 }
 
+// sd-server's command line: the app's defaults, then server-args.txt (one
+// argument a line). sd-server appends to a string option given twice
+// (--backend Vulkan --backend CPU would be "Vulkan,CPU"), so a default is
+// only added when the file does not name that option itself.
+std::vector<std::string> server_args(std::string & error) {
+    const std::vector<std::string> extra = read_lines(kServerArgs);
+    const auto names = [&](std::initializer_list<const char *> options) {
+        for (const auto & a : extra) {
+            for (const char * o : options) {
+                if (a == o) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    };
+    std::vector<std::string> args = { "sd-server" };
+    if (!names({ "-m", "--model", "--diffusion-model" })) {
+        const auto model = read_lines(kModel);
+        if (model.empty()) {
+            error = "no model: put its path in /data/PS5SD/model.txt";
+            return {};
+        }
+        args.insert(args.end(), { "-m", model[0] });
+    }
+    // Every interface, so the PC and the PS5's browser reach it.
+    if (!names({ "-l", "--listen-ip" })) {
+        args.insert(args.end(), { "--listen-ip", "0.0.0.0" });
+    }
+    if (!names({ "--listen-port" })) {
+        args.insert(args.end(), { "--listen-port", std::to_string(kPort) });
+    }
+    // Every image also as a PNG in outputs, listed at /ps5sd/v1/gallery.
+    if (!names({ "--output-dir" })) {
+        args.insert(args.end(), { "--output-dir", kOutputs });
+    }
+    // As in the one-shot (gen_args.cpp): the console's GPU, and no auto-fit,
+    // which would count the one pool of direct memory twice (as RAM and VRAM).
+    if (!names({ "--backend" })) {
+        args.insert(args.end(), { "--backend", "Vulkan" });
+    }
+    if (!names({ "--auto-fit" })) {
+        args.insert(args.end(), { "--auto-fit", "off" });
+    }
+    args.insert(args.end(), extra.begin(), extra.end());
+    for (size_t i = 0; i + 1 < args.size(); i++) {
+        if (args[i] == "--listen-port") {
+            g_server_port = std::atoi(args[i + 1].c_str());
+        }
+    }
+    return args;
+}
+
+// The server, on the worker thread, until a quit request stops it.
+void run_server() {
+    log_devices();
+    log_memory("before loading");
+    std::string              error;
+    std::vector<std::string> args = server_args(error);
+    if (args.empty()) {
+        std::printf("ps5sd: %s\n", error.c_str());
+        set_phase("Nothing to do", error);
+        notify_outcome(("PS5SD: " + error).c_str());
+        return;
+    }
+    std::printf("ps5sd: sd-server");
+    std::vector<char *> argv;
+    for (auto & a : args) {
+        argv.push_back(a.data());
+        if (&a != &args.front()) {
+            std::printf(" %s", a.c_str());
+        }
+    }
+    std::printf("\n");
+    argv.push_back(nullptr);
+
+    set_phase("Loading the model", "then the API on port " + std::to_string(g_server_port.load()));
+    g_server_started = true;
+    const int rc     = sd_server((int) args.size(), argv.data());
+    std::printf("ps5sd: sd_server returned %d\n", rc);
+    log_memory("after the server");
+    if (g_quit_requested) {
+        set_phase("Server stopped");
+    } else if (rc != 0) {
+        // The model did not load, the port could not be bound, or an argument
+        // was wrong (the usage is in the log).
+        set_phase("The server did not start", "See /data/PS5SD/app.log");
+        notify_outcome("PS5SD: the server did not start, see /data/PS5SD/app.log");
+    } else {
+        set_phase("The server stopped", "See /data/PS5SD/app.log");
+        notify_outcome("PS5SD: the server stopped, see /data/PS5SD/app.log");
+    }
+    g_server_done = true;
+}
+
+// Once the server accepts connections, says so: the phase, and a
+// notification. Checked from the main loop, by connecting to it on loopback.
+void announce_when_listening() {
+    static bool announced = false;
+    if (announced || !g_server_started || g_server_done || g_quit_requested) {
+        return;
+    }
+    const int s = socket(AF_INET, SOCK_STREAM, 0);
+    if (s < 0) {
+        return;
+    }
+    sockaddr_in addr     = {};
+    addr.sin_family      = AF_INET;
+    addr.sin_port        = htons((uint16_t) g_server_port.load());
+    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    const bool up        = connect(s, reinterpret_cast<const sockaddr *>(&addr), sizeof(addr)) == 0;
+    close(s);
+    if (!up) {
+        return;
+    }
+    announced = true;
+    log_memory("after loading");
+    const std::string port = std::to_string(g_server_port.load());
+    std::printf("ps5sd: listening on port %s\n", port.c_str());
+    set_phase("Ready", "API and web UI on port " + port);
+    notify_outcome(("PS5SD: ready, API and web UI on port " + port).c_str());
+}
+
 // A thread with a 16 MiB stack, as PS5LM gives llama-server: the console's
 // default is small, and a deep frame overflowed one before (PS5SX2 30814bd).
 void start_thread(std::function<void()> & fn) {
@@ -359,6 +533,36 @@ void start_thread(std::function<void()> & fn) {
 }
 
 }  // namespace
+
+// sd-server's activity hooks (server_hooks.h), called around every request's
+// generation. Defined here, in an object of the link and not in an archive:
+// inside the link's archive group lld could take the server's weak no-ops
+// instead. The server sets its own progress and log callbacks, so the
+// progress reaches the app only through these.
+extern "C" void sd_activity_job_begin(const char * kind, const char * prompt, int w, int h, int steps) {
+    std::printf("ps5sd: request %s, %dx%d, %d steps\n", kind, w, h, steps);
+    g_status.set_progress(0, steps, 0);
+    set_phase("Generating", prompt != nullptr && *prompt != '\0' ? prompt : kind);
+}
+
+extern "C" void sd_activity_progress(int step, int steps, float secs) {
+    on_progress(step, steps, secs, nullptr);
+}
+
+// TODO(dashboard): show the image being denoised.
+extern "C" void sd_activity_preview(const uint8_t *, int, int) {}
+
+extern "C" void sd_activity_job_end(int ok, const char * output_path) {
+    log_memory("after a request");
+    if (!ok) {
+        set_phase("Generation failed", "See /data/PS5SD/app.log");
+        return;
+    }
+    if (*output_path != '\0') {
+        g_status.set_result(output_path);
+    }
+    set_phase("Ready", *output_path != '\0' ? std::string("saved ") + output_path : "image sent");
+}
 
 int main(int, char **) {
     mkdir(kDir, 0777);
@@ -433,15 +637,11 @@ int main(int, char **) {
     set_phase("Opening the GPU", "version " PS5SD_VERSION ", no display");
 #endif
 
-    // TODO(server): run sd_server(argc, argv) from sd-server-lib
-    // (patches/sdcpp/0050, SD_SERVER_LIBRARY=ON in scripts/build-app.sh) here
-    // in place of the one-shot generation, with sd-server's arguments from
-    // app-args.txt, and define the activity hooks of server_hooks.h to feed
-    // g_status. sd_server_terminate() before a quit.
-    //
-    // The worker is never joined or detached: the platform's pthread wraps
-    // (radv-link.sh) own its stack, and the title never ends on its own.
-    std::function<void()> work = generate_once;
+    // The server, or one image with PS5SD_ONESHOT=1 (env.txt). The worker is
+    // never joined or detached: the platform's pthread wraps (radv-link.sh)
+    // own its stack, and the title never ends on its own.
+    const char *          oneshot = std::getenv("PS5SD_ONESHOT");
+    std::function<void()> work    = oneshot != nullptr && std::string(oneshot) == "1" ? generate_once : run_server;
     start_thread(work);
 
 #ifndef PS5SD_NO_DISPLAY
@@ -455,6 +655,7 @@ int main(int, char **) {
             sceKernelUsleep(16 * 1000);  // no vsync to wait on
         }
         if (n % 60 == 0) {
+            announce_when_listening();
             quit_if_asked();
         }
     }
@@ -463,6 +664,7 @@ int main(int, char **) {
     // return from main or exit.
     for (;;) {
         sceKernelUsleep(500 * 1000);
+        announce_when_listening();
         quit_if_asked();
     }
 #endif
