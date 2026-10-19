@@ -77,5 +77,31 @@ off ("probe output check failed").
 
 - SD-Turbo (`sd_turbo-f16-q8_0.gguf`, already on the console) and larger images.
 - A second image in the same process (warm times, memory reuse).
-- The HTTP server, which `main.cpp` does not start yet.
-- The build with a display.
+
+## With a display (2026-10-19)
+
+CI run 39307383624 (`0eb661e`), the first build with ps5-opengl (source-built at `217da45`), run one-shot
+(`PS5SD_ONESHOT=1`) with the same request as above.
+
+- `display: egl 1.4, 1920x1080, PS5 AGC`, then `screen ready`: the GL stack and RADV share the console.
+- The screen costs about 0.35 GiB of the pool: 11.02 GiB free before loading, against 11.37 without it.
+- `generate_image` took 1.9 s (2.6 s on the first run). The PNG is byte for byte the first run's.
+- `close` ended it as before.
+
+## The server, first start (2026-10-19)
+
+Same build, server mode. It stopped before loading the model with a `std::filesystem` exception on the
+path `""`: sd-server checks its embeddings directory (`--embd-dir`, empty by default) with the throwing
+`fs::exists`, and on the console `stat("")` fails with `EINVAL`, where Linux gives `ENOENT`. Fixed in
+`759699f` by never leaving that directory empty (docs/PORTING.md).
+
+## The server (2026-10-19)
+
+CI run 39310117858 (`759699f`), with a display, SDXS Q8_0.
+
+- The model loaded and the server answered on `0.0.0.0:7860` within seconds; the app's loopback probe
+  saw it and switched the status to "Ready". Pool free with the model loaded: 10.90 of 11.44 GiB.
+- From the PC: `/sdcpp/v1/capabilities`, `/sdapi/v1/sd-models`, `/v1/models`, `/sdapi/v1/loras`, the
+  web UI at `/` (28,600 bytes) and `/ps5sd/v1/gallery` (it lists `/data/PS5SD/outputs`) all answer.
+- `POST /sdapi/v1/txt2img`, 512x512, one step, CFG 1, euler_a: 2.33 s for the first request, then
+  0.28 to 0.32 s per image, measured on the PC around the whole request (HTTP, generation, PNG, base64).

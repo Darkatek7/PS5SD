@@ -18,182 +18,298 @@
     GET  /sdcpp/v1/capabilities                  (defaults, and "is async available")
     POST /sdcpp/v1/img_gen, GET /sdcpp/v1/jobs/<id>, POST .../cancel   (async, with previews)
     POST /sdapi/v1/txt2img + GET /sdapi/v1/progress                    (fallback: synchronous)
+    GET  /sdapi/v1/progress                                            (health, every few seconds)
     GET  /ps5sd/v1/gallery, /ps5sd/v1/gallery/<file>                   (saved images, --output-dir)
   SPDX-License-Identifier: MIT
 -->
 <style>
   :root {
-    --bg: #000000; --surface: #0b0b0b; --raised: #0f0f0f; --field: #0d0b0b;
-    --border: #2b2523; --text: #fafafa; --body: #ebebeb; --muted: #b5aea9; --faint: #9a9a9a;
-    --accent: #6e81e4; --button: #fafafa; --quiet: #141414; --ok: #8fd19e; --bad: #e5a29a;
+    --bg: #0a0d14; --surface: #121826; --raised: #1a2336; --field: #0b101b;
+    --border: #26314a; --text: #f4f7fb; --body: #dbe3f0; --muted: #a3b2c9; --faint: #8493ac;
+    --accent: #0070d1; --accent-hi: #2d8ff0; --ok: #5fd38d; --bad: #ff8f8f; --warn: #f5c26b;
   }
   html { font-size: 20px; font-size: clamp(17px, 1.3vw, 26px); -webkit-text-size-adjust: 100%; }
   html, body { margin: 0; background: var(--bg); color: var(--body);
     font-family: "SST", "SST Roman", "SST-Roman", -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; line-height: 1.5; }
-  a { color: var(--accent); text-decoration: none; }
+  body { background: var(--bg) linear-gradient(180deg, #0f1a30 0, var(--bg) 24rem) no-repeat; min-height: 100vh; }
+  a { color: var(--accent-hi); text-decoration: none; }
   /* The PS5's own focus: a white frame around what the cursor is on. Kept
      apart from :focus-visible, since a browser that does not know it drops
      the whole rule, frame included. */
-  button:focus, input:focus, select:focus, textarea:focus, a:focus { outline: 3px solid var(--text); outline-offset: 2px; }
-  :focus-visible { outline: 3px solid var(--text); outline-offset: 2px; }
+  button:focus, input:focus, select:focus, textarea:focus, a:focus { outline: 3px solid #fff; outline-offset: 3px; }
+  :focus-visible { outline: 3px solid #fff; outline-offset: 3px; }
 
-  .top { display: flex; align-items: center; height: 3.5rem; padding: 0 1.5rem;
-    border-bottom: 1px solid var(--border); }
-  .brand { color: var(--text); font-weight: 500; margin-right: 1rem; }
-  .model { color: var(--muted); font-size: 0.875rem; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .pill { font-size: 0.8125rem; color: var(--faint); border: 1px solid var(--border); border-radius: 1rem;
-    padding: 0.1rem 0.8rem; margin-left: 1rem; white-space: nowrap; }
-  .pill.on { color: var(--ok); } .pill.off { color: var(--bad); }
+  .top { display: flex; align-items: center; min-height: 4rem; padding: 0 2rem; }
+  .logo { width: 1.1rem; height: 1.1rem; border-radius: 0.3rem; background: var(--accent); margin-right: 0.7rem;
+    box-shadow: 0 0 1.2rem rgba(45, 143, 240, 0.7); }
+  .brand { color: var(--text); font-size: 1.25rem; font-weight: 600; letter-spacing: 0.04em; margin-right: 1.25rem; }
+  .model { color: var(--muted); font-size: 0.95rem; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pill { display: flex; align-items: center; font-size: 0.875rem; color: var(--faint); background: var(--surface);
+    border: 1px solid var(--border); border-radius: 2rem; padding: 0.2rem 1rem 0.2rem 0.8rem; margin-left: 1rem; white-space: nowrap; }
+  .pill .dot { width: 0.6rem; height: 0.6rem; border-radius: 50%; background: var(--faint); margin-right: 0.55rem; }
+  .pill.on { color: var(--ok); } .pill.on .dot { background: var(--ok); }
+  .pill.off { color: var(--bad); } .pill.off .dot { background: var(--bad); }
+  .pill.work { color: var(--accent-hi); } .pill.work .dot { background: var(--accent-hi); }
+  .pill.busy { color: var(--warn); } .pill.busy .dot { background: var(--warn); }
 
-  .main { display: flex; flex-wrap: wrap; align-items: flex-start; max-width: 90rem; margin: 0 auto; padding: 0.75rem; }
+  .tabs { max-width: 90rem; margin: 0 auto; padding: 0.25rem 2rem 0; display: flex; }
+  .tabs button { font-size: 1.05rem; min-height: 3rem; padding: 0 1.6rem; margin-right: 0.6rem; border-radius: 2rem;
+    background: transparent; color: var(--muted); border: 1px solid transparent; }
+  .tabs button:hover { color: var(--text); background: var(--surface); }
+  .tabs button.on { color: #fff; background: var(--accent); }
+
+  .main { display: flex; flex-wrap: wrap; align-items: flex-start; max-width: 90rem; margin: 0 auto; padding: 0.5rem 1.25rem 2rem; }
   .panel { box-sizing: border-box; margin: 0.75rem; background: var(--surface); border: 1px solid var(--border);
-    border-radius: 6px; padding: 1.25rem; }
+    border-radius: 16px; padding: 1.5rem; }
   .controls { flex: 1 1 26rem; min-width: 0; }
-  .result { flex: 1.4 1 26rem; min-width: 0; }
+  .result { flex: 1.5 1 28rem; min-width: 0; }
 
-  label, .lbl { display: block; color: var(--muted); font-size: 0.875rem; margin: 1rem 0 0.35rem; }
+  label, .lbl { display: block; color: var(--muted); font-size: 0.875rem; margin: 1.1rem 0 0.4rem; }
   label:first-child { margin-top: 0; }
+  .row label:first-child, .row .lbl:first-child { margin-top: 1.1rem; }
   textarea, input, select { box-sizing: border-box; width: 100%; font: inherit; color: var(--text); background: var(--field);
-    border: 1px solid var(--border); border-radius: 4px; padding: 0.7rem 0.9rem; }
+    border: 1px solid var(--border); border-radius: 10px; padding: 0.7rem 0.95rem; }
   textarea { display: block; resize: vertical; min-height: 5.5rem; }
-  textarea.small { min-height: 3.5rem; }
-  select { height: 3rem; }
-  input { height: 3rem; }
+  textarea.big { font-size: 1.15rem; min-height: 9rem; line-height: 1.45; }
+  select { height: 3.25rem; }
+  input { height: 3.25rem; }
   textarea::placeholder, input::placeholder { color: var(--faint); }
 
-  button { font: inherit; font-size: 1rem; color: var(--text); background: var(--quiet); border: 1px solid var(--border);
-    border-radius: 4px; min-height: 3rem; padding: 0 1.1rem; cursor: pointer; }
-  button:hover { background: #1d1d1d; }
-  button.on { background: var(--text); color: #000; border-color: var(--text); }
+  button { font: inherit; font-size: 1rem; color: var(--text); background: var(--raised); border: 1px solid var(--border);
+    border-radius: 10px; min-height: 3.25rem; padding: 0 1.2rem; cursor: pointer; }
+  button:hover { background: #222e47; }
+  button.on { background: var(--accent); color: #fff; border-color: var(--accent); }
   button:disabled { opacity: 0.45; cursor: default; }
-  button.go { width: 100%; min-height: 3.75rem; font-size: 1.15rem; font-weight: 500; color: #000;
-    background: var(--button); border: 0; margin-top: 1.4rem; }
-  button.go:hover { background: #ffffff; }
-  button.go:disabled { background: #555; color: #111; }
+  button.go { flex: 1; min-height: 4.25rem; font-size: 1.3rem; font-weight: 600; color: #fff; letter-spacing: 0.02em;
+    background: var(--accent); border: 0; border-radius: 14px; }
+  button.go:hover { background: var(--accent-hi); }
+  button.go:disabled { background: #2a3a55; color: #8c9bb4; opacity: 1; }
+  .gorow { display: flex; margin-top: 1.1rem; }
+  .gorow .alt { flex: none; min-height: 4.25rem; margin-left: 0.7rem; border-radius: 14px; }
 
+  .setbar { display: flex; align-items: center; margin-top: 1.1rem; }
+  .setbar button { flex: none; background: transparent; }
+  .setbar .sum { color: var(--faint); font-size: 0.875rem; margin-left: 0.9rem; min-width: 0; }
+  #settings { border-top: 1px solid var(--border); margin-top: 0.9rem; padding-top: 0.4rem; }
   .presets { display: flex; flex-wrap: wrap; margin: 0 -0.25rem; }
-  .presets button { margin: 0.25rem; }
+  .presets button { margin: 0.25rem; min-height: 2.75rem; padding: 0 0.9rem; font-size: 0.9rem; }
   .row { display: flex; flex-wrap: wrap; margin: 0 -0.5rem; }
   .row > div { flex: 1 1 11rem; min-width: 0; margin: 0 0.5rem; }
   .step { display: flex; }
-  .step button { width: 3rem; padding: 0; flex: none; }
+  .step button { width: 3.25rem; padding: 0; flex: none; font-size: 1.3rem; }
   .step input { text-align: center; margin: 0 0.3rem; min-width: 0; }
   .seed { display: flex; }
   .seed input { margin-right: 0.4rem; min-width: 0; }
   .seed button { flex: none; }
-  .hint { color: var(--faint); font-size: 0.8125rem; margin: 0.35rem 0 0; }
+  .hint { color: var(--faint); font-size: 0.8125rem; margin: 0.5rem 0 0; }
+  .hint button { min-height: 2.5rem; margin-left: 0.5rem; font-size: 0.85rem; padding: 0 0.9rem; }
 
-  #status { color: var(--text); min-height: 1.5rem; }
+  .state { display: flex; align-items: baseline; }
+  #status { color: var(--text); font-size: 1.3rem; font-weight: 500; flex: 1; min-width: 0; min-height: 1.9rem; }
   #status.error { color: var(--bad); }
-  #sub { color: var(--faint); font-size: 0.875rem; min-height: 1.3rem; }
-  .bar { height: 0.6rem; background: var(--quiet); border: 1px solid var(--border); border-radius: 0.3rem; margin: 0.8rem 0 1rem; overflow: hidden; }
-  .bar div { height: 100%; width: 0%; background: var(--accent); }
-  .stage { background: var(--field); border: 1px solid var(--border); border-radius: 4px; text-align: center; padding: 0.5rem; }
-  .stage img { display: block; max-width: 100%; height: auto; margin: 0 auto; }
-  .stage .empty { color: var(--faint); padding: 5rem 1rem; }
-  .actions { margin-top: 0.9rem; min-height: 3rem; }
-  .actions a { display: inline-block; margin: 0 0.5rem 0.5rem 0; padding: 0.7rem 1.2rem; min-height: 1.5rem; line-height: 1.5rem;
-    background: var(--quiet); border: 1px solid var(--border); border-radius: 4px; color: var(--text); }
-  .actions a:hover { background: #1d1d1d; }
+  #sub { color: var(--muted); font-size: 0.9rem; min-height: 1.4rem; }
+  .bar { height: 0.55rem; background: var(--field); border-radius: 0.3rem; margin: 0.7rem 0 1rem; overflow: hidden; position: relative; }
+  .bar div { height: 100%; width: 0%; background: var(--accent-hi); border-radius: 0.3rem; }
+  .bar.ind div { width: 30% !important; position: absolute; left: 0; animation: slide 1.1s ease-in-out infinite; }
+  @keyframes slide { 0% { left: -30%; } 100% { left: 100%; } }
+  .stage { display: flex; align-items: center; justify-content: center; min-height: 20rem; background: var(--field);
+    border: 1px solid var(--border); border-radius: 12px; padding: 0.5rem; text-align: center; }
+  .stage img { display: block; max-width: 100%; max-height: 78vh; width: auto; height: auto; border-radius: 6px; }
+  .stage .empty { color: var(--faint); padding: 3rem 1rem; font-size: 1.05rem; }
+  .actions { margin-top: 1rem; min-height: 3.25rem; display: flex; flex-wrap: wrap; }
+  .actions a, .actions button { display: block; margin: 0 0.6rem 0.6rem 0; padding: 0 1.3rem; min-height: 3.25rem; line-height: 3.25rem;
+    background: var(--raised); border: 1px solid var(--border); border-radius: 10px; color: var(--text); font-size: 1rem; }
+  .actions button { line-height: normal; }
+  .actions a:hover { background: #222e47; }
+  #cancel { flex: none; margin-left: 1rem; min-height: 2.75rem; }
 
-  .gallery { max-width: 90rem; margin: 0 auto; padding: 0 1.5rem 3rem; }
-  .gallery h2 { color: var(--text); font-size: 1.1rem; font-weight: 500; margin: 0.5rem 0 0.75rem; }
+  .gal { max-width: 90rem; margin: 0 auto; padding: 0.5rem 2rem 3rem; }
+  .galbar { display: flex; align-items: center; margin-bottom: 0.75rem; }
+  .galbar h2 { flex: 1; color: var(--text); font-size: 1.3rem; font-weight: 500; margin: 0; }
   .thumbs { display: flex; flex-wrap: wrap; margin: 0 -0.4rem; }
-  .thumbs a { display: block; width: 10rem; height: 10rem; margin: 0.4rem; background: var(--field);
-    border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
-  .thumbs img { display: block; width: 100%; height: 100%; object-fit: cover; }
-  .gallery .none { color: var(--faint); font-size: 0.9rem; }
-  .gallery button { margin: 0.5rem 0.5rem 0 0; }
+  .thumbs .t { box-sizing: border-box; flex: 0 0 16.666%; padding: 0.4rem; }
+  .thumbs a { display: block; position: relative; padding-bottom: 100%; background: var(--field);
+    border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+  .thumbs img { position: absolute; left: 0; top: 0; width: 100%; height: 100%; object-fit: cover; }
+  .gal .none { color: var(--faint); padding: 2rem 0; }
+  .more { text-align: center; margin-top: 1rem; }
+  .foot { text-align: center; color: var(--faint); font-size: 0.8125rem; padding: 0 1rem 2rem; }
 
+  .lb { position: fixed; left: 0; top: 0; right: 0; bottom: 0; z-index: 10; background: #05080e; flex-direction: column; }
+  .lb-bar { display: flex; align-items: center; padding: 0.75rem 1.25rem; }
+  .lb-title { flex: 1; min-width: 0; color: var(--muted); font-size: 0.95rem; }
+  .lb-bar a, .lb-bar button { flex: none; margin-left: 0.6rem; min-height: 3.25rem; line-height: 3.25rem; padding: 0 1.3rem; background: var(--raised);
+    border: 1px solid var(--border); border-radius: 10px; color: var(--text); }
+  .lb-bar button { line-height: normal; }
+  .lb-body { flex: 1; min-height: 0; display: flex; align-items: center; padding: 0 1rem 1rem; }
+  .lb-body .nav { flex: none; width: 4.5rem; height: 6rem; font-size: 2.4rem; padding: 0; border-radius: 14px; }
+  .lb-img { flex: 1; min-width: 0; text-align: center; }
+  .lb-img img { max-width: 100%; height: calc(100vh - 8rem); object-fit: contain; border-radius: 6px; }
+
+  #toast { position: fixed; left: 50%; bottom: 2rem; z-index: 20; display: none; max-width: 90%; background: var(--raised);
+    border: 1px solid var(--accent-hi); color: var(--text); border-radius: 2rem; padding: 0.7rem 1.6rem; transform: translateX(-50%); }
+
+  @media (max-width: 1300px) { .thumbs .t { flex-basis: 25%; } }
+  @media (max-width: 900px) { .thumbs .t { flex-basis: 33.333%; } }
   @media (max-width: 720px) {
     html { font-size: 17px; }
-    .top { padding: 0 1rem; }
-    .panel { margin: 0.5rem 0; padding: 1rem; }
-    .main { padding: 0.5rem 0.75rem; }
-    .gallery { padding: 0 0.75rem 2rem; }
-    .thumbs a { width: 7.5rem; height: 7.5rem; }
+    .top { padding: 0 1rem; flex-wrap: wrap; padding-top: 0.5rem; padding-bottom: 0.25rem; }
+    .model { order: 3; flex-basis: 100%; margin-top: 0.1rem; }
+    .pill { margin-left: auto; }
+    .tabs { padding: 0.25rem 1rem 0; }
+    .tabs button { flex: 1; margin-right: 0.4rem; }
+    .panel { margin: 0.5rem 0; padding: 1.1rem; }
+    .main { padding: 0.25rem 0.75rem 1.5rem; }
+    .gal { padding: 0.5rem 0.75rem 2rem; }
+    .stage { min-height: 12rem; }
+    .state { display: block; }
+    #cancel { margin: 0.5rem 0 0; width: 100%; }
+    .gorow .alt { display: none; }
+    .lb-bar { flex-wrap: wrap; }
+    .lb-title { flex-basis: 100%; margin-bottom: 0.5rem; }
+    .lb-bar a, .lb-bar button { flex: 1; margin: 0 0.3rem 0 0; text-align: center; padding: 0; }
+    .lb-body .nav { width: 2.6rem; height: 5rem; }
   }
+  @media (max-width: 520px) { .thumbs .t { flex-basis: 50%; } }
 </style>
 </head>
 <body>
 <header class="top">
-  <span class="brand">ps5sd</span>
+  <span class="logo"></span>
+  <span class="brand">PS5SD</span>
   <span class="model" id="model">connecting&hellip;</span>
-  <span class="pill" id="pill">offline</span>
+  <span class="pill off" id="pill"><span class="dot"></span><span id="pilltext">offline</span></span>
 </header>
+<nav class="tabs">
+  <button type="button" class="on" id="tab-create">Create</button>
+  <button type="button" id="tab-gallery">Gallery <span id="gcount"></span></button>
+</nav>
 
-<div class="main">
+<div class="main" id="view-create">
   <section class="panel controls">
     <label for="prompt">Prompt</label>
-    <textarea id="prompt" rows="4" placeholder="What should it draw?"></textarea>
+    <textarea id="prompt" class="big" rows="5" placeholder="What should it draw?"></textarea>
 
-    <label for="neg">Negative prompt</label>
-    <textarea id="neg" class="small" rows="2" placeholder="What to avoid (optional)"></textarea>
-
-    <div class="lbl">Size</div>
-    <div class="presets" id="presets"></div>
-    <div class="row" style="margin-top:0.5rem">
-      <div><label for="w">Width</label><input id="w" type="number" min="64" max="2048" step="64"></div>
-      <div><label for="h">Height</label><input id="h" type="number" min="64" max="2048" step="64"></div>
+    <div class="gorow">
+      <button type="button" class="go" id="go">Generate</button>
+      <button type="button" class="alt" id="surprise">Surprise me</button>
     </div>
 
-    <div class="row">
-      <div>
-        <div class="lbl">Steps</div>
-        <div class="step"><button type="button" id="steps-">&minus;</button><input id="steps" type="number" min="1" max="150" step="1"><button type="button" id="steps+">+</button></div>
+    <div class="setbar">
+      <button type="button" id="set-toggle" aria-expanded="false" aria-controls="settings">Settings &#9662;</button>
+      <span class="sum" id="summary"></span>
+    </div>
+    <div id="settings" style="display:none">
+      <label for="neg">Negative prompt</label>
+      <textarea id="neg" rows="2" placeholder="What to avoid (optional)"></textarea>
+
+      <div class="lbl">Size</div>
+      <div class="presets" id="presets"></div>
+      <div class="row" style="margin-top:0.5rem">
+        <div><label for="w">Width</label><input id="w" type="number" min="64" max="2048" step="64"></div>
+        <div><label for="h">Height</label><input id="h" type="number" min="64" max="2048" step="64"></div>
       </div>
-      <div>
-        <div class="lbl">CFG scale</div>
-        <div class="step"><button type="button" id="cfg-">&minus;</button><input id="cfg" type="number" min="0" max="30" step="0.5"><button type="button" id="cfg+">+</button></div>
+
+      <div class="row">
+        <div>
+          <div class="lbl">Steps</div>
+          <div class="step"><button type="button" id="steps-">&minus;</button><input id="steps" type="number" min="1" max="150" step="1"><button type="button" id="steps+">+</button></div>
+        </div>
+        <div>
+          <div class="lbl">CFG scale</div>
+          <div class="step"><button type="button" id="cfg-">&minus;</button><input id="cfg" type="number" min="0" max="30" step="0.5"><button type="button" id="cfg+">+</button></div>
+        </div>
       </div>
+
+      <div class="row">
+        <div><label for="sampler">Sampler</label><select id="sampler"><option value="default">default</option></select></div>
+        <div><label for="scheduler">Scheduler</label><select id="scheduler"><option value="default">default</option></select></div>
+      </div>
+
+      <label for="seed">Seed</label>
+      <div class="seed"><input id="seed" type="number" step="1" value="-1"><button type="button" id="rnd">Random</button></div>
+      <p class="hint">-1 picks a random seed. One image per run.</p>
+      <p class="hint"><span id="presetnote"></span><button type="button" id="resetpreset">Use preset</button></p>
     </div>
-
-    <div class="row">
-      <div><label for="sampler">Sampler</label><select id="sampler"><option value="default">default</option></select></div>
-      <div><label for="scheduler">Scheduler</label><select id="scheduler"><option value="default">default</option></select></div>
-    </div>
-
-    <label for="seed">Seed</label>
-    <div class="seed"><input id="seed" type="number" step="1" value="-1"><button type="button" id="rnd">Random</button></div>
-    <p class="hint">-1 picks a random seed. One image per run.</p>
-
-    <button type="button" class="go" id="go">Generate</button>
-    <button type="button" id="cancel" style="display:none; width:100%; margin-top:0.6rem">Cancel</button>
   </section>
 
   <section class="panel result">
-    <div id="status">Ready.</div>
+    <div class="state">
+      <div id="status">Ready.</div>
+      <button type="button" id="cancel" style="display:none">Cancel</button>
+    </div>
     <div id="sub"></div>
-    <div class="bar"><div id="fill"></div></div>
+    <div class="bar" id="bar"><div id="fill"></div></div>
     <div class="stage" id="stage"><div class="empty">Your image appears here.</div></div>
     <div class="actions" id="actions"></div>
   </section>
 </div>
 
-<section class="gallery">
-  <h2>Gallery</h2>
+<section class="gal" id="view-gallery" style="display:none">
+  <div class="galbar">
+    <h2>Gallery</h2>
+    <button type="button" id="refresh">Refresh</button>
+  </div>
   <div class="thumbs" id="thumbs"></div>
   <div class="none" id="none">Nothing saved yet.</div>
-  <button type="button" id="more" style="display:none">Show more</button>
-  <button type="button" id="refresh">Refresh</button>
+  <div class="more"><button type="button" id="more" style="display:none">Show more</button></div>
 </section>
+
+<div class="foot">stable-diffusion.cpp on PlayStation 5</div>
+
+<div class="lb" id="lb" style="display:none" role="dialog" aria-modal="true" aria-label="Image viewer">
+  <div class="lb-bar">
+    <span class="lb-title" id="lb-title"></span>
+    <a id="lb-dl" href="#">Download</a>
+    <a id="lb-open" href="#" target="_blank">Open full size</a>
+    <button type="button" id="lb-close">Close</button>
+  </div>
+  <div class="lb-body">
+    <button type="button" class="nav" id="lb-prev" aria-label="Newer">&lsaquo;</button>
+    <div class="lb-img"><img id="lb-img" alt=""></div>
+    <button type="button" class="nav" id="lb-next" aria-label="Older">&rsaquo;</button>
+  </div>
+</div>
+<div id="toast" role="status"></div>
 
 <script>
 (function () {
   var PRESETS = [[512, 512], [512, 768], [768, 512], [640, 640], [768, 768], [768, 1024], [1024, 768], [1024, 1024]];
-  var PAGE = 12;
+  var PAGE = 24;
+  var SURPRISE = [
+    'a lighthouse on a rocky coast at dusk, dramatic clouds, oil painting',
+    'a red fox sleeping in a snowy forest, soft morning light',
+    'a cozy cabin in the mountains, warm window light, starry sky',
+    'a futuristic city at night, neon reflections on wet streets',
+    'a astronaut riding a horse on mars, cinematic',
+    'a bowl of ramen, steam rising, studio photo, shallow depth of field',
+    'a tiny robot watering flowers in a greenhouse, watercolor',
+    'a sailing ship inside a glass bottle on a wooden desk',
+    'an ancient temple overgrown with jungle, golden hour'
+  ];
   var $ = function (id) { return document.getElementById(id); };
 
   var st = {
     useJobs: false,      // /sdcpp/v1/img_gen is available (job polling with previews)
+    canCancelGen: false, // the server can stop a job that is already generating
     busy: false,
-    job: null,         // id of the async job being watched
-    token: 0,          // bumps when a run is over, so late replies are ignored
-    t0: 0,             // when the run started (ms)
+    online: false,
+    offFails: 0,
+    others: false,       // the server is busy with someone else's job
+    infoBusy: false,
+    resumed: false,
+    job: null,           // id of the async job being watched
+    token: 0,            // bumps when a run is over, so late replies are ignored
+    t0: 0,               // when the run started (ms)
     seed: 0,
     fails: 0,
-    galleryLimit: PAGE,
-    sub: ''
+    limit: PAGE,
+    sub: '',
+    model: null,         // name of the loaded model (null = not asked yet)
+    preset: null,
+    last: null,          // settings of the last finished image
+    known: null,         // gallery names before the current run
+    lb: -1
   };
 
   // ---------- small helpers ----------
@@ -203,8 +319,9 @@
 
   function clear(node) { while (node.firstChild) node.removeChild(node.firstChild); }
   function text(node, value) { node.textContent = value; }
+  function show(id, on, how) { $(id).style.display = on ? (how || 'block') : 'none'; }
 
-  function req(method, url, body, cb) {
+  function req(method, url, body, cb, timeout) {
     var x = new XMLHttpRequest();
     var done = false;
     function finish(code, data) {
@@ -220,7 +337,8 @@
       finish(x.status, data);
     };
     x.onerror = function () { finish(0, null); };
-    try { x.timeout = 0; } catch (e) {}
+    x.ontimeout = function () { finish(0, null); };
+    try { x.timeout = timeout || 0; } catch (e) {}
     if (body !== null && body !== undefined) {
       x.setRequestHeader('Content-Type', 'application/json');
       x.send(JSON.stringify(body));
@@ -229,10 +347,33 @@
     }
   }
 
-  function setPill(online) {
-    var pill = $('pill');
-    pill.className = 'pill ' + (online ? 'on' : 'off');
-    text(pill, online ? (st.busy ? 'generating' : 'online') : 'offline');
+  var toastTimer = 0;
+  function toast(message) {
+    var t = $('toast');
+    text(t, message);
+    t.style.display = 'block';
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { t.style.display = 'none'; }, 2500);
+  }
+
+  function setPill() {
+    var cls = 'off', label = 'offline';
+    if (st.online) {
+      if (st.busy) { cls = 'work'; label = 'generating'; }
+      else if (st.others) { cls = 'busy'; label = 'busy'; }
+      else { cls = 'on'; label = 'online'; }
+    }
+    $('pill').className = 'pill ' + cls;
+    text($('pilltext'), label);
+  }
+
+  function setOnline(on) {
+    var was = st.online;
+    st.online = on;
+    if (on) st.offFails = 0;
+    setPill();
+    if (on && !was) loadInfo();
+    if (!on && st.model === null) text($('model'), 'server not reachable');
   }
 
   function num(id, fallback, min, max) {
@@ -258,6 +399,88 @@
   function mime(b64) { return b64.indexOf('/9j/') === 0 ? 'image/jpeg' : 'image/png'; }
   function dataUrl(b64) { return 'data:' + mime(b64) + ';base64,' + b64; }
 
+  // ---------- model presets ----------
+  function mkPreset(label, w, steps, cfg, sampler) {
+    return { label: label, w: w, h: w, steps: steps, cfg: cfg, sampler: sampler || 'default', scheduler: 'default' };
+  }
+
+  function pickPreset(name) {
+    var n = (name || '').toLowerCase();
+    var xl = /xl|pony|juggernaut/.test(n);
+    if (/sdxs/.test(n)) return mkPreset('SDXS', 512, 1, 1);
+    if (/turbo/.test(n)) return mkPreset(xl ? 'SDXL Turbo' : 'SD Turbo', 512, 1, 1);
+    if (/lightning|hyper/.test(n)) return mkPreset('Lightning', xl ? 1024 : 512, 4, 1);
+    if (/lcm/.test(n)) return mkPreset('LCM', xl ? 1024 : 512, 4, 1.5, 'lcm');
+    if (/flux/.test(n)) return mkPreset('Flux', 1024, /schnell/.test(n) ? 4 : 20, 1);
+    if (/sd3|sd_3|stable-diffusion-3/.test(n)) return mkPreset('SD3', 1024, 28, 4.5);
+    if (xl) return mkPreset('SDXL', 1024, 25, 6);
+    return mkPreset('SD 1.x', 512, 20, 7);
+  }
+
+  function presetNote(p) {
+    return 'Preset for this model (' + p.label + '): ' + p.steps + (p.steps === 1 ? ' step' : ' steps') + ', CFG ' + p.cfg + ', ' + p.w + '×' + p.h + '.';
+  }
+
+  // ---------- form <-> settings ----------
+  function getForm() {
+    return {
+      w: size8('w', 512), h: size8('h', 512),
+      steps: Math.round(num('steps', 20, 1, 150)), cfg: num('cfg', 7, 0, 30),
+      sampler: $('sampler').value, scheduler: $('scheduler').value,
+      seed: parseInt($('seed').value, 10)
+    };
+  }
+
+  function setSelect(id, value) {
+    var sel = $(id);
+    for (var i = 0; i < sel.options.length; i++) {
+      if (sel.options[i].value === value) { sel.value = value; return; }
+    }
+    sel.value = 'default';
+  }
+
+  function setForm(o) {
+    if (o.w) $('w').value = o.w;
+    if (o.h) $('h').value = o.h;
+    if (o.steps) $('steps').value = o.steps;
+    if (o.cfg !== undefined && o.cfg !== null) $('cfg').value = o.cfg;
+    setSelect('sampler', o.sampler || 'default');
+    setSelect('scheduler', o.scheduler || 'default');
+    if (o.seed !== undefined && o.seed !== null && !isNaN(o.seed)) $('seed').value = o.seed;
+    markPreset();
+    summary();
+  }
+
+  function persist() {
+    save('prompt', $('prompt').value);
+    save('neg', $('neg').value);
+    save('set.' + (st.model || '_'), JSON.stringify(getForm()));
+    summary();
+  }
+
+  function summary() {
+    var seed = parseInt($('seed').value, 10);
+    var steps = Math.round(num('steps', 20, 1, 150));
+    text($('summary'), parseInt($('w').value, 10) + '×' + parseInt($('h').value, 10) + ' · ' + steps +
+      (steps === 1 ? ' step' : ' steps') + ' · CFG ' + num('cfg', 7, 0, 30) +
+      ' · seed ' + (isNaN(seed) || seed < 0 ? 'random' : seed));
+  }
+
+  function applyModel(name) {
+    var changed = name !== st.model;
+    st.model = name;
+    st.preset = pickPreset(name);
+    text($('presetnote'), presetNote(st.preset));
+    if (!changed) return;
+    var saved = null;
+    try { saved = JSON.parse(load('set.' + (name || '_'))); } catch (e) {}
+    var keep = parseInt($('seed').value, 10);
+    var form = saved || st.preset;
+    setForm(form);
+    if (!saved && !isNaN(keep)) $('seed').value = keep;
+    summary();
+  }
+
   // ---------- result panel ----------
   function status(message, isError) {
     var el = $('status');
@@ -267,6 +490,7 @@
 
   function progress(fraction) {
     $('fill').style.width = Math.max(0, Math.min(100, Math.round(fraction * 100))) + '%';
+    $('bar').className = 'bar' + (st.busy && fraction <= 0 ? ' ind' : '');
   }
 
   function showImage(src, label) {
@@ -275,27 +499,42 @@
     if (!img) {
       clear(stage);
       img = document.createElement('img');
-      img.alt = label || 'generated image';
       stage.appendChild(img);
     }
+    img.alt = label || 'generated image';
     img.src = src;
   }
 
-  function showActions(href, name, openHref) {
+  function link(href, label, name, blank) {
+    var a = document.createElement('a');
+    a.href = href;
+    if (name) a.setAttribute('download', name);
+    if (blank) a.target = '_blank';
+    text(a, label);
+    return a;
+  }
+
+  function actionButton(label, fn) {
+    var b = document.createElement('button');
+    b.type = 'button';
+    text(b, label);
+    b.onclick = fn;
+    return b;
+  }
+
+  function showActions(href, name, openHref, withParams) {
     var box = $('actions');
     clear(box);
     if (!href) return;
-    var dl = document.createElement('a');
-    dl.href = href;
-    dl.setAttribute('download', name);
-    text(dl, 'Download');
-    box.appendChild(dl);
-    if (openHref) {
-      var open = document.createElement('a');
-      open.href = openHref;
-      open.target = '_blank';
-      text(open, 'Open full size');
-      box.appendChild(open);
+    box.appendChild(link(href, 'Download', name, false));
+    if (openHref) box.appendChild(link(openHref, 'Open full size', null, true));
+    if (withParams && st.last) {
+      box.appendChild(actionButton('Use seed ' + st.last.seed, function () {
+        $('seed').value = st.last.seed; persist(); toast('Seed ' + st.last.seed + ' is set. Open Settings to see it.');
+      }));
+      box.appendChild(actionButton('Run again', function () {
+        setForm(st.last); $('prompt').value = st.last.prompt; $('neg').value = st.last.negative; generate();
+      }));
     }
   }
 
@@ -303,8 +542,10 @@
   function setBusy(busy) {
     st.busy = busy;
     $('go').disabled = busy;
-    $('cancel').style.display = busy ? 'block' : 'none';
-    setPill(true);
+    text($('go'), busy ? 'Generating…' : 'Generate');
+    show('cancel', busy, 'block');
+    text($('cancel'), 'Cancel');
+    setPill();
   }
 
   function tick() {
@@ -319,8 +560,9 @@
     st.job = job || null;
     st.fails = 0;
     st.sub = '';
-    progress(0);
+    st.others = false;
     setBusy(true);
+    progress(0);
     tick();
   }
 
@@ -329,11 +571,11 @@
     st.job = null;
     drop('job');
     setBusy(false);
+    progress(0);
   }
 
   function fail(message) {
     status(message, true);
-    progress(0);
     end();
     text($('sub'), '');
   }
@@ -342,41 +584,32 @@
     var seconds = (new Date().getTime() - st.t0) / 1000;
     var src = dataUrl(b64);
     showImage(src, 'generated image');
-    showActions(src, 'sd_' + seed + '.png', null);
-    progress(1);
-    status('Done in ' + clock(seconds) + '.');
-    text($('sub'), 'seed ' + seed);
     end();
+    progress(1);
+    status('Done in ' + clock(seconds));
+    var l = st.last;
+    text($('sub'), l ? l.w + '×' + l.h + ' · ' + l.steps + (l.steps === 1 ? ' step' : ' steps') + ' · CFG ' + l.cfg + ' · seed ' + seed : 'seed ' + seed);
+    showActions(src, 'sd_' + seed + '.png', null, true);
     // the server saved it (with --output-dir): download that file instead of a huge data URL
-    var started = Math.floor(st.t0 / 1000) - 5;
+    var known = st.known;
     loadGallery(function (list) {
-      if (list && list.length && list[0].created >= started) {
-        showActions(list[0].url, list[0].name, list[0].url);
+      if (!known || !list) return;
+      for (var i = 0; i < list.length; i++) {
+        if (!known[list[i].name]) {
+          if (!st.busy) showActions(list[i].url, list[i].name, list[i].url, true);
+          return;
+        }
       }
     });
   }
 
   // ---------- generation ----------
   function readParams() {
-    var seed = parseInt($('seed').value, 10);
-    if (isNaN(seed) || seed < 0) seed = Math.floor(Math.random() * 2147483647);
-    return {
-      prompt: $('prompt').value,
-      negative: $('neg').value,
-      width: size8('w', 512),
-      height: size8('h', 512),
-      steps: Math.round(num('steps', 20, 1, 150)),
-      cfg: num('cfg', 7, 0, 30),
-      sampler: $('sampler').value,
-      scheduler: $('scheduler').value,
-      seed: seed
-    };
-  }
-
-  function remember(p) {
-    save('prompt', p.prompt); save('neg', p.negative); save('w', p.width); save('h', p.height);
-    save('steps', p.steps); save('cfg', p.cfg); save('sampler', p.sampler); save('scheduler', p.scheduler);
-    save('seed', $('seed').value);
+    var f = getForm();
+    if (isNaN(f.seed) || f.seed < 0) f.seed = Math.floor(Math.random() * 2147483647);
+    f.prompt = $('prompt').value;
+    f.negative = $('neg').value;
+    return f;
   }
 
   function generate() {
@@ -387,11 +620,20 @@
       $('prompt').focus();
       return;
     }
-    remember(p);
+    persist();
     st.seed = p.seed;
+    st.last = p;
     st.t0 = new Date().getTime();
+    st.known = null;
+    if (galleryLoaded) {
+      st.known = {};
+      for (var i = 0; i < galleryList.length; i++) st.known[galleryList[i].name] = true;
+    }
     status('Sending…');
     showActions(null);
+    if (window.innerWidth < 900) {
+      try { $('stage').scrollIntoView(); } catch (e) {}
+    }
     if (st.useJobs) startAsync(p); else startSync(p);
   }
 
@@ -400,8 +642,8 @@
     var body = {
       prompt: p.prompt,
       negative_prompt: p.negative,
-      width: p.width,
-      height: p.height,
+      width: p.w,
+      height: p.h,
       seed: p.seed,
       batch_count: 1,
       sample_params: { sample_steps: p.steps, guidance: { txt_cfg: p.cfg } },
@@ -420,8 +662,13 @@
         save('job', data.id + ' ' + st.t0 + ' ' + st.seed);
         status('Queued…');
         pollJob();
+      } else if (code === 404 || code === 405 || code === 501) {
+        // an older server without the job API
+        st.useJobs = false;
+        end();
+        startSync(p);
       } else {
-        setPill(code !== 0);
+        setOnline(code !== 0);
         fail(code === 0 ? 'Cannot reach the server.' :
           'The server refused the request' + (data && data.error ? ': ' + (data.message || data.error) : ' (' + code + ').'));
       }
@@ -436,14 +683,15 @@
       if (token !== st.token) return;
       if (code === 0) {
         st.fails++;
-        setPill(false);
+        st.online = false;
+        setPill();
         if (st.fails > 300) { fail('Lost the connection to the server.'); return; }
         status('Connection lost, retrying…');
         setTimeout(pollJob, 1000);
         return;
       }
       st.fails = 0;
-      setPill(true);
+      if (!st.online) { st.online = true; setPill(); }
       if (code === 404 || code === 410) { fail('The server no longer has this job.'); return; }
       if (!data) { setTimeout(pollJob, 1000); return; }
 
@@ -454,13 +702,14 @@
         return;
       }
       if (data.status === 'failed' || data.status === 'cancelled') {
-        fail(data.error && data.error.message ? data.error.message : 'Generation failed.');
+        fail(data.error && data.error.message ? data.error.message : (data.status === 'cancelled' ? 'Cancelled.' : 'Generation failed.'));
         return;
       }
       if (data.status === 'queued') {
         status(data.queue_position > 1 ? 'Queued, ' + (data.queue_position - 1) + ' ahead of you…' : 'Queued…');
         st.sub = '';
       } else {
+        text($('cancel'), st.canCancelGen ? 'Cancel' : 'Stop waiting');
         var pv = data.preview;
         if (pv && pv.total_steps > 0) {
           status('Step ' + pv.step + ' of ' + pv.total_steps);
@@ -477,7 +726,7 @@
   }
 
   function eta(step, steps) {
-    if (step < 1) return '';
+    if (step < 1 || step >= steps) return '';
     var elapsed = (new Date().getTime() - st.t0) / 1000;
     // the clock started before the first step (model warm-up), so this reads long early on
     return 'about ' + clock(elapsed / step * (steps - step)) + ' left';
@@ -490,8 +739,8 @@
       id_task: task,
       prompt: p.prompt,
       negative_prompt: p.negative,
-      width: p.width,
-      height: p.height,
+      width: p.w,
+      height: p.h,
       steps: p.steps,
       cfg_scale: p.cfg,
       seed: p.seed,
@@ -507,7 +756,7 @@
       if (code === 200 && data && data.images && data.images.length) {
         succeed(data.images[0], st.seed);
       } else {
-        setPill(code !== 0);
+        setOnline(code !== 0);
         fail(code === 0 ? 'Lost the connection to the server.' :
           'Generation failed' + (data && (data.message || data.error) ? ': ' + (data.message || data.error) : ' (' + code + ').'));
       }
@@ -535,12 +784,11 @@
     var job = st.job;
     var queued = st.useJobs && job;
     end();
-    progress(0);
     text($('sub'), '');
     if (queued) {
-      // A queued job is cancelled; one that is generating cannot be interrupted yet,
-      // so the page stops waiting and the image still lands in the gallery.
-      status('Cancelling\u2026');
+      // A queued job is cancelled; one that is generating cannot always be interrupted,
+      // so the page then stops waiting and the image still lands in the gallery.
+      status('Cancelling…');
       req('POST', '/sdcpp/v1/jobs/' + job + '/cancel', {}, function (code) {
         if (code === 200) status('Cancelled.');
         else status('Stopped waiting. The server finishes this image; it will appear in the gallery.');
@@ -553,6 +801,8 @@
 
   // Back on the page while a job is still running on the server.
   function resume() {
+    if (st.resumed) return;
+    st.resumed = true;
     var saved = load('job');
     if (!saved) return;
     var parts = saved.split(' ');
@@ -581,7 +831,7 @@
         b.type = 'button';
         b.id = 'p' + w + 'x' + h;
         text(b, w + '×' + h);
-        b.onclick = function () { $('w').value = w; $('h').value = h; markPreset(); };
+        b.onclick = function () { $('w').value = w; $('h').value = h; markPreset(); persist(); };
         box.appendChild(b);
       })(PRESETS[i][0], PRESETS[i][1]);
     }
@@ -601,9 +851,11 @@
     if (isNaN(v)) v = min;
     v = Math.min(max, Math.max(min, v + delta));
     input.value = digits ? v.toFixed(digits).replace(/\.0+$/, '') : Math.round(v);
+    persist();
   }
 
-  function fill(select, names, wanted) {
+  function fill(select, names) {
+    var current = select.value;
     clear(select);
     var list = ['default'];
     for (var i = 0; i < names.length; i++) if (names[i] !== 'default') list.push(names[i]);
@@ -614,9 +866,7 @@
       select.appendChild(o);
     }
     select.value = 'default';
-    if (wanted) {
-      for (var k = 0; k < list.length; k++) if (list[k] === wanted) select.value = wanted;
-    }
+    for (var k = 0; k < list.length; k++) if (list[k] === current) select.value = current;
   }
 
   function names(data) {
@@ -630,14 +880,38 @@
     return out;
   }
 
+  function toggleSettings() {
+    var open = $('settings').style.display === 'none';
+    show('settings', open);
+    $('set-toggle').setAttribute('aria-expanded', open ? 'true' : 'false');
+    text($('set-toggle'), open ? 'Settings ▴' : 'Settings ▾');
+    save('open', open ? '1' : '0');
+  }
+
+  function setView(name) {
+    var gallery = name === 'gallery';
+    show('view-create', !gallery, 'flex');
+    show('view-gallery', gallery);
+    $('tab-create').className = gallery ? '' : 'on';
+    $('tab-gallery').className = gallery ? 'on' : '';
+    if (gallery) refreshGallery();
+  }
+
   // ---------- gallery ----------
   var galleryList = [];
+  var galleryLoaded = false;
+  var lbFrom = null;
 
   function loadGallery(cb) {
     req('GET', '/ps5sd/v1/gallery?limit=200', null, function (code, data) {
-      galleryList = (code === 200 && data && data.length) ? data : [];
+      if (code === 200 && data && data.length !== undefined) {
+        galleryList = data;
+        galleryLoaded = true;
+      } else if (code === 200) {
+        galleryList = []; galleryLoaded = true;
+      }
       drawGallery();
-      if (cb) cb(galleryList);
+      if (cb) cb(code === 200 ? galleryList : null);
     });
   }
 
@@ -646,96 +920,200 @@
   function drawGallery() {
     var box = $('thumbs');
     clear(box);
-    var shown = Math.min(galleryList.length, st.galleryLimit);
+    var shown = Math.min(galleryList.length, st.limit);
     for (var i = 0; i < shown; i++) {
-      (function (item) {
+      (function (item, idx) {
+        var cell = document.createElement('div');
+        cell.className = 't';
         var a = document.createElement('a');
         a.href = item.url;
-        a.target = '_blank';
+        a.title = item.name;
         var img = document.createElement('img');
         img.src = item.url;
         img.alt = item.name;
         a.appendChild(img);
-        a.onclick = function () {
-          showImage(item.url, item.name);
-          showActions(item.url, item.name, item.url);
-          status(item.name);
-          text($('sub'), '');
-          if (window.scrollTo) window.scrollTo(0, 0);
-          return false;
-        };
-        box.appendChild(a);
-      })(galleryList[i]);
+        a.onclick = function () { openLb(idx, a); return false; };
+        cell.appendChild(a);
+        box.appendChild(cell);
+      })(galleryList[i], i);
     }
-    $('none').style.display = galleryList.length ? 'none' : 'block';
-    $('more').style.display = galleryList.length > shown ? 'inline-block' : 'none';
+    text($('gcount'), galleryList.length ? '(' + galleryList.length + ')' : '');
+    show('none', !galleryList.length);
+    show('more', galleryList.length > shown, 'inline-block');
+  }
+
+  function when(sec) {
+    try { return new Date(sec * 1000).toLocaleString(); } catch (e) { return ''; }
+  }
+
+  function showLb(i) {
+    var n = galleryList.length;
+    if (!n) { closeLb(); return; }
+    if (i < 0) i = 0;
+    if (i > n - 1) i = n - 1;
+    st.lb = i;
+    var it = galleryList[i];
+    $('lb-img').src = it.url;
+    $('lb-img').alt = it.name;
+    var dl = $('lb-dl');
+    dl.href = it.url;
+    dl.setAttribute('download', it.name);
+    $('lb-open').href = it.url;
+    text($('lb-title'), (i + 1) + ' / ' + n + ' · ' + it.name + ' · ' + Math.round(it.size / 1024) + ' KB · ' + when(it.created));
+    $('lb-prev').disabled = i <= 0;
+    $('lb-next').disabled = i >= n - 1;
+  }
+
+  function openLb(i, from) {
+    lbFrom = from || null;
+    showLb(i);
+    show('lb', true, 'flex');
+    $('lb-close').focus();
+  }
+
+  function closeLb() {
+    show('lb', false);
+    st.lb = -1;
+    $('lb-img').removeAttribute('src');
+    if (lbFrom) { try { lbFrom.focus(); } catch (e) {} }
+  }
+
+  function lbStep(d) {
+    showLb(st.lb + d);
+    var b = d < 0 ? $('lb-prev') : $('lb-next');
+    if (b.disabled) $('lb-close').focus();
+  }
+
+  function onKey(e) {
+    e = e || window.event;
+    var k = e.keyCode;
+    if (st.lb >= 0) {
+      if (k === 27) { closeLb(); return false; }
+      if (k === 37) { lbStep(-1); return false; }
+      if (k === 39) { lbStep(1); return false; }
+      if (k === 9) {
+        // keep Tab inside the viewer
+        var ring = [$('lb-prev'), $('lb-dl'), $('lb-open'), $('lb-close'), $('lb-next')];
+        var live = [];
+        for (var i = 0; i < ring.length; i++) if (!ring[i].disabled) live.push(ring[i]);
+        var at = -1;
+        for (var j = 0; j < live.length; j++) if (live[j] === document.activeElement) at = j;
+        var to = e.shiftKey ? (at <= 0 ? live.length - 1 : at - 1) : (at < 0 || at >= live.length - 1 ? 0 : at + 1);
+        live[to].focus();
+        return false;
+      }
+    }
+    return true;
+  }
+
+  // ---------- server info ----------
+  function loadInfo() {
+    if (st.infoBusy) return;
+    st.infoBusy = true;
+    req('GET', '/sdapi/v1/samplers', null, function (c1, samplers) {
+      req('GET', '/sdapi/v1/schedulers', null, function (c2, schedulers) {
+        req('GET', '/sdcpp/v1/capabilities', null, function (c3, caps) {
+          st.useJobs = false;
+          if (c3 === 200 && caps) {
+            var modes = caps.supported_modes || [];
+            for (var i = 0; i < modes.length; i++) if (modes[i] === 'img_gen') st.useJobs = true;
+            st.canCancelGen = !!(caps.features && caps.features.cancel_generating);
+          }
+          fill($('sampler'), names(samplers));
+          fill($('scheduler'), names(schedulers));
+          modelName(function (name, reachable) {
+            st.infoBusy = false;
+            if (!reachable) { setOnline(false); return; }
+            text($('model'), name || 'no model loaded');
+            applyModel(name);
+            resume();
+          });
+        });
+      });
+    });
+  }
+
+  function modelName(cb) {
+    req('GET', '/sdapi/v1/sd-models', null, function (code, data) {
+      var name = '';
+      if (code === 200 && data && data.length) name = data[0].model_name || data[0].title || data[0].filename || '';
+      if (name || code === 0) { cb(name, code !== 0); return; }
+      req('GET', '/v1/models', null, function (c, d) {
+        var n = '';
+        if (c === 200 && d && d.data && d.data.length) n = d.data[0].id;
+        cb(n, c !== 0);
+      });
+    });
+  }
+
+  // Cheap check every few seconds: is the server there, and is someone else using it?
+  function health() {
+    if (st.busy) { setTimeout(health, 4000); return; }
+    req('GET', '/sdapi/v1/progress', null, function (code, data) {
+      if (!st.busy) {
+        if (code === 0) {
+          st.offFails++;
+          if (st.offFails >= 2) setOnline(false);
+        } else {
+          var s = data && data.state;
+          st.others = !!(s && (s.job_count > 0 || s.sampling_steps > 0));
+          setOnline(true);
+          setPill();
+        }
+      }
+      setTimeout(health, st.online ? 4000 : 3000);
+    }, 6000);
   }
 
   // ---------- start up ----------
-  function restore() {
-    var map = { prompt: 'prompt', neg: 'neg', w: 'w', h: 'h', steps: 'steps', cfg: 'cfg', seed: 'seed' };
-    for (var id in map) {
-      if (map.hasOwnProperty(id)) {
-        var v = load(map[id]);
-        if (v !== null) $(id).value = v;
-      }
-    }
-  }
-
   function init() {
     buildPresets();
-    $('w').value = 512; $('h').value = 512; $('steps').value = 20; $('cfg').value = 7;
-    restore();
-    markPreset();
-
-    $('w').onchange = $('h').onchange = $('w').oninput = $('h').oninput = markPreset;
+    var v = load('prompt'); if (v !== null) $('prompt').value = v;
+    v = load('neg'); if (v !== null) $('neg').value = v;
+    applyModel('');
+    st.model = null;
+    var fields = ['prompt', 'neg', 'w', 'h', 'steps', 'cfg', 'seed', 'sampler', 'scheduler'];
+    for (var i = 0; i < fields.length; i++) {
+      $(fields[i]).onchange = $(fields[i]).oninput = persist;
+    }
+    $('w').onchange = $('h').onchange = $('w').oninput = $('h').oninput = function () { markPreset(); persist(); };
     $('steps-').onclick = function () { stepper('steps', -1, 1, 150, 0); };
     $('steps+').onclick = function () { stepper('steps', 1, 1, 150, 0); };
     $('cfg-').onclick = function () { stepper('cfg', -0.5, 0, 30, 1); };
     $('cfg+').onclick = function () { stepper('cfg', 0.5, 0, 30, 1); };
-    $('rnd').onclick = function () { $('seed').value = -1; };
+    $('rnd').onclick = function () { $('seed').value = -1; persist(); };
     $('go').onclick = generate;
     $('cancel').onclick = cancel;
-    $('more').onclick = function () { st.galleryLimit += PAGE; drawGallery(); };
+    $('surprise').onclick = function () {
+      $('prompt').value = SURPRISE[Math.floor(Math.random() * SURPRISE.length)];
+      persist();
+    };
+    $('prompt').onkeydown = function (e) {
+      e = e || window.event;
+      if (e.keyCode === 13 && (e.ctrlKey || e.metaKey)) { generate(); return false; }
+      return true;
+    };
+    $('set-toggle').onclick = toggleSettings;
+    if (load('open') === '1') toggleSettings();
+    $('resetpreset').onclick = function () {
+      var seed = $('seed').value;
+      setForm(st.preset);
+      $('seed').value = seed;
+      persist();
+      toast('Preset applied.');
+    };
+    $('tab-create').onclick = function () { setView('create'); };
+    $('tab-gallery').onclick = function () { setView('gallery'); };
+    $('more').onclick = function () { st.limit += PAGE; drawGallery(); };
     $('refresh').onclick = refreshGallery;
-
-    // model
-    req('GET', '/sdapi/v1/sd-models', null, function (code, data) {
-      var name = '';
-      if (code === 200 && data && data.length) name = data[0].model_name || data[0].title || data[0].filename || '';
-      if (name) {
-        text($('model'), name);
-        setPill(true);
-      } else {
-        req('GET', '/v1/models', null, function (c, d) {
-          if (c === 200 && d && d.data && d.data.length) { text($('model'), d.data[0].id); setPill(true); }
-          else { text($('model'), c === 0 ? 'server not reachable' : 'no model'); setPill(c !== 0); }
-        });
-      }
-    });
-
-    // samplers and schedulers, then the server's own defaults
-    var savedSampler = load('sampler'), savedScheduler = load('scheduler');
-    req('GET', '/sdapi/v1/samplers', null, function (code, data) {
-      fill($('sampler'), names(data), savedSampler);
-      req('GET', '/sdapi/v1/schedulers', null, function (c2, d2) {
-        fill($('scheduler'), names(d2), savedScheduler);
-        req('GET', '/sdcpp/v1/capabilities', null, function (c3, caps) {
-          if (c3 !== 200 || !caps) return;
-          var modes = caps.supported_modes || [];
-          for (var i = 0; i < modes.length; i++) if (modes[i] === 'img_gen') st.useJobs = true;
-          var d = caps.defaults_by_mode && caps.defaults_by_mode.img_gen;
-          if (!d) return;
-          if (load('steps') === null && d.sample_params && d.sample_params.sample_steps > 0) $('steps').value = d.sample_params.sample_steps;
-          if (load('cfg') === null && d.sample_params && d.sample_params.guidance && d.sample_params.guidance.txt_cfg > 0) $('cfg').value = d.sample_params.guidance.txt_cfg;
-          if (load('w') === null && d.width >= 64 && d.height >= 64) { $('w').value = d.width; $('h').value = d.height; markPreset(); }
-          if (savedSampler === null && d.sample_params && d.sample_params.sample_method) fill($('sampler'), names(data), d.sample_params.sample_method);
-          if (savedScheduler === null && d.sample_params && d.sample_params.scheduler) fill($('scheduler'), names(d2), d.sample_params.scheduler);
-          resume();
-        });
-      });
-    });
-
+    $('lb-close').onclick = closeLb;
+    $('lb-prev').onclick = function () { lbStep(-1); };
+    $('lb-next').onclick = function () { lbStep(1); };
+    document.onkeydown = onKey;
+    markPreset();
+    summary();
+    setPill();
+    health();
     loadGallery(null);
   }
 
