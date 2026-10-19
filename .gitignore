@@ -1,0 +1,12 @@
+build/
+.deps/
+*.elf
+*.o
+*.a
+.DS_Store
+/models/
+*.gguf
+*.safetensors
+*.ckpt
+out/
+__pycache__/
