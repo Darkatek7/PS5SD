@@ -1,0 +1,31 @@
+diff --git a/src/core/backend_fit.cpp b/src/core/backend_fit.cpp
+index 84667ef..82411b6 100644
+--- a/src/core/backend_fit.cpp
++++ b/src/core/backend_fit.cpp
+@@ -15,6 +15,13 @@
+ #include <windows.h>
+ #elif defined(__APPLE__)
+ #include <mach/mach.h>
++#elif defined(__PROSPERO__)
++#include <sys/types.h>
++// PS5: the title's large allocations (the platform heap, RADV's device memory)
++// come from direct memory, so its free part is the memory there is.
++extern "C" size_t sceKernelGetDirectMemorySize(void);
++extern "C" int sceKernelAvailableDirectMemorySize(off_t search_start, off_t search_end, size_t alignment,
++                                                  off_t* phys_out, size_t* size_out);
+ #endif
+ 
+ #include "core/ggml_extend_backend.h"
+@@ -188,6 +195,12 @@ namespace sd::backend_fit {
+         if (ok) {
+             return ((int64_t)stats.free_count + stats.inactive_count) * page_size;
+         }
++#elif defined(__PROSPERO__)
++        off_t phys  = 0;
++        size_t avail = 0;
++        if (sceKernelAvailableDirectMemorySize(0, (off_t)sceKernelGetDirectMemorySize(), 2 * MiB, &phys, &avail) == 0) {
++            return (int64_t)avail;
++        }
+ #endif
+         return -1;
+     }

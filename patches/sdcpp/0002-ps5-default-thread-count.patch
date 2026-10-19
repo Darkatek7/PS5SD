@@ -1,0 +1,36 @@
+diff --git a/src/core/util.cpp b/src/core/util.cpp
+index c1d463e..42a1d99 100644
+--- a/src/core/util.cpp
++++ b/src/core/util.cpp
+@@ -29,6 +29,11 @@
+ #include <unistd.h>
+ #endif
+ 
++#if defined(__PROSPERO__)
++#include <pthread.h>
++extern "C" int scePthreadGetaffinity(pthread_t thread, uint64_t* mask);
++#endif
++
+ #include "ggml-backend.h"
+ #include "ggml.h"
+ #include "stable-diffusion.h"
+@@ -339,7 +344,18 @@ bool MmapWrapper::copy_data(void* buf, size_t n, size_t offset) const {
+ // https://github.com/ggerganov/llama.cpp/blob/master/examples/common.cpp
+ // LICENSE: https://github.com/ggerganov/llama.cpp/blob/master/LICENSE
+ int32_t sd_get_num_physical_cores() {
+-#ifdef __linux__
++#if defined(__PROSPERO__)
++    // PS5: a process runs only on the CPUs its affinity mask allows (5 of 16
++    // for a payload on firmware 13.60), and the console's own services share
++    // them; hardware_concurrency() reports all 16. Keep two free: using all of
++    // them starved those services and shut the console down (PS5LM's
++    // patches/0001). sd.cpp's --threads still overrides this.
++    uint64_t mask = 0;
++    if (scePthreadGetaffinity(pthread_self(), &mask) == 0 && mask != 0) {
++        return std::max(1, __builtin_popcountll(mask) - 2);
++    }
++    return 2;
++#elif defined(__linux__)
+     // enumerate the set of thread siblings, num entries is num cores
+     std::unordered_set<std::string> siblings;
+     for (uint32_t cpu = 0; cpu < UINT32_MAX; ++cpu) {

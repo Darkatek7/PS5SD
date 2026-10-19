@@ -1,0 +1,22 @@
+diff --git a/src/model_loader_files.cpp b/src/model_loader_files.cpp
+index 9ac5456..cc31224 100644
+--- a/src/model_loader_files.cpp
++++ b/src/model_loader_files.cpp
+@@ -18,6 +18,17 @@ bool ModelLoader::read_file_stamp(const std::string& path, FileStamp& stamp) {
+     stamp.path           = path;
+     stamp.size           = 0;
+     stamp.modified       = std::filesystem::last_write_time(file_path, error);
++#if defined(__PROSPERO__)
++    // PS5: the stamp only tells a changed file from an unchanged one. Whether
++    // the console reports times on every file system it mounts (/data, exFAT
++    // USB drives) is not known; where it does not, compare by size alone
++    // rather than refuse to load the model.
++    std::error_code exists_error;
++    if (error && std::filesystem::exists(file_path, exists_error)) {
++        stamp.modified = {};
++        error.clear();
++    }
++#endif
+     if (!error && std::filesystem::is_regular_file(file_path, error)) {
+         stamp.size = std::filesystem::file_size(file_path, error);
+     }

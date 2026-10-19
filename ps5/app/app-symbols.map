@@ -1,0 +1,17 @@
+/*
+ * Copied from PS5_Vulkan tooling/native/app-symbols.map (PS5LM links that file
+ * in place; PS5SD keeps its own copy so the build does not depend on where
+ * PS5_Vulkan keeps it).
+ *
+ * ps5-native-app-boilerplate - Application symbol visibility policy.
+ * Copyright (C) 2026 BlackBearReloaded
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ *
+ * Keeps replacement C++ allocation operators internal to the executable.
+ */
+
+{
+    local:
+        _Zn*;
+        _Zd*;
+};
