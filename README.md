@@ -3,7 +3,16 @@
 stable-diffusion.cpp on the PS5 GPU — a native title running ggml-vulkan on RADV, with an
 OpenAI/A1111-compatible image API, a browser UI and a TV dashboard.
 
-> **Status: work in progress — not yet tested on a console.**
+> **Status: work in progress.** The title runs on a console and generates images; the API and the
+> dashboard are not wired up yet.
+
+## Milestone: the first image made on a PS5
+
+<img src="docs/images/first-image.png" alt="An astronaut riding a horse above the Earth, generated on a PS5" width="384">
+
+2026-10-19, FW 13.00: `a photograph of an astronaut riding a horse`, SDXS (Q8_0), 512x512, one step,
+seed 42, on the console's GPU through ggml-vulkan and RADV, in 2.6 s. Measurements in
+[docs/CONSOLE.md](docs/CONSOLE.md).
 
 ## Requirements
 
