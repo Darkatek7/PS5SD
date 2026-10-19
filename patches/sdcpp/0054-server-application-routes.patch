@@ -1,0 +1,106 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: ps5sd <ps5sd@localhost>
+Date: Mon, 19 Oct 2026 21:53:46 +0200
+Subject: [PATCH] server: /ps5sd/v1/app/<path> handed to the application
+ (sd_app_request)
+
+---
+ examples/server/gallery.cpp      | 25 +++++++++++++++++++++++++
+ examples/server/server_hooks.cpp |  3 +++
+ examples/server/server_hooks.h   | 10 ++++++++++
+ 3 files changed, 38 insertions(+)
+
+diff --git a/examples/server/gallery.cpp b/examples/server/gallery.cpp
+index eb5fbb2..e8fb0f5 100644
+--- a/examples/server/gallery.cpp
++++ b/examples/server/gallery.cpp
+@@ -8,6 +8,7 @@
+ #include <atomic>
+ #include <chrono>
+ #include <cstdio>
++#include <cstdlib>
+ #include <ctime>
+ #include <filesystem>
+ #include <fstream>
+@@ -16,6 +17,7 @@
+ #include "common/media_io.h"
+ #include "gallery.h"
+ #include "routes.h"
++#include "server_hooks.h"
+ 
+ namespace fs = std::filesystem;
+ 
+@@ -100,9 +102,32 @@ struct GalleryEntry {
+ 
+ }  // namespace
+ 
++// /ps5sd/v1/app/<path>: handed to the application (sd_app_request).
++static void app_route(const httplib::Request& req, httplib::Response& res) {
++    char* out              = nullptr;
++    size_t out_len         = 0;
++    const char* type       = nullptr;
++    const std::string path = req.matches[1];
++    const int status       = sd_app_request(req.method.c_str(), path.c_str(), req.body.data(), req.body.size(),
++                                            &out, &out_len, &type);
++    if (status <= 0) {
++        res.status = 404;
++        res.set_content("{\"error\":\"not found\"}", "application/json");
++    } else {
++        res.status = status;
++        res.set_content(out != nullptr ? std::string(out, out_len) : std::string(),
++                        type != nullptr ? type : "application/json");
++    }
++    std::free(out);
++}
++
+ void register_ps5sd_endpoints(httplib::Server& svr, ServerRuntime& rt) {
+     const SDSvrParams* svr_params = rt.svr_params;
+ 
++    svr.Get(R"(/ps5sd/v1/app/(.+))", app_route);
++    svr.Post(R"(/ps5sd/v1/app/(.+))", app_route);
++    svr.Delete(R"(/ps5sd/v1/app/(.+))", app_route);
++
+     svr.Get("/ps5sd/v1/gallery", [svr_params](const httplib::Request& req, httplib::Response& res) {
+         size_t limit = 100;
+         if (req.has_param("limit")) {
+diff --git a/examples/server/server_hooks.cpp b/examples/server/server_hooks.cpp
+index b800b95..695f96c 100644
+--- a/examples/server/server_hooks.cpp
++++ b/examples/server/server_hooks.cpp
+@@ -18,5 +18,8 @@ SD_SERVER_WEAK void sd_activity_job_begin(const char*, const char*, int, int, in
+ SD_SERVER_WEAK void sd_activity_progress(int, int, float) {}
+ SD_SERVER_WEAK void sd_activity_preview(const uint8_t*, int, int) {}
+ SD_SERVER_WEAK void sd_activity_job_end(int, const char*) {}
++SD_SERVER_WEAK int sd_app_request(const char*, const char*, const char*, size_t, char**, size_t*, const char**) {
++    return 0;
++}
+ 
+ }
+diff --git a/examples/server/server_hooks.h b/examples/server/server_hooks.h
+index 0592f70..36fc6fc 100644
+--- a/examples/server/server_hooks.h
++++ b/examples/server/server_hooks.h
+@@ -11,6 +11,7 @@
+ // other. The pointers are only valid during the call.
+ #pragma once
+ 
++#include <stddef.h>
+ #include <stdint.h>
+ 
+ #ifdef __cplusplus
+@@ -34,6 +35,15 @@ void sd_activity_preview(const uint8_t* rgb, int w, int h);
+ // --output-dir ("" when there is no --output-dir or nothing was saved; never NULL).
+ void sd_activity_job_end(int ok, const char* output_path);
+ 
++// The application's own routes: GET, POST and DELETE on /ps5sd/v1/app/<path>
++// come here with <path>, the request body and its length. Returns the HTTP
++// status, or 0 when the application has no such route (the server answers
++// 404). *out_body is a malloc'd body of *out_len bytes or NULL (the server
++// frees it), *content_type a static string or NULL (application/json).
++// Called on the server's HTTP threads, possibly several at once.
++int sd_app_request(const char* method, const char* path, const char* body, size_t body_len,
++                   char** out_body, size_t* out_len, const char** content_type);
++
+ #ifdef __cplusplus
+ }
+ #endif

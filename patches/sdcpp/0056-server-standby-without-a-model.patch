@@ -1,0 +1,606 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: ps5sd <ps5sd@localhost>
+Date: Mon, 19 Oct 2026 23:36:12 +0200
+Subject: [PATCH] server: --standby serves the web UI and the application's
+ routes without a model
+
+---
+ examples/server/main.cpp | 588 +++++++++++++++++++++------------------
+ 1 file changed, 323 insertions(+), 265 deletions(-)
+
+diff --git a/examples/server/main.cpp b/examples/server/main.cpp
+index 1225a37..813fba7 100644
+--- a/examples/server/main.cpp
++++ b/examples/server/main.cpp
+@@ -1,265 +1,323 @@
+-#include <atomic>
+-#include <cerrno>
+-#include <chrono>
+-#include <cstdio>
+-#include <cstdlib>
+-#include <iostream>
+-#include <mutex>
+-#include <string>
+-#include <thread>
+-#include <vector>
+-
+-#include "httplib.h"
+-
+-#include "async_jobs.h"
+-#include "common/common.h"
+-#include "common/resource_owners.hpp"
+-#include "routes.h"
+-#include "server_hooks.h"
+-#include "runtime.h"
+-
+-// PS5SD: SD_SERVER_EMBED_INDEX is the quoted path of a generated header
+-// (scripts/embed-file.sh <index.html> sd_server_index_html) that defines
+-// `sd_server_index_html[]` and `sd_server_index_html_len`. That page is served
+-// at / instead of the pnpm frontend.
+-#if defined(SD_SERVER_EMBED_INDEX)
+-#include SD_SERVER_EMBED_INDEX
+-#elif defined(HAVE_INDEX_HTML)
+-#include "frontend/dist/gen_index_html.h"
+-#endif
+-
+-static void print_usage(const char* argv0, const std::vector<ArgOptions>& options_list) {
+-    std::cout << version_string() << "\n";
+-    std::cout << "Usage: " << argv0 << " [options]\n\n";
+-    std::cout << "Svr Options:\n";
+-    options_list[0].print();
+-    std::cout << "\nContext Options:\n";
+-    options_list[1].print();
+-    std::cout << "\nDefault Generation Options:\n";
+-    options_list[2].print();
+-}
+-
+-// Returns -1 when the arguments are fine, otherwise the exit code to return
+-// (sd_server() is a library entry point and must not call exit()).
+-static int parse_args(int argc,
+-                      const char** argv,
+-                      SDSvrParams& svr_params,
+-                      SDContextParams& ctx_params,
+-                      SDGenerationParams& default_gen_params) {
+-    std::vector<ArgOptions> options_vec = {
+-        svr_params.get_options(),
+-        ctx_params.get_options(),
+-        default_gen_params.get_options(),
+-    };
+-
+-    if (!parse_options(argc, argv, options_vec)) {
+-        print_usage(argv[0], options_vec);
+-        return svr_params.normal_exit ? 0 : 1;
+-    }
+-
+-    log_level = svr_params.log_level;
+-    log_color = svr_params.color;
+-
+-    const bool random_seed_requested = default_gen_params.seed < 0;
+-
+-    if (!svr_params.resolve_and_validate() ||
+-        !ctx_params.resolve_and_validate(IMG_GEN) ||
+-        !default_gen_params.resolve_and_validate(IMG_GEN,
+-                                                 ctx_params.lora_model_dir,
+-                                                 ctx_params.hires_upscalers_dir)) {
+-        print_usage(argv[0], options_vec);
+-        return 1;
+-    }
+-
+-    if (random_seed_requested) {
+-        default_gen_params.seed = -1;
+-    }
+-    return -1;
+-}
+-
+-// Replaces the library's console progress bar: tells the activity hooks, and
+-// keeps a one-line progress on stderr.
+-static void sd_progress_cb(int step, int steps, float secs, void*) {
+-    sd_activity_progress(step, steps, secs);
+-    if (step > 0) {
+-        fprintf(stderr, "\rstep %d/%d (%.2fs/it)\033[K%s", step, steps, secs, step == steps ? "\n" : "");
+-        fflush(stderr);
+-    }
+-}
+-
+-void sd_log_cb(enum sd_log_level_t level, const char* log, void* data) {
+-    SDSvrParams* svr_params = (SDSvrParams*)data;
+-    log_print(level, log, svr_params->log_level, svr_params->color);
+-}
+-
+-// PS5SD: errno that the PS5 network stack reports from accept() when the
+-// interface went inactive (SCE_NET_EINACTIVEDISABLED: link down, new DHCP
+-// lease, console resumed from rest mode). httplib takes any accept() failure
+-// as fatal and closes the listening socket, so the listener is bound again.
+-static constexpr int k_ps5_net_einactivedisabled = 163;
+-
+-// Set by sd_server_terminate(); reset when sd_server() returns so the entry
+-// point can be called again.
+-static std::atomic<bool> g_sd_server_stop{false};
+-static std::atomic<httplib::Server*> g_sd_server_svr{nullptr};
+-
+-// Only SO_REUSEADDR. httplib's default picks SO_REUSEPORT where it exists,
+-// which lets a second process bind the same port without an error.
+-static void listener_socket_options(socket_t sock) {
+-    int yes = 1;
+-    setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, reinterpret_cast<const char*>(&yes), sizeof(yes));
+-}
+-
+-// Binds and serves until sd_server_terminate(). When the listener ends on its
+-// own it is bound again, once a second, until that works or terminate is asked.
+-// Returns false if the very first bind failed.
+-static bool serve_until_terminated(httplib::Server& svr, const std::string& host, int port) {
+-    if (!svr.bind_to_port(host, port)) {
+-        return false;
+-    }
+-    while (!g_sd_server_stop) {
+-        if (svr.listen_after_bind() || g_sd_server_stop) {
+-            break;
+-        }
+-        if (errno == k_ps5_net_einactivedisabled) {
+-            LOG_WARN("network went inactive (SCE_NET_EINACTIVEDISABLED); listening again\n");
+-        } else {
+-            LOG_ERROR("listener on %s:%d stopped unexpectedly (errno %d); listening again\n", host.c_str(), port, errno);
+-        }
+-        do {
+-            std::this_thread::sleep_for(std::chrono::seconds(1));
+-            svr.stop();  // clears the failed state; the socket is closed already
+-        } while (!g_sd_server_stop && !svr.bind_to_port(host, port));
+-        if (!g_sd_server_stop) {
+-            LOG_INFO("listener on http://%s:%d is back\n", host.c_str(), port);
+-        }
+-    }
+-    return true;
+-}
+-
+-extern "C" void sd_server_terminate(void) {
+-    g_sd_server_stop = true;
+-    httplib::Server* svr = g_sd_server_svr.load();
+-    if (svr != nullptr) {
+-        svr->stop();
+-    }
+-}
+-
+-extern "C" int sd_server(int argc, char** argv_in) {
+-    const char** argv = const_cast<const char**>(argv_in);
+-    if (argc > 1 && std::string(argv[1]) == "--version") {
+-        std::cout << version_string() << "\n";
+-        return EXIT_SUCCESS;
+-    }
+-    SDSvrParams svr_params;
+-    SDContextParams ctx_params;
+-    // Preserve the CLI default while disabling cwd scans for sd-server.
+-    ctx_params.lora_model_dir.clear();
+-    SDGenerationParams default_gen_params;
+-
+-    sd_set_log_callback(sd_log_cb, (void*)&svr_params);
+-    const int parse_result = parse_args(argc, argv, svr_params, ctx_params, default_gen_params);
+-    if (parse_result >= 0) {
+-        sd_set_log_callback(nullptr, nullptr);
+-        return parse_result;
+-    }
+-
+-    LOG_VERBOSE("version: %s", version_string().c_str());
+-    LOG_VERBOSE("%s", sd_get_system_info());
+-    LOG_VERBOSE("%s", svr_params.to_string().c_str());
+-    LOG_DEBUG("%s", ctx_params.to_string().c_str());
+-    LOG_DEBUG("%s", default_gen_params.to_string().c_str());
+-
+-    sd_ctx_params_t sd_ctx_params = ctx_params.to_sd_ctx_params_t(false);
+-    SDCtxPtr sd_ctx(new_sd_ctx(&sd_ctx_params));
+-
+-    if (sd_ctx == nullptr) {
+-        LOG_ERROR("new_sd_ctx_t failed");
+-        sd_set_log_callback(nullptr, nullptr);
+-        g_sd_server_stop = false;
+-        return 1;
+-    }
+-
+-    sd_set_progress_callback(sd_progress_cb, nullptr);
+-
+-    std::mutex sd_ctx_mutex;
+-
+-    std::vector<LoraEntry> lora_cache;
+-    std::mutex lora_mutex;
+-    std::vector<UpscalerEntry> upscaler_cache;
+-    std::mutex upscaler_mutex;
+-    AsyncJobManager async_job_manager;
+-    ServerRuntime runtime = {
+-        sd_ctx.get(),
+-        &sd_ctx_mutex,
+-        &svr_params,
+-        &ctx_params,
+-        &default_gen_params,
+-        &lora_cache,
+-        &lora_mutex,
+-        &upscaler_cache,
+-        &upscaler_mutex,
+-        &async_job_manager,
+-    };
+-
+-    std::thread async_worker(async_job_worker, std::ref(runtime));
+-
+-    httplib::Server svr;
+-    svr.set_socket_options(listener_socket_options);
+-
+-    svr.set_pre_routing_handler([](const httplib::Request& req, httplib::Response& res) {
+-        std::string origin = req.get_header_value("Origin");
+-        if (origin.empty()) {
+-            origin = "*";
+-        }
+-        res.set_header("Access-Control-Allow-Origin", origin);
+-        res.set_header("Access-Control-Allow-Credentials", "true");
+-        res.set_header("Access-Control-Allow-Methods", "*");
+-        res.set_header("Access-Control-Allow-Headers", "*");
+-
+-        if (req.method == "OPTIONS") {
+-            res.status = 204;
+-            return httplib::Server::HandlerResponse::Handled;
+-        }
+-        return httplib::Server::HandlerResponse::Unhandled;
+-    });
+-
+-    std::string index_html;
+-#if defined(SD_SERVER_EMBED_INDEX)
+-    index_html.assign(reinterpret_cast<const char*>(sd_server_index_html), sd_server_index_html_len);
+-#elif defined(HAVE_INDEX_HTML)
+-    index_html.assign(reinterpret_cast<const char*>(index_html_bytes), index_html_size);
+-#else
+-    index_html = "Stable Diffusion Server is running";
+-#endif
+-    register_index_endpoints(svr, svr_params, index_html);
+-    register_openai_api_endpoints(svr, runtime);
+-    register_sdapi_endpoints(svr, runtime);
+-    register_sdcpp_api_endpoints(svr, runtime);
+-    register_ps5sd_endpoints(svr, runtime);
+-
+-    LOG_INFO("listening on: http://%s:%d\n", svr_params.listen_ip.c_str(), svr_params.listen_port);
+-    g_sd_server_svr = &svr;
+-    const bool served = serve_until_terminated(svr, svr_params.listen_ip, svr_params.listen_port);
+-    g_sd_server_svr = nullptr;
+-    if (!served) {
+-        LOG_ERROR("could not listen on %s:%d\n", svr_params.listen_ip.c_str(), svr_params.listen_port);
+-    }
+-
+-    {
+-        std::lock_guard<std::mutex> lock(async_job_manager.mutex);
+-        async_job_manager.stop = true;
+-    }
+-    async_job_manager.cv.notify_all();
+-    async_worker.join();
+-    sd_set_progress_callback(nullptr, nullptr);
+-    sd_set_log_callback(nullptr, nullptr);
+-    g_sd_server_stop = false;
+-    return served ? 0 : 1;
+-}
+-
+-#ifndef SD_SERVER_NO_MAIN
+-int main(int argc, char** argv) {
+-    return sd_server(argc, argv);
+-}
+-#endif
++#include <atomic>
++#include <cerrno>
++#include <chrono>
++#include <cstdio>
++#include <cstdlib>
++#include <iostream>
++#include <mutex>
++#include <string>
++#include <thread>
++#include <vector>
++
++#include "httplib.h"
++
++#include "async_jobs.h"
++#include "common/common.h"
++#include "common/resource_owners.hpp"
++#include "routes.h"
++#include "server_hooks.h"
++#include "runtime.h"
++
++// PS5SD: SD_SERVER_EMBED_INDEX is the quoted path of a generated header
++// (scripts/embed-file.sh <index.html> sd_server_index_html) that defines
++// `sd_server_index_html[]` and `sd_server_index_html_len`. That page is served
++// at / instead of the pnpm frontend.
++#if defined(SD_SERVER_EMBED_INDEX)
++#include SD_SERVER_EMBED_INDEX
++#elif defined(HAVE_INDEX_HTML)
++#include "frontend/dist/gen_index_html.h"
++#endif
++
++static void print_usage(const char* argv0, const std::vector<ArgOptions>& options_list) {
++    std::cout << version_string() << "\n";
++    std::cout << "Usage: " << argv0 << " [options]\n\n";
++    std::cout << "Svr Options:\n";
++    options_list[0].print();
++    std::cout << "\nContext Options:\n";
++    options_list[1].print();
++    std::cout << "\nDefault Generation Options:\n";
++    options_list[2].print();
++}
++
++// Returns -1 when the arguments are fine, otherwise the exit code to return
++// (sd_server() is a library entry point and must not call exit()).
++static int parse_args(int argc,
++                      const char** argv,
++                      SDSvrParams& svr_params,
++                      SDContextParams& ctx_params,
++                      SDGenerationParams& default_gen_params) {
++    std::vector<ArgOptions> options_vec = {
++        svr_params.get_options(),
++        ctx_params.get_options(),
++        default_gen_params.get_options(),
++    };
++
++    if (!parse_options(argc, argv, options_vec)) {
++        print_usage(argv[0], options_vec);
++        return svr_params.normal_exit ? 0 : 1;
++    }
++
++    log_level = svr_params.log_level;
++    log_color = svr_params.color;
++
++    const bool random_seed_requested = default_gen_params.seed < 0;
++
++    if (!svr_params.resolve_and_validate() ||
++        !ctx_params.resolve_and_validate(IMG_GEN) ||
++        !default_gen_params.resolve_and_validate(IMG_GEN,
++                                                 ctx_params.lora_model_dir,
++                                                 ctx_params.hires_upscalers_dir)) {
++        print_usage(argv[0], options_vec);
++        return 1;
++    }
++
++    if (random_seed_requested) {
++        default_gen_params.seed = -1;
++    }
++    return -1;
++}
++
++// Replaces the library's console progress bar: tells the activity hooks, and
++// keeps a one-line progress on stderr.
++static void sd_progress_cb(int step, int steps, float secs, void*) {
++    sd_activity_progress(step, steps, secs);
++    if (step > 0) {
++        fprintf(stderr, "\rstep %d/%d (%.2fs/it)\033[K%s", step, steps, secs, step == steps ? "\n" : "");
++        fflush(stderr);
++    }
++}
++
++void sd_log_cb(enum sd_log_level_t level, const char* log, void* data) {
++    SDSvrParams* svr_params = (SDSvrParams*)data;
++    log_print(level, log, svr_params->log_level, svr_params->color);
++}
++
++// PS5SD: errno that the PS5 network stack reports from accept() when the
++// interface went inactive (SCE_NET_EINACTIVEDISABLED: link down, new DHCP
++// lease, console resumed from rest mode). httplib takes any accept() failure
++// as fatal and closes the listening socket, so the listener is bound again.
++static constexpr int k_ps5_net_einactivedisabled = 163;
++
++// Set by sd_server_terminate(); reset when sd_server() returns so the entry
++// point can be called again.
++static std::atomic<bool> g_sd_server_stop{false};
++static std::atomic<httplib::Server*> g_sd_server_svr{nullptr};
++
++// Only SO_REUSEADDR. httplib's default picks SO_REUSEPORT where it exists,
++// which lets a second process bind the same port without an error.
++static void listener_socket_options(socket_t sock) {
++    int yes = 1;
++    setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, reinterpret_cast<const char*>(&yes), sizeof(yes));
++}
++
++// Binds and serves until sd_server_terminate(). When the listener ends on its
++// own it is bound again, once a second, until that works or terminate is asked.
++// Returns false if the very first bind failed.
++static bool serve_until_terminated(httplib::Server& svr, const std::string& host, int port) {
++    if (!svr.bind_to_port(host, port)) {
++        return false;
++    }
++    while (!g_sd_server_stop) {
++        if (svr.listen_after_bind() || g_sd_server_stop) {
++            break;
++        }
++        if (errno == k_ps5_net_einactivedisabled) {
++            LOG_WARN("network went inactive (SCE_NET_EINACTIVEDISABLED); listening again\n");
++        } else {
++            LOG_ERROR("listener on %s:%d stopped unexpectedly (errno %d); listening again\n", host.c_str(), port, errno);
++        }
++        do {
++            std::this_thread::sleep_for(std::chrono::seconds(1));
++            svr.stop();  // clears the failed state; the socket is closed already
++        } while (!g_sd_server_stop && !svr.bind_to_port(host, port));
++        if (!g_sd_server_stop) {
++            LOG_INFO("listener on http://%s:%d is back\n", host.c_str(), port);
++        }
++    }
++    return true;
++}
++
++// Every origin may call the API (the web UI on a PC, scripts).
++static void set_cors(httplib::Server& svr) {
++    svr.set_pre_routing_handler([](const httplib::Request& req, httplib::Response& res) {
++        std::string origin = req.get_header_value("Origin");
++        if (origin.empty()) {
++            origin = "*";
++        }
++        res.set_header("Access-Control-Allow-Origin", origin);
++        res.set_header("Access-Control-Allow-Credentials", "true");
++        res.set_header("Access-Control-Allow-Methods", "*");
++        res.set_header("Access-Control-Allow-Headers", "*");
++
++        if (req.method == "OPTIONS") {
++            res.status = 204;
++            return httplib::Server::HandlerResponse::Handled;
++        }
++        return httplib::Server::HandlerResponse::Unhandled;
++    });
++}
++
++static std::string embedded_index_html() {
++    std::string index_html;
++#if defined(SD_SERVER_EMBED_INDEX)
++    index_html.assign(reinterpret_cast<const char*>(sd_server_index_html), sd_server_index_html_len);
++#elif defined(HAVE_INDEX_HTML)
++    index_html.assign(reinterpret_cast<const char*>(index_html_bytes), index_html_size);
++#else
++    index_html = "Stable Diffusion Server is running";
++#endif
++    return index_html;
++}
++
++// PS5SD: sd-server --standby [server options]: no model is loaded. It serves
++// the web UI, the gallery and the application's routes (its model library and
++// downloader, /ps5sd/v1/app/*), so a fresh install can fetch and pick its
++// first model; every other route answers 503 until the application starts
++// the server again with a model.
++static int sd_server_standby(int argc, const char** argv) {
++    SDSvrParams svr_params;
++    std::vector<ArgOptions> options_vec = {svr_params.get_options()};
++    if (!parse_options(argc, argv, options_vec) || !svr_params.resolve_and_validate()) {
++        print_usage(argv[0], options_vec);
++        return 1;
++    }
++    log_level = svr_params.log_level;
++    log_color = svr_params.color;
++
++    AsyncJobManager async_job_manager;
++    ServerRuntime runtime = {};
++    runtime.svr_params        = &svr_params;
++    runtime.async_job_manager = &async_job_manager;
++
++    httplib::Server svr;
++    svr.set_socket_options(listener_socket_options);
++    set_cors(svr);
++    register_index_endpoints(svr, svr_params, embedded_index_html());
++    register_ps5sd_endpoints(svr, runtime);
++    const auto no_model = [](const httplib::Request&, httplib::Response& res) {
++        res.status = 503;
++        res.set_content(R"({"error":"no model is loaded; pick or download one in the web UI, tab Models","standby":true})",
++                        "application/json");
++    };
++    svr.Get(".*", no_model);
++    svr.Post(".*", no_model);
++    svr.Delete(".*", no_model);
++
++    LOG_INFO("standby, no model: listening on http://%s:%d\n", svr_params.listen_ip.c_str(), svr_params.listen_port);
++    g_sd_server_svr   = &svr;
++    const bool served = serve_until_terminated(svr, svr_params.listen_ip, svr_params.listen_port);
++    g_sd_server_svr   = nullptr;
++    if (!served) {
++        LOG_ERROR("could not listen on %s:%d\n", svr_params.listen_ip.c_str(), svr_params.listen_port);
++    }
++    g_sd_server_stop = false;
++    return served ? 0 : 1;
++}
++
++extern "C" void sd_server_terminate(void) {
++    g_sd_server_stop = true;
++    httplib::Server* svr = g_sd_server_svr.load();
++    if (svr != nullptr) {
++        svr->stop();
++    }
++}
++
++extern "C" int sd_server(int argc, char** argv_in) {
++    const char** argv = const_cast<const char**>(argv_in);
++    if (argc > 1 && std::string(argv[1]) == "--version") {
++        std::cout << version_string() << "\n";
++        return EXIT_SUCCESS;
++    }
++    if (argc > 1 && std::string(argv[1]) == "--standby") {
++        std::vector<const char*> args(argv, argv + argc);
++        args.erase(args.begin() + 1);
++        return sd_server_standby((int)args.size(), args.data());
++    }
++    SDSvrParams svr_params;
++    SDContextParams ctx_params;
++    // Preserve the CLI default while disabling cwd scans for sd-server.
++    ctx_params.lora_model_dir.clear();
++    SDGenerationParams default_gen_params;
++
++    sd_set_log_callback(sd_log_cb, (void*)&svr_params);
++    const int parse_result = parse_args(argc, argv, svr_params, ctx_params, default_gen_params);
++    if (parse_result >= 0) {
++        sd_set_log_callback(nullptr, nullptr);
++        return parse_result;
++    }
++
++    LOG_VERBOSE("version: %s", version_string().c_str());
++    LOG_VERBOSE("%s", sd_get_system_info());
++    LOG_VERBOSE("%s", svr_params.to_string().c_str());
++    LOG_DEBUG("%s", ctx_params.to_string().c_str());
++    LOG_DEBUG("%s", default_gen_params.to_string().c_str());
++
++    sd_ctx_params_t sd_ctx_params = ctx_params.to_sd_ctx_params_t(false);
++    SDCtxPtr sd_ctx(new_sd_ctx(&sd_ctx_params));
++
++    if (sd_ctx == nullptr) {
++        LOG_ERROR("new_sd_ctx_t failed");
++        sd_set_log_callback(nullptr, nullptr);
++        g_sd_server_stop = false;
++        return 1;
++    }
++
++    sd_set_progress_callback(sd_progress_cb, nullptr);
++
++    std::mutex sd_ctx_mutex;
++
++    std::vector<LoraEntry> lora_cache;
++    std::mutex lora_mutex;
++    std::vector<UpscalerEntry> upscaler_cache;
++    std::mutex upscaler_mutex;
++    AsyncJobManager async_job_manager;
++    ServerRuntime runtime = {
++        sd_ctx.get(),
++        &sd_ctx_mutex,
++        &svr_params,
++        &ctx_params,
++        &default_gen_params,
++        &lora_cache,
++        &lora_mutex,
++        &upscaler_cache,
++        &upscaler_mutex,
++        &async_job_manager,
++    };
++
++    std::thread async_worker(async_job_worker, std::ref(runtime));
++
++    httplib::Server svr;
++    svr.set_socket_options(listener_socket_options);
++
++    set_cors(svr);
++    register_index_endpoints(svr, svr_params, embedded_index_html());
++    register_openai_api_endpoints(svr, runtime);
++    register_sdapi_endpoints(svr, runtime);
++    register_sdcpp_api_endpoints(svr, runtime);
++    register_ps5sd_endpoints(svr, runtime);
++
++    LOG_INFO("listening on: http://%s:%d\n", svr_params.listen_ip.c_str(), svr_params.listen_port);
++    g_sd_server_svr = &svr;
++    const bool served = serve_until_terminated(svr, svr_params.listen_ip, svr_params.listen_port);
++    g_sd_server_svr = nullptr;
++    if (!served) {
++        LOG_ERROR("could not listen on %s:%d\n", svr_params.listen_ip.c_str(), svr_params.listen_port);
++    }
++
++    {
++        std::lock_guard<std::mutex> lock(async_job_manager.mutex);
++        async_job_manager.stop = true;
++    }
++    async_job_manager.cv.notify_all();
++    async_worker.join();
++    sd_set_progress_callback(nullptr, nullptr);
++    sd_set_log_callback(nullptr, nullptr);
++    g_sd_server_stop = false;
++    return served ? 0 : 1;
++}
++
++#ifndef SD_SERVER_NO_MAIN
++int main(int argc, char** argv) {
++    return sd_server(argc, argv);
++}
++#endif
+-- 
+2.56.0.windows.2
+

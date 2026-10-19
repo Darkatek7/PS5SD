@@ -1,0 +1,315 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: ps5sd <ps5sd@localhost>
+Date: Mon, 19 Oct 2026 23:31:51 +0200
+Subject: [PATCH] server: stop running jobs, list and cancel the queue, A1111
+ interrupt; the application answers the model routes
+
+---
+ examples/server/async_jobs.cpp    | 11 +++-
+ examples/server/async_jobs.h      |  2 +
+ examples/server/gallery.cpp       | 97 +++++++++++++++++++++++++++++++
+ examples/server/gallery.h         |  8 ++-
+ examples/server/routes_openai.cpp |  8 ++-
+ examples/server/routes_sdapi.cpp  | 10 +++-
+ examples/server/routes_sdcpp.cpp  | 14 +++--
+ examples/server/server_hooks.h    |  3 +
+ 8 files changed, 142 insertions(+), 11 deletions(-)
+
+diff --git a/examples/server/async_jobs.cpp b/examples/server/async_jobs.cpp
+index 53a12c7..ff2d608 100644
+--- a/examples/server/async_jobs.cpp
++++ b/examples/server/async_jobs.cpp
+@@ -419,7 +419,7 @@ void async_job_worker(ServerRuntime& runtime) {
+             }
+ 
+             job->completed_at = unix_timestamp_now();
+-            if (ok) {
++            if (ok && !job->cancel_requested) {
+                 job->status                 = AsyncJobStatus::Completed;
+                 job->result_images_b64      = std::move(output_images);
+                 job->result_media_b64       = std::move(output_media_b64);
+@@ -428,6 +428,15 @@ void async_job_worker(ServerRuntime& runtime) {
+                 job->result_fps             = output_fps;
+                 job->error_code.clear();
+                 job->error_message.clear();
++            } else if (job->cancel_requested) {
++                job->status        = AsyncJobStatus::Cancelled;
++                job->error_code    = "cancelled";
++                job->error_message = "job cancelled by client";
++                job->result_images_b64.clear();
++                job->result_media_b64.clear();
++                job->result_media_mime_type.clear();
++                job->result_frame_count = 0;
++                job->result_fps         = 0;
+             } else {
+                 job->status        = AsyncJobStatus::Failed;
+                 job->error_code    = "generation_failed";
+diff --git a/examples/server/async_jobs.h b/examples/server/async_jobs.h
+index 2fe79bb..b10959c 100644
+--- a/examples/server/async_jobs.h
++++ b/examples/server/async_jobs.h
+@@ -49,6 +49,8 @@ struct AsyncGenerationJob {
+     int preview_pass          = 0;
+     int preview_step          = 0;
+     int preview_total_steps   = 0;
++    // PS5SD: set when a client cancels the job while it generates.
++    bool cancel_requested = false;
+ };
+ 
+ struct AsyncJobManager {
+diff --git a/examples/server/gallery.cpp b/examples/server/gallery.cpp
+index 58c7663..25fc822 100644
+--- a/examples/server/gallery.cpp
++++ b/examples/server/gallery.cpp
+@@ -17,6 +17,7 @@
+ #include "common/media_io.h"
+ #include "gallery.h"
+ #include "routes.h"
++#include "async_jobs.h"
+ #include "server_hooks.h"
+ 
+ namespace fs = std::filesystem;
+@@ -121,8 +122,104 @@ static void app_route(const httplib::Request& req, httplib::Response& res) {
+     std::free(out);
+ }
+ 
++bool app_compat_route(const char* name, const httplib::Request& req, httplib::Response& res) {
++    char* out              = nullptr;
++    size_t out_len         = 0;
++    const char* type       = nullptr;
++    const std::string path = std::string("compat/") + name;
++    const int status       = sd_app_request(req.method.c_str(), path.c_str(), req.body.data(), req.body.size(),
++                                            &out, &out_len, &type);
++    if (status > 0) {
++        res.status = status;
++        res.set_content(out != nullptr ? std::string(out, out_len) : std::string(),
++                        type != nullptr ? type : "application/json");
++    }
++    std::free(out);
++    return status > 0;
++}
++
++// The queued and generating async jobs, without their images.
++static json active_jobs_json(const AsyncJobManager& manager) {
++    json jobs = json::array();
++    for (const auto& kv : manager.jobs) {
++        const AsyncGenerationJob& job = *kv.second;
++        if (job.status != AsyncJobStatus::Queued && job.status != AsyncJobStatus::Generating) {
++            continue;
++        }
++        json j = make_async_job_json(manager, job);
++        j.erase("preview");
++        j.erase("result");
++        j["prompt"]           = job.kind == AsyncJobKind::VidGen ? job.vid_gen.gen_params.prompt : job.img_gen.gen_params.prompt;
++        j["cancel_requested"] = job.cancel_requested;
++        jobs.push_back(j);
++    }
++    std::sort(jobs.begin(), jobs.end(), [](const json& a, const json& b) { return a["created"] < b["created"]; });
++    return jobs;
++}
++
++// Stops the generation that runs now, whichever API started it. sd.cpp
++// clears the flag when the next generation starts, so a stop with nothing
++// running is harmless.
++static bool interrupt_generation(ServerRuntime& rt) {
++    bool async_job = false;
++    {
++        std::lock_guard<std::mutex> lock(rt.async_job_manager->mutex);
++        for (auto& kv : rt.async_job_manager->jobs) {
++            if (kv.second->status == AsyncJobStatus::Generating) {
++                kv.second->cancel_requested = true;
++                async_job                   = true;
++            }
++        }
++    }
++    sd_cancel_generation(rt.sd_ctx, SD_CANCEL_ALL);
++    return async_job;
++}
++
+ void register_ps5sd_endpoints(httplib::Server& svr, ServerRuntime& rt) {
+     const SDSvrParams* svr_params = rt.svr_params;
++    ServerRuntime* runtime        = &rt;
++
++    // A1111: switching the model is the application's (sd_app_request).
++    svr.Post("/sdapi/v1/options", [](const httplib::Request& req, httplib::Response& res) {
++        if (!app_compat_route("options", req, res)) {
++            res.status = 200;
++            res.set_content("{}", "application/json");
++        }
++    });
++
++    // A1111: stop the generation that runs (skip does the same here).
++    for (const char* route : {"/sdapi/v1/interrupt", "/sdapi/v1/skip"}) {
++        svr.Post(route, [runtime](const httplib::Request&, httplib::Response& res) {
++            interrupt_generation(*runtime);
++            res.status = 200;
++            res.set_content("{}", "application/json");
++        });
++    }
++
++    //   GET  /ps5sd/v1/jobs         the queued and generating async jobs
++    //   POST /ps5sd/v1/jobs/cancel  cancel all of them and stop what runs now
++    svr.Get("/ps5sd/v1/jobs", [runtime](const httplib::Request&, httplib::Response& res) {
++        std::lock_guard<std::mutex> lock(runtime->async_job_manager->mutex);
++        res.set_content(json({{"jobs", active_jobs_json(*runtime->async_job_manager)}}).dump(), "application/json");
++    });
++    svr.Post("/ps5sd/v1/jobs/cancel", [runtime](const httplib::Request&, httplib::Response& res) {
++        int queued = 0;
++        {
++            AsyncJobManager& manager = *runtime->async_job_manager;
++            std::lock_guard<std::mutex> lock(manager.mutex);
++            const std::deque<std::string> ids = manager.queue;
++            for (const auto& id : ids) {
++                auto it = manager.jobs.find(id);
++                if (it != manager.jobs.end() && it->second->status == AsyncJobStatus::Queued &&
++                    cancel_queued_job(manager, *it->second)) {
++                    ++queued;
++                }
++            }
++        }
++        interrupt_generation(*runtime);
++        res.status = 200;
++        res.set_content(json({{"cancelled_queued", queued}, {"interrupted", true}}).dump(), "application/json");
++    });
+ 
+     svr.Get(R"(/ps5sd/v1/app/(.+))", app_route);
+     svr.Post(R"(/ps5sd/v1/app/(.+))", app_route);
+diff --git a/examples/server/gallery.h b/examples/server/gallery.h
+index a31fac8..5d7e872 100644
+--- a/examples/server/gallery.h
++++ b/examples/server/gallery.h
+@@ -4,9 +4,15 @@
+ #include <vector>
+ 
+ #include "common/resource_owners.hpp"
++#include "httplib.h"
+ #include "runtime.h"
+ 
+ // PS5SD: --output-dir. Saves every generated image there as a PNG
+ // (sd_<date>_<time>_<n>.png) and returns the full paths that were written.
+ // Does nothing, and returns an empty list, when --output-dir is not set.
+-std::vector<std::string> save_output_images(const SDSvrParams& svr_params, SDImageVec& images);
++std::vector<std::string> save_output_images(const SDSvrParams& svr_params, SDImageVec& images);
++
++// PS5SD: asks the application (sd_app_request) for "compat/<name>", so it can
++// answer a route of the A1111 or OpenAI API itself (its model library, model
++// switches). True when it did; false leaves the route to its own handler.
++bool app_compat_route(const char* name, const httplib::Request& req, httplib::Response& res);
+diff --git a/examples/server/routes_openai.cpp b/examples/server/routes_openai.cpp
+index 7ec4d58..abfe5f9 100644
+--- a/examples/server/routes_openai.cpp
++++ b/examples/server/routes_openai.cpp
+@@ -4,7 +4,8 @@
+ #include <ctime>
+ #include <regex>
+ 
+-#include "common/common.h"
++#include "common/common.h"
++#include "gallery.h"
+ #include "common/media_io.h"
+ #include "common/resource_owners.hpp"
+ #include "gallery.h"
+@@ -257,7 +258,10 @@ static bool execute_sync_img_gen_request(ServerRuntime& runtime,
+ void register_openai_api_endpoints(httplib::Server& svr, ServerRuntime& rt) {
+     ServerRuntime* runtime = &rt;
+ 
+-    svr.Get("/v1/models", [runtime](const httplib::Request&, httplib::Response& res) {
++    svr.Get("/v1/models", [runtime](const httplib::Request& req, httplib::Response& res) {
++        if (app_compat_route("models", req, res)) {
++            return;
++        }
+         json r;
+         r["data"] = json::array();
+         r["data"].push_back({{"id", "sd-cpp-local"}, {"object", "model"}, {"owned_by", "local"}});
+diff --git a/examples/server/routes_sdapi.cpp b/examples/server/routes_sdapi.cpp
+index a5dea89..5a81b2c 100644
+--- a/examples/server/routes_sdapi.cpp
++++ b/examples/server/routes_sdapi.cpp
+@@ -590,7 +590,10 @@ void register_sdapi_endpoints(httplib::Server& svr, ServerRuntime& rt) {
+         res.set_content(r.dump(), "application/json");
+     });
+ 
+-    svr.Get("/sdapi/v1/sd-models", [runtime](const httplib::Request&, httplib::Response& res) {
++    svr.Get("/sdapi/v1/sd-models", [runtime](const httplib::Request& req, httplib::Response& res) {
++        if (app_compat_route("sd-models", req, res)) {
++            return;
++        }
+         fs::path model_path = resolve_display_model_path(*runtime);
+         json entry;
+         entry["title"]      = model_path.stem().u8string();
+@@ -604,7 +607,10 @@ void register_sdapi_endpoints(httplib::Server& svr, ServerRuntime& rt) {
+         res.set_content(r.dump(), "application/json");
+     });
+ 
+-    svr.Get("/sdapi/v1/options", [runtime](const httplib::Request&, httplib::Response& res) {
++    svr.Get("/sdapi/v1/options", [runtime](const httplib::Request& req, httplib::Response& res) {
++        if (app_compat_route("options", req, res)) {
++            return;
++        }
+         fs::path model_path = resolve_display_model_path(*runtime);
+         json r;
+         r["samples_format"]      = "png";
+diff --git a/examples/server/routes_sdcpp.cpp b/examples/server/routes_sdcpp.cpp
+index a6c8a1e..9f490f7 100644
+--- a/examples/server/routes_sdcpp.cpp
++++ b/examples/server/routes_sdcpp.cpp
+@@ -204,7 +204,7 @@ static json make_img_gen_features_json() {
+         {"hires", true},
+         {"cache", true},
+         {"cancel_queued", true},
+-        {"cancel_generating", false},
++        {"cancel_generating", true},
+         {"preview", true},
+     };
+ }
+@@ -219,7 +219,7 @@ static json make_vid_gen_features_json() {
+         {"vae_tiling", true},
+         {"cache", true},
+         {"cancel_queued", true},
+-        {"cancel_generating", false},
++        {"cancel_generating", true},
+         {"preview", true},
+     };
+ }
+@@ -362,7 +362,7 @@ static json make_capabilities_json(ServerRuntime& runtime) {
+     json top_level_output_formats = json::array();
+     json top_level_features       = {
+               {"cancel_queued", true},
+-              {"cancel_generating", false},
++              {"cancel_generating", true},
+     };
+     std::string current_mode = "";
+     if (supports_img) {
+@@ -817,9 +817,13 @@ void register_sdcpp_api_endpoints(httplib::Server& svr, ServerRuntime& rt) {
+             return;
+         }
+ 
++        // PS5SD: a generating job is stopped through sd.cpp's cancel flag; the
++        // worker marks it cancelled once generate_image() has returned.
+         if (job.status == AsyncJobStatus::Generating) {
+-            res.status = 409;
+-            res.set_content(R"({"error":"job is currently generating and cannot be interrupted yet"})", "application/json");
++            job.cancel_requested = true;
++            sd_cancel_generation(runtime->sd_ctx, SD_CANCEL_ALL);
++            res.status = 202;
++            res.set_content(make_async_job_json(manager, job).dump(), "application/json");
+             return;
+         }
+ 
+diff --git a/examples/server/server_hooks.h b/examples/server/server_hooks.h
+index ce9cc7e..9a80775 100644
+--- a/examples/server/server_hooks.h
++++ b/examples/server/server_hooks.h
+@@ -41,6 +41,9 @@ void sd_activity_job_end(int ok, const char* output_path);
+ // 404). *out_body is a malloc'd body of *out_len bytes or NULL (the server
+ // frees it), *content_type a static string or NULL (application/json).
+ // Called on the server's HTTP threads, possibly several at once.
++// PS5SD: "compat/sd-models", "compat/options" (GET and POST) and
++// "compat/models" come here first for /sdapi/v1/sd-models, /sdapi/v1/options
++// and /v1/models; 0 lets the server answer them itself.
+ int sd_app_request(const char* method, const char* path, const char* body, size_t body_len,
+                    char** out_body, size_t* out_len, const char** content_type);
+ 
+-- 
+2.56.0.windows.2
+

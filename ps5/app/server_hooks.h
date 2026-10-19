@@ -11,6 +11,7 @@
 // other. The pointers are only valid during the call.
 #pragma once
 
+#include <stddef.h>
 #include <stdint.h>
 
 #ifdef __cplusplus
@@ -33,6 +34,15 @@ void sd_activity_preview(const uint8_t* rgb, int w, int h);
 // The job ended. ok is 0 or 1. output_path is the first image saved to
 // --output-dir ("" when there is no --output-dir or nothing was saved; never NULL).
 void sd_activity_job_end(int ok, const char* output_path);
+
+// The application's own routes: GET, POST and DELETE on /ps5sd/v1/app/<path>
+// come here with <path>, the request body and its length. Returns the HTTP
+// status, or 0 when the application has no such route (the server answers
+// 404). *out_body is a malloc'd body of *out_len bytes or NULL (the server
+// frees it), *content_type a static string or NULL (application/json).
+// Called on the server's HTTP threads, possibly several at once.
+int sd_app_request(const char* method, const char* path, const char* body, size_t body_len,
+                   char** out_body, size_t* out_len, const char** content_type);
 
 #ifdef __cplusplus
 }
