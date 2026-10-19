@@ -73,7 +73,7 @@ instead). `scripts/setup-deps.sh --fetch-only` only clones and patches, on any h
 | `.deps/src/PS5_Vulkan/build/host/ps5-native-tool` | fSELF converter | |
 | `.deps/src/PS5_Vulkan/runtime/libc.prx` | clean-room libc | |
 | `.deps/ps5-payload-sdk` | link to the SDK above, for the launch payload | |
-| `.deps/ps5-opengl-sdk` | ps5-opengl (EGL, OpenGL 4.6), for the screen; `.deps/ps5-opengl-sdk.stamp` says where it came from | 1.0.0 (`dce7491`) |
+| `.deps/ps5-opengl-sdk` | ps5-opengl (EGL, OpenGL 4.6), for the screen; `.deps/ps5-opengl-sdk.stamp` says where it came from | release 1.0.0, else source `217da45` |
 
 ### ps5-opengl
 
@@ -84,17 +84,23 @@ its 1.0.0 release download, which went away with the `blackbearreloaded` GitHub 
 1. kept when it is there already, made from the same pins, and its `manifest.sha256` still verifies;
 2. else the original release archive, accepted only with its pinned sha256 and manifest (so if the
    release comes back, nothing is built);
-3. else built from source: `leolobato/ps5-opengl` (a fork with the original history) at `dce7491`,
-   the commit of the v1.0.0 tag, the way its release workflow built 1.0.0: payload SDK v0.42
+3. else built from source: `leolobato/ps5-opengl` (a fork with the original history) at `217da45`,
+   the way its release workflow built 1.0.0: payload SDK v0.42
    (`ps5-payload-dev/sdk`, sha256-pinned), the `dynamic` display profile (2160p120 capacity, 1080p60
    at start, the mode chosen at run time), present/multi-draw/deferred-draw batching on. Its own
    `tools/fetch-sources.py` fetches Mesa 26.2.0 and the opengnm, opengnm-psbc, SPIRV-Headers,
    Vulkan-Headers, imgui, nanovg and sokol commits it pins and checks them. The steps are those of
    its `make sdk-gl46` minus the host-only shader-cache test (it calls `clang-18` by name, which
    Arch does not have). About 30 to 60 minutes; CI caches the result on its own
-   (`ps5-opengl-sdk-<hash of the script>`). The fork's `main` adds a varying-linkage fix and later
-   work; 1.0.0 is what ps5-homebrew-ui and PS5LM were built and run against, so that is the pin
-   (`PS5_OPENGL_REV` overrides it). A source-built SDK is not byte-identical to the release (other
+   (`ps5-opengl-sdk-<hash of the script>`). Why `217da45` and not the v1.0.0 tag (`dce7491`, what
+   ps5-homebrew-ui and PS5LM were built against): the tag does not compile with Arch's clang 23. Its
+   opengnm-psbc patch takes a `uint32_t *` to radv's `uint8_t vertex_binding_align[]` and writes
+   through it, an `-Wincompatible-pointer-types` error since clang 23 (a warning in the clang 21 the
+   release was built with, and a real out-of-bounds write). `217da45`, ten commits later and by the
+   original author, is that fix ("Store vertex binding alignments per byte in the compiler") on top
+   of the 1.0.1 vertex-buffer reference fix; nothing else in it touches the build or the API. The
+   fork's `main` adds more (a varying-linkage fix, the Gallium HUD, an SDL2 bridge) that PS5SD does
+   not need. `PS5_OPENGL_REV` overrides the pin. A source-built SDK is not byte-identical to the release (other
    compiler, Arch's LLVM through the SDK's `llvm-config`), so its manifest differs.
 
 `scripts/build-app.sh` takes `PS5_OPENGL_SDK` (`scripts/env.sh` exports it), else

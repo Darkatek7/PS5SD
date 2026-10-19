@@ -11,8 +11,9 @@
 #   2. The original release archive, accepted only with its pinned sha256
 #      (and then its manifest's): if it ever comes back, nothing is built.
 #   3. Built from source: leolobato/ps5-opengl, a fork with the history of the
-#      original, at the commit of the v1.0.0 tag, the way that repository's
-#      release workflow built 1.0.0 (payload SDK v0.42, the "dynamic" display
+#      original, at 1.0.0 plus the original authors' 1.0.1 fixes (see the pin
+#      below), the way that repository's release workflow built 1.0.0
+#      (payload SDK v0.42, the "dynamic" display
 #      profile: 2160p120 capacity, 1080p60 at start, the mode chosen at run
 #      time through ps5_opengl_display_modes.h; GPU present, multi-draw and
 #      deferred draw batching on).
@@ -33,11 +34,18 @@ set -euo pipefail
 RELEASE_URL=https://github.com/blackbearreloaded/ps5-opengl/releases/download/v1.0.0/ps5-opengl-sdk-1.0.0.tar.gz
 RELEASE_SHA256=f93643c04c843d56143b00951df1f8042ea7706ae9f19e4e9abf158e1ead77c5
 RELEASE_MANIFEST_SHA256=f4b91f672be037fbac3f82494f1225deaf4c227a03f37ac3ffa56abb213b943f
-# The source: v1.0.0 ("Add a frame capture option to the showcase and record its
-# 1.0.0 frame rate"). The fork's main adds a varying-linkage fix and later work;
-# 1.0.0 is what ps5-homebrew-ui and PS5LM were built and run against.
+# The source: 217da45 (2026-10-04, BlackBearReloaded), ten commits after the
+# v1.0.0 tag (dce7491): 1.0.0 plus the 1.0.1 vertex-buffer reference fix and
+# "Store vertex binding alignments per byte in the compiler". The tag itself
+# does not build with Arch's clang 23: its opengnm-psbc patch writes a
+# uint32_t through a pointer into radv's uint8_t vertex_binding_align[], an
+# incompatible-pointer-types error since clang 23 (a warning for the clang 21
+# 1.0.0 was released with), and that commit is the upstream fix. The diff
+# from 1.0.0 is that fix, ps5_screen.c's buffer-reference fixes, tests and
+# docs; no API change. The fork's main adds more (a varying-linkage fix, the
+# Gallium HUD, an SDL2 bridge) that nothing here needs.
 PS5_OPENGL_URL=${PS5_OPENGL_URL:-https://github.com/leolobato/ps5-opengl}
-PS5_OPENGL_REV=${PS5_OPENGL_REV:-dce74910af7f4274c48d05e0ae001b3038462588}
+PS5_OPENGL_REV=${PS5_OPENGL_REV:-217da45c6f95cf0e8c8ba8019c4b5f3d2cc74e0f}
 # What ps5-opengl's release workflow and dependencies.json use.
 PAYLOAD_SDK_URL=https://github.com/ps5-payload-dev/sdk/releases/download/v0.42/ps5-payload-sdk.zip
 PAYLOAD_SDK_SHA256=8cfbc7cd5811e719eb4f0c47eea668d3dc7b40bc8ab11c4a5031d40c23ec02da
@@ -106,7 +114,11 @@ for c in git curl unzip python3 make gcc g++ meson ninja patch bison flex ar nm 
 done
 [ "$(uname -s)" = Linux ] && [ "$(uname -m)" = x86_64 ] || die "the build needs Linux x86-64; use docker/Dockerfile"
 
-# The source, at the pinned commit; never over a changed tree.
+# The source, at the pinned commit. ps5-opengl's fetch-sources.py never resets
+# the trees it patched, so a checkout of another commit starts over.
+if [ -d "$src/.git" ] && [ "$(git -C "$src" rev-parse -q --verify HEAD 2> /dev/null || true)" != "$PS5_OPENGL_REV" ]; then
+    rm -rf -- "$src"
+fi
 mkdir -p "$src"
 [ -d "$src/.git" ] || git -C "$src" init -q
 git -C "$src" remote get-url origin > /dev/null 2>&1 && git -C "$src" remote set-url origin "$PS5_OPENGL_URL" ||
@@ -144,14 +156,15 @@ export PS5_SCANOUT_HEIGHT=2160 PS5_SCANOUT_FPS=120 PS5_DYNAMIC_SCANOUT=1
 export PS5_GPU_PRESENT_BATCH=1 PS5_DRAW_PROFILE=1 PS5_MULTIDRAW_BATCH=1 PS5_DEFERRED_DRAW_BATCH=1
 build_log="$work/build.log"
 log "building (log: $build_log)"
+# One && chain: `set -e` does not hold in a subshell on the left of ||.
 (
-    cd "$src"
-    bash toolchain/build-opengnm-psbc.sh
-    bash toolchain/build-opengnm-psbc-ps5.sh
-    PS5_MESA_CROSS_FILE="$psdk/toolchain/prospero.ini" bash toolchain/build-mesa-ps5.sh
-    rm -rf -- "$work/sdk"
-    bash toolchain/install-ps5-opengl-gl46.sh "$work/sdk"
-    python3 tests/ps5/verify_gl46_link_surface.py
+    cd "$src" &&
+        bash toolchain/build-opengnm-psbc.sh &&
+        bash toolchain/build-opengnm-psbc-ps5.sh &&
+        PS5_MESA_CROSS_FILE="$psdk/toolchain/prospero.ini" bash toolchain/build-mesa-ps5.sh &&
+        rm -rf -- "$work/sdk" &&
+        bash toolchain/install-ps5-opengl-gl46.sh "$work/sdk" &&
+        python3 tests/ps5/verify_gl46_link_surface.py
 ) > "$build_log" 2>&1 || { tail -80 "$build_log" >&2; die "the ps5-opengl build failed (full log: $build_log)"; }
 tail -3 "$build_log" >&2
 
