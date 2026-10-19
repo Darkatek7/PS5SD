@@ -138,7 +138,7 @@ jobs:
           cmake -S third_party/stable-diffusion.cpp -B build/host-sd -DCMAKE_BUILD_TYPE=Release \
             -DSD_BUILD_EXAMPLES=ON -DSD_SERVER_BUILD_FRONTEND=OFF \
             -DSD_METAL=OFF -DGGML_METAL=OFF
-          cmake --build build/host-sd --target sd-cli --parallel "$(sysctl -n hw.ncpu)"
+          cmake --build build/host-sd --target sd-cli sd-server --parallel "$(sysctl -n hw.ncpu)"
           cli=$(find build/host-sd -name sd-cli -type f | head -1)
           test -n "$cli"
           "$cli" --help | head -5
