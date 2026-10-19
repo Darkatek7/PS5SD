@@ -74,7 +74,25 @@ instead). `scripts/setup-deps.sh --fetch-only` only clones and patches, on any h
 | `.deps/src/PS5_Vulkan/runtime/libc.prx` | clean-room libc | |
 | `.deps/ps5-payload-sdk` | link to the SDK above, for the launch payload | |
 
-`scripts/build-app.sh` also fetches ps5-opengl through ps5-homebrew-ui's pinned, checksummed script.
+`scripts/build-app.sh` also fetches ps5-opengl through ps5-homebrew-ui's pinned, checksummed script
+(or takes `PS5_OPENGL_SDK`).
+
+### Building without a display
+
+The screen needs the ps5-opengl SDK. Its pinned release (on `blackbearreloaded/ps5-opengl`) is gone
+since that account was deleted, so the kit's download fails. `PS5SD_DISPLAY` says what
+`build-app.sh` does then:
+
+| `PS5SD_DISPLAY` | Build |
+|---|---|
+| `auto` (default) | with the screen when an SDK is found, else without one (and a warning) |
+| `1` | with the screen, or fail |
+| `0` | without a screen: no ps5-opengl and no ps5-homebrew-ui in the title; the app reports its state in `app.log`, the kernel log and notifications |
+
+```sh
+PS5SD_DISPLAY=0 scripts/build-app.sh
+docker run --rm -it --platform linux/amd64 -e PS5SD_DISPLAY=0 -v "$PWD":/work ps5sd-build scripts/build-app.sh
+```
 
 ## Troubleshooting
 

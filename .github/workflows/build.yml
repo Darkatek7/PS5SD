@@ -71,10 +71,14 @@ jobs:
           [ -f scripts/build-app.sh ] && echo "build=true" >> "$GITHUB_OUTPUT" || echo "build=false" >> "$GITHUB_OUTPUT"
           [ -f scripts/preview-app-ui.sh ] && echo "preview=true" >> "$GITHUB_OUTPUT" || echo "preview=false" >> "$GITHUB_OUTPUT"
 
+      # Without a display until ps5-opengl is built from source: its pinned release download is
+      # gone with the blackbearreloaded account (docs/BUILDING.md).
       - name: Build the title
         if: steps.have.outputs.build == 'true'
+        env:
+          PS5SD_DISPLAY: "0"
         run: |
-          docker run --rm --platform linux/amd64 -v "$PWD":/work -w /work "$IMAGE" \
+          docker run --rm --platform linux/amd64 -e PS5SD_DISPLAY -v "$PWD":/work -w /work "$IMAGE" \
             bash -c 'git config --global --add safe.directory "*" && scripts/build-app.sh'
 
       # The launch payload (ps5-homebrew-dev-protocol, title id compiled in), so the PC that

@@ -12,6 +12,16 @@
 # `make app`, for the host tool and libc.prx). Runs on x86-64 Linux; CI runs it
 # in docker/Dockerfile's Arch image.
 #
+# The screen (ps5-homebrew-ui drawn through ps5-opengl) needs the ps5-opengl
+# SDK: PS5_OPENGL_SDK, or the kit's pinned download. PS5SD_DISPLAY says what
+# to do without it:
+#
+#   PS5SD_DISPLAY=auto (default)  the screen when the SDK is there, else none
+#   PS5SD_DISPLAY=1               the screen, or fail
+#   PS5SD_DISPLAY=0               no screen: main.cpp with PS5SD_NO_DISPLAY,
+#                                 status in app.log, klog and notifications;
+#                                 no ps5-opengl, no ps5-homebrew-ui, no font
+#
 #   scripts/build-app.sh            patch, configure, build, link and package
 set -euo pipefail
 
@@ -35,10 +45,34 @@ param="$sce_sys/param.json"
         "third_party/ps5-homebrew-ui && git -C third_party/stable-diffusion.cpp submodule update --init ggml" >&2
     exit 2
 }
-# ps5-opengl comes pinned and sha256-checked through the kit's own script.
-glsdk=${PS5_OPENGL_SDK:-$(bash "$kit/tools/fetch-opengl-sdk.sh")}
+# ps5-opengl: PS5_OPENGL_SDK (scripts/setup-deps.sh sets one up in
+# .deps/ps5-opengl-sdk), else pinned and sha256-checked through the kit's own
+# script.
+display=${PS5SD_DISPLAY:-auto}
+case $display in auto|0|1) ;; *) echo "build-app: PS5SD_DISPLAY is auto, 0 or 1, not '$display'" >&2; exit 2 ;; esac
+glsdk=
+if [ "$display" != 0 ]; then
+    if [ -n "${PS5_OPENGL_SDK:-}" ]; then
+        glsdk=$PS5_OPENGL_SDK
+    elif [ -f "$root/.deps/ps5-opengl-sdk/lib/libPS5OpenGL.a" ]; then
+        glsdk=$root/.deps/ps5-opengl-sdk
+    else
+        glsdk=$(bash "$kit/tools/fetch-opengl-sdk.sh") || glsdk=
+    fi
+    if [ -n "$glsdk" ] && [ -f "$glsdk/lib/libPS5OpenGL.a" ]; then
+        display=1
+    elif [ "$display" = 1 ]; then
+        echo "build-app: PS5SD_DISPLAY=1 but no ps5-opengl SDK (${glsdk:-none}); set PS5_OPENGL_SDK" \
+            "or run scripts/setup-deps.sh" >&2
+        exit 2
+    else
+        echo "build-app: WARNING: no ps5-opengl SDK; building without a display (PS5SD_DISPLAY=0)" >&2
+        display=0
+    fi
+fi
+echo "build-app: display: $([ "$display" = 1 ] && echo "ps5-opengl at $glsdk" || echo none)"
 
-for f in "$archive" "$tool" "$vk/runtime/libc.prx" "$sdk/bin/prospero-lld" "$glsdk/lib/libPS5OpenGL.a"; do
+for f in "$archive" "$tool" "$vk/runtime/libc.prx" "$sdk/bin/prospero-lld"; do
     [ -e "$f" ] || { echo "build-app: missing $f (run scripts/setup-deps.sh)" >&2; exit 2; }
 done
 export PS5_PAYLOAD_SDK="$sdk" PS5_VULKAN_ROOT="$vk"
@@ -147,13 +181,20 @@ app_cc() { "$app_src/ps5cc" -O2 "$@"; }
 cxx() { "$app_src/ps5cxx" -std=c++20 -O2 -ffunction-sections -fdata-sections "$@"; }
 eh=(-fexceptions -fcxx-exceptions -frtti)
 sdinc=(-I "$sd/include" -I "$ggml/include" -I "$sd/thirdparty")
-kitinc=(-I "$kit/src" -I "$kit/third_party" -I "$glsdk/include" -DGL_GLEXT_PROTOTYPES=1)
+if [ "$display" = 1 ]; then
+    kitinc=(-I "$kit/src" -I "$kit/third_party" -I "$glsdk/include" -DGL_GLEXT_PROTOTYPES=1)
+else
+    kitinc=(-DPS5SD_NO_DISPLAY=1)
+fi
 cxx "${eh[@]}" -I "$headers/include" "${sdinc[@]}" "${kitinc[@]}" -I "$app_src" \
     -c "$app_src/main.cpp" -o "$obj/main.o"
 cxx "${eh[@]}" "${sdinc[@]}" -c "$app_src/gen_args.cpp" -o "$obj/gen_args.o"
-for src in display status_view; do
-    cxx "${eh[@]}" "${kitinc[@]}" -I "$app_src" -c "$app_src/$src.cpp" -o "$obj/$src.o"
-done
+cxx "${eh[@]}" -c "$app_src/app_status.cpp" -o "$obj/app_status.o"
+if [ "$display" = 1 ]; then
+    for src in display status_view; do
+        cxx "${eh[@]}" "${kitinc[@]}" -I "$app_src" -c "$app_src/$src.cpp" -o "$obj/$src.o"
+    done
+fi
 app_cc -c "$app_src/compat_app.c" -o "$obj/compat_app.o"
 # In an archive, so --exclude-libs keeps them local: a stub module defines some
 # of the same names, and lld would otherwise export ours to interpose them,
@@ -162,60 +203,63 @@ rm -f "$obj/libps5app_compat.a"
 "$sdk/bin/llvm-ar" rcs "$obj/libps5app_compat.a" "$obj/compat_app.o"
 cxx -fno-exceptions -fno-rtti -c "$vk/tooling/native/app_crt.cpp" -o "$obj/app_crt.o"
 cxx -fexceptions -fcxx-exceptions -c "$app_src/cpp_runtime.cpp" -o "$obj/app_cpp_runtime.o"
-app_objects=("$obj/app_crt.o" "$obj/app_cpp_runtime.o" "$obj/main.o" "$obj/gen_args.o" "$obj/display.o"
-    "$obj/status_view.o")
+app_objects=("$obj/app_crt.o" "$obj/app_cpp_runtime.o" "$obj/main.o" "$obj/gen_args.o" "$obj/app_status.o")
+[ "$display" = 1 ] && app_objects+=("$obj/display.o" "$obj/status_view.o")
 
-# ---- the screen ----------------------------------------------------------------
-# ps5-opengl (EGL, OpenGL 4.6) is a Mesa of its own, and shares thousands of
-# symbol names with RADV's. Linked into one object with only the GL and EGL API
-# left global, the two never meet. Rebuilt when the SDK changes.
-gl="$out/gl/gl_api.o"
-if [ ! -f "$gl" ] || [ "$glsdk/lib/libPS5OpenGL.a" -nt "$gl" ]; then
-    mkdir -p "$out/gl"
-    gllibs=()
-    for l in $(sed -n '/GROUP (/,/)/p' "$glsdk/lib/libPS5OpenGL.a" | grep -oE 'lib[a-z0-9_.]+\.a'); do
-        gllibs+=("$glsdk/lib/$l")
-    done
-    "$sdk/bin/llvm-nm" --defined-only -g "$glsdk/lib/libps5_opengl_core33.a" "$glsdk/lib/libglapi_bridge.a" \
-        "$glsdk/lib/libglapi.a" 2>/dev/null | awk 'NF>=3 && $2 ~ /[TW]/ {print $3}' |
-        grep -E '^(gl|egl)[A-Z]|^ps5_opengl' | sort -u > "$out/gl/api.txt"
-    us=()
-    while read -r name; do us+=(-u "$name"); done < "$out/gl/api.txt"
-    "$sdk/bin/ld.lld" -r "${us[@]}" -u ps5_agc_gate2_run --start-group "${gllibs[@]}" --end-group \
-        -o "$out/gl/gl_all.o"
-    "$sdk/bin/llvm-objcopy" --keep-global-symbols="$out/gl/api.txt" "$out/gl/gl_all.o" "$gl"
-    rm -f "$out/gl/gl_all.o" "$out/gl/libps5sd_gl.a"
-    # In an archive, so --exclude-libs keeps the API local: SDK stub modules
-    # define EGL names too, and lld would export ours to interpose them.
-    "$sdk/bin/llvm-ar" rcs "$out/gl/libps5sd_gl.a" "$gl"
-fi
-# ps5-homebrew-ui's kit (gfx, ui, core, audio and its console platform layer,
-# without its shell, designs or demo), drawn through ps5-opengl. The status
-# screen uses a little of it; the archive only gives the link what it needs.
-kitflags=(-O2 -ffunction-sections -fdata-sections "${kitinc[@]}" -I "$app_src")
-mkdir -p "$obj/kit"
-mapfile -t kit_sources < <(find "$kit/src/gfx" "$kit/src/ui" "$kit/src/core" "$kit/src/audio" "$kit/src/third_party" \
-    "$kit/src/platform/ps5" -type f \( -name '*.cpp' -o -name '*.c' \) ! -name display_egl.cpp | sort)
-kit_objects=()
-for src in "${kit_sources[@]}"; do
-    o="$obj/kit/$(echo "${src#"$kit/src/"}" | tr '/' '_').o"
-    kit_objects+=("$o")
-    [ -f "$o" ] && [ "$o" -nt "$src" ] && continue
-    if [[ $src == *.c ]]; then
-        "$app_src/ps5cc" -std=c11 -O2 -w -I "$kit/src" -c "$src" -o "$o" &
-    else
-        cxx "${kitflags[@]}" -w -c "$src" -o "$o" &
+# ---- the screen (display builds only) --------------------------------------------
+gl=
+if [ "$display" = 1 ]; then
+    # ps5-opengl (EGL, OpenGL 4.6) is a Mesa of its own, and shares thousands of
+    # symbol names with RADV's. Linked into one object with only the GL and EGL API
+    # left global, the two never meet. Rebuilt when the SDK changes.
+    gl="$out/gl/gl_api.o"
+    if [ ! -f "$gl" ] || [ "$glsdk/lib/libPS5OpenGL.a" -nt "$gl" ]; then
+        mkdir -p "$out/gl"
+        gllibs=()
+        for l in $(sed -n '/GROUP (/,/)/p' "$glsdk/lib/libPS5OpenGL.a" | grep -oE 'lib[a-z0-9_.]+\.a'); do
+            gllibs+=("$glsdk/lib/$l")
+        done
+        "$sdk/bin/llvm-nm" --defined-only -g "$glsdk/lib/libps5_opengl_core33.a" "$glsdk/lib/libglapi_bridge.a" \
+            "$glsdk/lib/libglapi.a" 2>/dev/null | awk 'NF>=3 && $2 ~ /[TW]/ {print $3}' |
+            grep -E '^(gl|egl)[A-Z]|^ps5_opengl' | sort -u > "$out/gl/api.txt"
+        us=()
+        while read -r name; do us+=(-u "$name"); done < "$out/gl/api.txt"
+        "$sdk/bin/ld.lld" -r "${us[@]}" -u ps5_agc_gate2_run --start-group "${gllibs[@]}" --end-group \
+            -o "$out/gl/gl_all.o"
+        "$sdk/bin/llvm-objcopy" --keep-global-symbols="$out/gl/api.txt" "$out/gl/gl_all.o" "$gl"
+        rm -f "$out/gl/gl_all.o" "$out/gl/libps5sd_gl.a"
+        # In an archive, so --exclude-libs keeps the API local: SDK stub modules
+        # define EGL names too, and lld would export ours to interpose them.
+        "$sdk/bin/llvm-ar" rcs "$out/gl/libps5sd_gl.a" "$gl"
     fi
-    (( $(jobs -r | wc -l) >= $(nproc) )) && wait -n
-done
-wait
-rm -f "$obj/libps5sd_kit.a"
-"$sdk/bin/llvm-ar" rcs "$obj/libps5sd_kit.a" "${kit_objects[@]}"
+    # ps5-homebrew-ui's kit (gfx, ui, core, audio and its console platform layer,
+    # without its shell, designs or demo), drawn through ps5-opengl. The status
+    # screen uses a little of it; the archive only gives the link what it needs.
+    kitflags=(-O2 -ffunction-sections -fdata-sections "${kitinc[@]}" -I "$app_src")
+    mkdir -p "$obj/kit"
+    mapfile -t kit_sources < <(find "$kit/src/gfx" "$kit/src/ui" "$kit/src/core" "$kit/src/audio" "$kit/src/third_party" \
+        "$kit/src/platform/ps5" -type f \( -name '*.cpp' -o -name '*.c' \) ! -name display_egl.cpp | sort)
+    kit_objects=()
+    for src in "${kit_sources[@]}"; do
+        o="$obj/kit/$(echo "${src#"$kit/src/"}" | tr '/' '_').o"
+        kit_objects+=("$o")
+        [ -f "$o" ] && [ "$o" -nt "$src" ] && continue
+        if [[ $src == *.c ]]; then
+            "$app_src/ps5cc" -std=c11 -O2 -w -I "$kit/src" -c "$src" -o "$o" &
+        else
+            cxx "${kitflags[@]}" -w -c "$src" -o "$o" &
+        fi
+        (( $(jobs -r | wc -l) >= $(nproc) )) && wait -n
+    done
+    wait
+    rm -f "$obj/libps5sd_kit.a"
+    "$sdk/bin/llvm-ar" rcs "$obj/libps5sd_kit.a" "${kit_objects[@]}"
+fi
 
 # ---- AGC ---------------------------------------------------------------------------
 # AGC comes from system modules; these stubs only name the imports, every one
-# either driver (the GL object, RADV) makes.
-agc_imports=$("$sdk/bin/llvm-nm" -u "$gl" "$archive" 2>/dev/null | awk '{print $NF}' | grep -E '^sceAgc' | sort -u)
+# either driver (the GL object, RADV; RADV alone without a display) makes.
+agc_imports=$("$sdk/bin/llvm-nm" -u $gl "$archive" 2>/dev/null | awk '{print $NF}' | grep -E '^sceAgc' | sort -u)
 for lib in libSceAgc libSceAgcDriver; do
     stub_c="$out/stubs/$lib.c"
     : > "$stub_c"
@@ -241,9 +285,11 @@ for f in "${radv_link_flags[@]}"; do
     case $f in --defsym=getaddrinfo=*|--defsym=freeaddrinfo=*) ;; *) link_flags+=("$f") ;; esac
 done
 # Both drivers initialise AGC; display.cpp's wrap lets the first call do it.
-link_flags+=(--wrap=sceAgcInit)
+# Without a display RADV is the only caller, once, and needs no wrap.
+[ "$display" = 1 ] && link_flags+=(--wrap=sceAgcInit)
 mapfile -t sd_libs < <(find "$out/sd" -name '*.a' | sort)
-local_archives=("${sd_libs[@]}" "$obj/libps5sd_kit.a" "$obj/libps5app_compat.a" "$out/gl/libps5sd_gl.a")
+local_archives=("${sd_libs[@]}" "$obj/libps5app_compat.a")
+[ "$display" = 1 ] && local_archives+=("$obj/libps5sd_kit.a" "$out/gl/libps5sd_gl.a")
 sdk_stubs=("$sdk"/target/lib/*.so)
 
 # ---- missing symbols report --------------------------------------------------------
@@ -344,7 +390,9 @@ fi
 cp "$sce_sys/icon0.png" "$assets/pic0.dds" "$assets/pic1.dds" "$app/sce_sys/"
 cp "$vk/runtime/libc.prx" "$app/sce_module/libc.prx"
 # The status screen's font (ps5-homebrew-ui's DejaVu Sans Mono), with its licence.
-mkdir -p "$app/assets/fonts"
-cp "$kit/assets/fonts/"{dejavu-sans-mono.huifont,DejaVu-LICENSE.txt} "$app/assets/fonts/"
+if [ "$display" = 1 ]; then
+    mkdir -p "$app/assets/fonts"
+    cp "$kit/assets/fonts/"{dejavu-sans-mono.huifont,DejaVu-LICENSE.txt} "$app/assets/fonts/"
+fi
 "$tool" self --inspect --file "$app/eboot.bin" > /dev/null
-echo "build-app: $app ($(stat -c %s "$app/eboot.bin") bytes)"
+echo "build-app: $app ($(stat -c %s "$app/eboot.bin") bytes, $([ "$display" = 1 ] && echo "with" || echo "without") a display)"

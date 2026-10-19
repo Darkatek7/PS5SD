@@ -13,6 +13,13 @@
 // 16 MiB stack; the main thread draws the screen and waits for
 // /data/PS5SD/quit. The app logs to /data/PS5SD/app.log.
 //
+// Built with PS5SD_NO_DISPLAY (scripts/build-app.sh with PS5SD_DISPLAY=0, or
+// when the ps5-opengl SDK is not available), the app has no screen: no
+// ps5-opengl, no ps5-homebrew-ui. Each phase then goes to app.log, the kernel
+// log (klogsrv) and a system notification, and the sampling progress to a
+// notification every quarter of the steps. The main thread only waits for
+// /data/PS5SD/quit.
+//
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include <pthread.h>
@@ -32,17 +39,20 @@
 
 #include <vulkan/vulkan_core.h>
 
-#include "display.hpp"
+#include "app_status.hpp"
 #include "gen_args.hpp"
 #include "ggml-backend.h"
 #include "stable-diffusion.h"
-#include "status_view.hpp"
 #include "version.hpp"
 
 #include <ps5platform/heap.h>
 #include <ps5platform/kernel.h>
 
+#ifndef PS5SD_NO_DISPLAY
+#include "display.hpp"
 #include "gfx/renderer.hpp"
+#include "status_view.hpp"
+#endif
 
 // sd.cpp's copy of stb_image_write (it takes a PNG text chunk); the library
 // itself does not compile one, so the app does, privately.
@@ -79,6 +89,10 @@ int sceSystemServiceHideSplashScreen(void);
 int sceKernelSendNotificationRequest(uint32_t device, void * request, size_t size, int blocking);
 int sceKernelUsleep(uint32_t microseconds);
 int sceSystemServiceLoadExec(const char * path, const char * const * args);
+int sceKernelDebugOutText(int channel, const char * text);
+#ifdef PS5SD_NO_DISPLAY
+int sceVideoOutOpen(int32_t user_id, int32_t bus_type, int32_t index, const void * param);
+#endif
 }
 
 namespace {
@@ -92,7 +106,9 @@ constexpr const char * kModel   = "/data/PS5SD/model.txt";
 constexpr const char * kEnv     = "/data/PS5SD/env.txt";  // driver and ggml switches, for measuring
 constexpr const char * kQuit    = "/data/PS5SD/quit";
 constexpr const char * kOutputs = "/data/PS5SD/outputs";
+#ifndef PS5SD_NO_DISPLAY
 constexpr const char * kFont    = "/app0/assets/fonts/dejavu-sans-mono.huifont";
+#endif
 constexpr double       kGiB     = 1073741824.0;
 
 AppStatus g_status;
@@ -119,6 +135,34 @@ void notify(const char * text) {
     } request = {};
     std::snprintf(request.message, sizeof(request.message), "%s", text);
     sceKernelSendNotificationRequest(0, &request, sizeof(request), 0);
+}
+
+// One line to the kernel log, which klogsrv streams to the PC
+// (scripts/ps5sd-app.sh log -f).
+void klog(const std::string & line) {
+    sceKernelDebugOutText(0, (line + "\n").c_str());
+}
+
+// What the app is doing: on the screen, the log and the kernel log, and
+// without a screen (PS5SD_NO_DISPLAY) in a notification too.
+void set_phase(const std::string & phase, const std::string & detail = {}) {
+    g_status.set_phase(phase, detail);
+    const std::string line = "PS5SD: " + phase + (detail.empty() ? "" : ": " + detail);
+    std::printf("ps5sd: status: %s\n", line.c_str());
+    klog(line);
+#ifdef PS5SD_NO_DISPLAY
+    notify(line.c_str());
+#endif
+}
+
+// A notification for an outcome the screen also shows; the no-display build
+// has already sent one for the phase (set_phase).
+void notify_outcome(const char * text) {
+#ifndef PS5SD_NO_DISPLAY
+    notify(text);
+#else
+    (void) text;
+#endif
 }
 
 // A quit request from the PC: the app ends itself the way the system expects
@@ -177,6 +221,21 @@ void on_progress(int step, int steps, float seconds, void *) {
     last = now;
     std::printf("ps5sd: step %d/%d, %.3f s/it (%.3f s since the last)\n", step, steps, seconds, wall);
     g_status.set_progress(step, steps, seconds);
+#ifdef PS5SD_NO_DISPLAY
+    // Without a screen, a notification at each quarter of the steps.
+    static int last_quarter = -1;
+    const int  quarter      = steps > 0 ? step * 4 / steps : 0;
+    if (step <= 1) {
+        last_quarter = 0;
+    }
+    if (steps > 0 && quarter > last_quarter) {
+        last_quarter = quarter;
+        char line[128];
+        std::snprintf(line, sizeof(line), "PS5SD: step %d/%d, %.2f s/it", step, steps, seconds);
+        klog(line);
+        notify(line);
+    }
+#endif
 }
 
 // /data/PS5SD/outputs/YYYYMMDD-HHMMSS.png, in the console's local time.
@@ -209,8 +268,8 @@ void generate_once() {
     std::string error;
     if (!parse_gen_args(read_lines(kArgs), options, error)) {
         std::printf("ps5sd: %s\n", error.c_str());
-        g_status.set_phase("Nothing to do", error);
-        notify(("PS5SD: " + error).c_str());
+        set_phase("Nothing to do", error);
+        notify_outcome(("PS5SD: " + error).c_str());
         return;
     }
     sd_ctx_params_t     ctx_params;
@@ -222,14 +281,14 @@ void generate_once() {
     }
 
     const std::string model = options.model.empty() ? options.diffusion_model : options.model;
-    g_status.set_phase("Loading the model", model);
+    set_phase("Loading the model", model);
     const auto t0 = std::chrono::steady_clock::now();
     sd_ctx_t * ctx = new_sd_ctx(&ctx_params);
     const auto t1 = std::chrono::steady_clock::now();
     if (ctx == nullptr) {
         std::printf("ps5sd: the model did not load\n");
-        g_status.set_phase("The model did not load", "See /data/PS5SD/app.log");
-        notify("PS5SD: the model did not load, see /data/PS5SD/app.log");
+        set_phase("The model did not load", "See /data/PS5SD/app.log");
+        notify_outcome("PS5SD: the model did not load, see /data/PS5SD/app.log");
         log_memory("after a failed load");
         return;
     }
@@ -240,7 +299,7 @@ void generate_once() {
         std::printf("ps5sd: generation\n%s", text);
         std::free(text);
     }
-    g_status.set_phase("Generating", options.prompt);
+    set_phase("Generating", options.prompt);
     sd_image_t * images = nullptr;
     int          count  = 0;
     const bool   ok     = generate_image(ctx, &gen_params, &images, &count);
@@ -265,11 +324,11 @@ void generate_once() {
         if (saved) {
             g_status.set_result(path);
         }
-        g_status.set_phase(saved ? "Done" : "The image could not be saved", path);
-        notify(saved ? "PS5SD: image saved to /data/PS5SD/outputs" : "PS5SD: the image could not be saved");
+        set_phase(saved ? "Done" : "The image could not be saved", path);
+        notify_outcome(saved ? "PS5SD: image saved to /data/PS5SD/outputs" : "PS5SD: the image could not be saved");
     } else {
-        g_status.set_phase("Generation failed", "See /data/PS5SD/app.log");
-        notify("PS5SD: generation failed, see /data/PS5SD/app.log");
+        set_phase("Generation failed", "See /data/PS5SD/app.log");
+        notify_outcome("PS5SD: generation failed, see /data/PS5SD/app.log");
     }
     free_sd_images(images, count);
     free_sd_ctx(ctx);
@@ -288,10 +347,10 @@ void start_thread(std::function<void()> & fn) {
             (*static_cast<std::function<void()> *>(p))();
         } catch (const std::exception & e) {
             std::printf("ps5sd: exception: %s\n", e.what());
-            g_status.set_phase("Stopped by an error", e.what());
+            set_phase("Stopped by an error", e.what());
         } catch (...) {
             std::printf("ps5sd: unknown exception\n");
-            g_status.set_phase("Stopped by an error", "unknown exception");
+            set_phase("Stopped by an error", "unknown exception");
         }
         std::fflush(nullptr);
         return nullptr;
@@ -316,12 +375,13 @@ int main(int, char **) {
     setenv("radv_enable_unified_heap_on_apu", "true", 1);
     setenv("HOME", kDir, 0);
     // Driver and backend switches to measure with, one NAME=value a line in
-    // env.txt, set before the GPU opens; only the driver's, ggml's and sd's.
+    // env.txt, set before the GPU opens; only the driver's, ggml's, sd's and
+    // the app's own (PS5SD_VIDEOOUT).
     for (const auto & line : read_lines(kEnv)) {
         const size_t      eq   = line.find('=');
         const std::string name = line.substr(0, eq == std::string::npos ? 0 : eq);
         bool known = false;
-        for (const char * prefix : { "RADV_", "MESA_", "ACO_", "GGML_", "SD_" }) {
+        for (const char * prefix : { "RADV_", "MESA_", "ACO_", "GGML_", "SD_", "PS5SD_" }) {
             known = known || name.rfind(prefix, 0) == 0;
         }
         if (known) {
@@ -333,6 +393,7 @@ int main(int, char **) {
     sd_set_progress_callback(on_progress, nullptr);
     std::printf("ps5sd: %s\n", sd_get_system_info());
 
+#ifndef PS5SD_NO_DISPLAY
     // The screen first: it takes from the same memory as the model.
     Display display;
     if (!display.open(1920, 1080)) {
@@ -352,13 +413,25 @@ int main(int, char **) {
         renderer.draw(scene);
         display.present(renderer);
     };
-    g_status.set_phase("Opening the GPU");
+    set_phase("Opening the GPU");
     if (ui_ok) {
         render();
         display.swap();
     }
     sceSystemServiceHideSplashScreen();
     notify("PS5SD: starting");
+#else
+    std::printf("ps5sd: built without a display (PS5SD_NO_DISPLAY): status in this log, klog and notifications\n");
+    // Nothing opens the video output in this build. PS5SD_VIDEOOUT=1 in
+    // env.txt opens the main one for the system user, in case the shell wants
+    // a title to hold one (not seen in PS5LM; see docs/PORTING.md).
+    if (const char * v = std::getenv("PS5SD_VIDEOOUT"); v != nullptr && std::string(v) == "1") {
+        const int handle = sceVideoOutOpen(255, 0, 0, nullptr);
+        std::printf("ps5sd: sceVideoOutOpen: %d (0x%08x)\n", handle, (unsigned) handle);
+    }
+    sceSystemServiceHideSplashScreen();
+    set_phase("Opening the GPU", "version " PS5SD_VERSION ", no display");
+#endif
 
     // TODO(server): run sd_server(argc, argv) from sd-server-lib
     // (patches/sdcpp/0050, SD_SERVER_LIBRARY=ON in scripts/build-app.sh) here
@@ -371,6 +444,7 @@ int main(int, char **) {
     std::function<void()> work = generate_once;
     start_thread(work);
 
+#ifndef PS5SD_NO_DISPLAY
     // The screen and the quit request until the system closes the title: a
     // title may not return from main or exit.
     for (uint64_t n = 0;; ++n) {
@@ -384,4 +458,12 @@ int main(int, char **) {
             quit_if_asked();
         }
     }
+#else
+    // The quit request until the system closes the title: a title may not
+    // return from main or exit.
+    for (;;) {
+        sceKernelUsleep(500 * 1000);
+        quit_if_asked();
+    }
+#endif
 }

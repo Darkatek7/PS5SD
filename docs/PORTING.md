@@ -61,7 +61,13 @@ PS5LM's `build-app.sh`, with llama.cpp replaced by stable-diffusion.cpp:
    exports), `-e _start`. Then `ps5-native-tool link` and `self --sign`, and the title folder:
    `eboot.bin`, `sce_sys` (param.json, icon, backgrounds made by PS5_Vulkan's asset tools),
    `sce_module/libc.prx`, `assets/fonts`.
-6. **Two reports for CI**: before the link, `build/app-ps5/missing-symbols.txt` lists names the
+6. **Without a display** (`PS5SD_DISPLAY=0`, or `auto` when no ps5-opengl SDK is found): steps 3
+   and 4 lose their GL parts. `main.cpp` is built with `-DPS5SD_NO_DISPLAY`, `display.cpp`,
+   `status_view.cpp`, the kit archive and the GL object are left out, the AGC stubs come from
+   RADV's imports alone, `--wrap=sceAgcInit` is not used (it exists only so the two drivers share
+   one initialisation; RADV alone calls it once, as PS5_Vulkan's own titles do) and the title has
+   no `assets/fonts`. See "The app" for what the app does instead of drawing.
+7. **Two reports for CI**: before the link, `build/app-ps5/missing-symbols.txt` lists names the
    inputs reference that nothing defines (objects, archives, SDK stubs, AGC stubs, `--defsym`,
    `--wrap`); unused archive members count too, so it is a list of suspects. After the link,
    imports that only a null module defines are printed as warnings: each wants a definition in
@@ -153,7 +159,7 @@ instead of trapping, so `main.cpp` reports an out-of-memory load or generation a
 ## The app (`ps5/app`)
 
 - `main.cpp`: PS5LM's boot order: log to `/data/PS5SD/app.log`, `radv_enable_unified_heap_on_apu`
-  and `HOME`, `env.txt` switches (`RADV_`, `MESA_`, `ACO_`, `GGML_`, `SD_`) before the GPU opens,
+  and `HOME`, `env.txt` switches (`RADV_`, `MESA_`, `ACO_`, `GGML_`, `SD_`, `PS5SD_`) before the GPU opens,
   the screen first (it takes from the same memory as the model), splash hidden, then the work on
   a 16 MiB-stack thread while the main thread draws and polls for `quit`. The work is one image:
   the model from `model.txt`, options from `app-args.txt` (`gen_args.cpp`: `--model`,
@@ -163,6 +169,21 @@ instead of trapping, so `main.cpp` reports an out-of-memory load or generation a
   seed 42), backend `Vulkan`, auto-fit and mmap off, per-step timing from the progress callback
   and the direct-memory figure before and after each phase in the log, the PNG (with a
   `parameters` text chunk) in `/data/PS5SD/outputs`.
+- Without a display (`PS5SD_NO_DISPLAY`): no `Display`, no renderer. Every phase (`set_phase`)
+  goes to `app.log` as `ps5sd: status: ...`, to the kernel log through `sceKernelDebugOutText`
+  (klogsrv, `scripts/ps5sd-app.sh log -f`) and to a system notification; the sampling progress
+  sends a notification at each quarter of the steps. The splash is hidden at once and the main
+  thread only polls for `quit` (and leaves through `LoadExec("exit")`, never `exit()`).
+  The launch payload starts the title for the foreground user, so the ~20 s end of a title
+  started without a user does not apply. Whether a title that never opens a video output is a
+  problem: nothing in PS5LM says so (its CONSOLE.md has the title hide the splash itself and
+  show its state through notifications, and has no note of a title closed for having no
+  screen); RADV opens no video output (ggml computes, it makes no swapchain). *Unverified.* If
+  the shell closes the title or keeps the splash, `PS5SD_VIDEOOUT=1` in `env.txt` makes the app
+  call `sceVideoOutOpen(255 /* system user */, 0 /* main bus */, 0, NULL)` before hiding the
+  splash, and logs the handle; nothing is drawn into it.
+- `app_status.cpp`: what the app is doing (phase, progress, memory, result, the log's last
+  lines), shared by the screen and the no-display build; no ps5-homebrew-ui in it.
 - `display.cpp`: PS5LM's EGL/OpenGL 4.6 context through ps5-opengl, the `sceAgcInit` wrap (both
   drivers initialise AGC; the first call does it, the others wait for its answer) and the GL
   runtime's empty thread-local initialiser.
