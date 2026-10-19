@@ -8,6 +8,7 @@
 #     build/host/ps5-native-tool, runtime/libc.prx         from `make app`
 #   .deps/src/PS5_Mesa, .deps/src/PS5_PayloadSDK           its forks, next to it
 #   .deps/src/ps5-homebrew-dev-protocol                    the launch payload the deploy script uses
+#   .deps/mbedtls-ps5                                      mbedTLS for the model downloader (scripts/build-mbedtls.sh)
 #   .deps/ps5-opengl-sdk                                   ps5-opengl, for the screen (scripts/build-opengl-sdk.sh:
 #                                                          the original release if it verifies, else built from source)
 #
@@ -178,6 +179,10 @@ if [ "${PS5SD_DISPLAY:-auto}" != 0 ]; then
         glsdk="(none)"
     fi
 fi
+
+# mbedTLS for the model downloader (build-app.sh also runs this; it skips a build in place).
+log "mbedTLS: scripts/build-mbedtls.sh"
+PS5_VULKAN_ROOT="$vk" PS5_PAYLOAD_SDK="$sdk" bash "$root/scripts/build-mbedtls.sh"
 
 # the deploy script builds the launch payload with $root/.deps/ps5-payload-sdk.
 if [ ! -e "$root/.deps/ps5-payload-sdk" ]; then

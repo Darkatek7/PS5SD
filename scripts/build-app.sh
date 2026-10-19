@@ -4,7 +4,7 @@
 # Builds PS5SD's native app: stable-diffusion.cpp with ggml-vulkan on RADV, as
 # a title folder (eboot.bin, sce_sys/param.json, sce_module/libc.prx) for
 # ShadowMountPlus, in build/app-ps5/title/<TITLE_ID>. The icon and the home
-# screen background come from ps5/app/sce_sys (placeholders for now).
+# screen background come from ps5/app/sce_sys (the background is a placeholder for now).
 #
 # Needs PS5_Vulkan next to its forks (.deps/src: PS5_Vulkan, PS5_Mesa,
 # PS5_PayloadSDK), set up by scripts/setup-deps.sh (PS5_Vulkan's
@@ -39,6 +39,16 @@ out="$root/build/app-ps5"
 headers="$root/.deps/ps5-vk-headers"
 sce_sys="$app_src/sce_sys"
 param="$sce_sys/param.json"
+
+# version.hpp's PS5SD_VERSION and param.json's contentVersion name one
+# version (0.1.0 is 01.001.000: major+1, minor, patch); a release needs both.
+version=$(sed -n 's/^#define PS5SD_VERSION "\(.*\)"$/\1/p' "$app_src/version.hpp")
+content=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["contentVersion"])' "$param")
+expected=$(echo "$version" | awk -F. '{ printf "%02d.%03d.%03d", $1 + 1, $2, $3 }')
+[ "$content" = "$expected" ] || {
+    echo "build-app: version.hpp says $version, so param.json's contentVersion must be $expected, not $content" >&2
+    exit 2
+}
 
 [ -f "$sd/CMakeLists.txt" ] && [ -f "$ggml/CMakeLists.txt" ] && [ -d "$kit/src" ] || {
     echo "build-app: submodules missing; run: git submodule update --init third_party/stable-diffusion.cpp" \
@@ -77,6 +87,10 @@ for f in "$archive" "$tool" "$vk/runtime/libc.prx" "$sdk/bin/prospero-lld"; do
 done
 export PS5_PAYLOAD_SDK="$sdk" PS5_VULKAN_ROOT="$vk"
 mkdir -p "$out"
+# mbedTLS for the model downloader's HTTPS (scripts/build-mbedtls.sh; skipped
+# when built already).
+bash "$root/scripts/build-mbedtls.sh"
+mbedtls="$root/.deps/mbedtls-ps5"
 
 # radv-link.sh takes Clang's builtins from <resource dir>/lib/linux/, where
 # Debian and Arch put them; Fedora keeps them under the target triple. A clang
@@ -194,10 +208,23 @@ cxx "${eh[@]}" -I "$headers/include" "${sdinc[@]}" "${kitinc[@]}" -I "$app_src" 
     -c "$app_src/main.cpp" -o "$obj/main.o"
 cxx "${eh[@]}" "${sdinc[@]}" -c "$app_src/gen_args.cpp" -o "$obj/gen_args.o"
 cxx "${eh[@]}" -c "$app_src/app_status.cpp" -o "$obj/app_status.o"
+# The model library (presets, checkpoints) and its JSON, with sd.cpp's nlohmann json; C++17,
+# where path::u8string() is a std::string (C++20 makes it std::u8string).
+cxx -std=c++17 "${eh[@]}" -I "$sd/thirdparty" -c "$app_src/models.cpp" -o "$obj/models.o"
+# The model downloader (downloader.hpp): its pure part, the queue and routes, and the HTTPS
+# client over mbedTLS with the Mozilla CA list (ps5/app/cacert.pem) built in.
+ca_h="$out/cacert_pem.h"
+sh "$root/scripts/embed-file.sh" "$app_src/cacert.pem" ps5sd_cacert_pem "$ca_h.new"
+cmp -s "$ca_h.new" "$ca_h" 2> /dev/null && rm -f "$ca_h.new" || mv -f "$ca_h.new" "$ca_h"
+cxx -std=c++17 "${eh[@]}" -I "$sd/thirdparty" -c "$app_src/download_core.cpp" -o "$obj/download_core.o"
+cxx -std=c++17 "${eh[@]}" -I "$sd/thirdparty" -c "$app_src/downloader.cpp" -o "$obj/downloader.o"
+cxx -std=c++17 "${eh[@]}" -I "$mbedtls/include" -I "$out" -c "$app_src/https_client.cpp" -o "$obj/https_client.o"
 if [ "$display" = 1 ]; then
-    for src in display status_view; do
+    for src in display dashboard; do
         cxx "${eh[@]}" "${kitinc[@]}" -I "$app_src" -c "$app_src/$src.cpp" -o "$obj/$src.o"
     done
+    # The dashboard decodes the finished PNGs with sd.cpp's stb_image (private to this object).
+    cxx "${eh[@]}" -I "$sd/thirdparty" -I "$app_src" -c "$app_src/image_file.cpp" -o "$obj/image_file.o"
 fi
 app_cc -c "$app_src/compat_app.c" -o "$obj/compat_app.o"
 # In an archive, so --exclude-libs keeps them local: a stub module defines some
@@ -207,8 +234,9 @@ rm -f "$obj/libps5app_compat.a"
 "$sdk/bin/llvm-ar" rcs "$obj/libps5app_compat.a" "$obj/compat_app.o"
 cxx -fno-exceptions -fno-rtti -c "$vk/tooling/native/app_crt.cpp" -o "$obj/app_crt.o"
 cxx -fexceptions -fcxx-exceptions -c "$app_src/cpp_runtime.cpp" -o "$obj/app_cpp_runtime.o"
-app_objects=("$obj/app_crt.o" "$obj/app_cpp_runtime.o" "$obj/main.o" "$obj/gen_args.o" "$obj/app_status.o")
-[ "$display" = 1 ] && app_objects+=("$obj/display.o" "$obj/status_view.o")
+app_objects=("$obj/app_crt.o" "$obj/app_cpp_runtime.o" "$obj/main.o" "$obj/gen_args.o" "$obj/app_status.o"
+    "$obj/models.o" "$obj/download_core.o" "$obj/downloader.o" "$obj/https_client.o")
+[ "$display" = 1 ] && app_objects+=("$obj/display.o" "$obj/dashboard.o" "$obj/image_file.o")
 
 # ---- the screen (display builds only) --------------------------------------------
 gl=
@@ -293,6 +321,10 @@ done
 [ "$display" = 1 ] && link_flags+=(--wrap=sceAgcInit)
 mapfile -t sd_libs < <(find "$out/sd" -name '*.a' | sort)
 local_archives=("${sd_libs[@]}" "$obj/libps5app_compat.a")
+# mbedTLS, in the archive group so --exclude-libs keeps it local.
+for l in mbedtls mbedx509 mbedcrypto everest p256m; do
+    [ -f "$mbedtls/lib/lib$l.a" ] && local_archives+=("$mbedtls/lib/lib$l.a")
+done
 [ "$display" = 1 ] && local_archives+=("$obj/libps5sd_kit.a" "$out/gl/libps5sd_gl.a")
 sdk_stubs=("$sdk"/target/lib/*.so)
 
@@ -381,8 +413,9 @@ mkdir -p "$app/sce_sys" "$app/sce_module"
 cp "$param" "$app/sce_sys/param.json"
 # The home screen backgrounds (3840x2160 BC7 DDS) are made from
 # sce_sys/source/background.png by PS5_Vulkan's asset tools, and only when it
-# changes. TODO: the icon and the background are generated placeholders;
-# replace them with PS5SD artwork (ShadowMountPlus copies them at registration).
+# changes. The icon was made on the console with FLUX.3 Klein (docs/PORTING.md);
+# TODO: the background is still a generated placeholder (ShadowMountPlus copies
+# both at registration).
 assets="$out/assets"
 if [ ! -f "$assets/pic0.dds" ] || [ "$sce_sys/source/background.png" -nt "$assets/pic0.dds" ] ||
     [ "$sce_sys/icon0.png" -nt "$assets/pic0.dds" ]; then
@@ -391,12 +424,21 @@ if [ ! -f "$assets/pic0.dds" ] || [ "$sce_sys/source/background.png" -nt "$asset
         bash tools/prepare-assets.sh --icon "$sce_sys/icon0.png" --background "$sce_sys/source/background.png" \
             --output-directory "$assets" > /dev/null)
 fi
-cp "$sce_sys/icon0.png" "$assets/pic0.dds" "$assets/pic1.dds" "$app/sce_sys/"
+# icon0.dds (BC7, 512x512, one mip) is what the home screen draws; icon0.png
+# is the package's. Both are committed; after a new icon0.png, make the .dds
+# again on Windows: texconv -f BC7_UNORM -m 1 -y -o ps5/app/sce_sys ps5/app/sce_sys/icon0.png
+[ ! "$sce_sys/icon0.png" -nt "$sce_sys/icon0.dds" ] || {
+    echo "build-app: sce_sys/icon0.dds is older than icon0.png; make it again (texconv, see above)" >&2
+    exit 2
+}
+cp "$sce_sys/icon0.png" "$sce_sys/icon0.dds" "$assets/pic0.dds" "$assets/pic1.dds" "$app/sce_sys/"
 cp "$vk/runtime/libc.prx" "$app/sce_module/libc.prx"
-# The status screen's font (ps5-homebrew-ui's DejaVu Sans Mono), with its licence.
+# The dashboard's fonts (ps5-homebrew-ui's Inter, Montserrat and DejaVu Sans Mono), with their
+# licences. main.cpp passes the DejaVu path; Dashboard::load reads the others from its folder.
 if [ "$display" = 1 ]; then
     mkdir -p "$app/assets/fonts"
-    cp "$kit/assets/fonts/"{dejavu-sans-mono.huifont,DejaVu-LICENSE.txt} "$app/assets/fonts/"
+    cp "$kit/assets/fonts/"{inter-regular,inter-semibold,montserrat-medium,dejavu-sans-mono}.huifont \
+        "$kit/assets/fonts/"{Inter,Montserrat,DejaVu}-LICENSE.txt "$app/assets/fonts/"
 fi
 "$tool" self --inspect --file "$app/eboot.bin" > /dev/null
 echo "build-app: $app ($(stat -c %s "$app/eboot.bin") bytes, $([ "$display" = 1 ] && echo "with" || echo "without") a display)"

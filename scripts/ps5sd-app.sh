@@ -5,6 +5,8 @@
 #   scripts/fetch-artifact.sh                  get CI's title folder and launch payload first
 #   scripts/ps5sd-app.sh status                ports, /data/homebrew/PPSA99576, /data/PS5SD
 #   scripts/ps5sd-app.sh deploy [--force]      upload build/app-ps5/title/PPSA99576 (changed files only)
+#   scripts/ps5sd-app.sh appmeta [--force]     only the home screen's copy of the icon and backgrounds
+#                                              (/user/appmeta/PPSA99576; deploy does this too)
 #   scripts/ps5sd-app.sh launch                start the title (build/tools/launch.elf to elfldr)
 #   scripts/ps5sd-app.sh close                 ask the app to end itself (/data/PS5SD/quit), wait
 #   scripts/ps5sd-app.sh cycle                 close, deploy, launch
@@ -157,7 +159,30 @@ deploy() {
     rm -f "$manifest.partial"
 
     ensure_data_dirs
+    sync_appmeta "$force"
     say "deployed $title: $sent uploaded, $skipped unchanged of $total files"
+}
+
+# The home screen shows the icon and the backgrounds from /user/appmeta/<title>,
+# which the system copies once, when ShadowMountPlus registers the title; a
+# new icon0.png in /data/homebrew alone never shows. Keeps that copy in step,
+# when the title is registered (its param.json is there).
+sync_appmeta() { # [true: upload even if unchanged]
+    local meta="/user/appmeta/$title" manifest="$root/build/app-ps5/.appmeta-$host-$title" m sha size
+    [ -n "$(ftp_size "$meta/param.json")" ] || { say "not registered yet: no $meta to update"; return 0; }
+    touch "$manifest"
+    for m in icon0.png icon0.dds pic0.dds pic1.dds; do
+        [ -f "$app/sce_sys/$m" ] || continue
+        sha=$(sha_of "$app/sce_sys/$m")
+        size=$(wc -c < "$app/sce_sys/$m" | tr -d ' ')
+        if [ "${1:-false}" != true ] && grep -qx "$sha $m" "$manifest" && [ "$(ftp_size "$meta/$m")" = "$size" ]; then
+            continue
+        fi
+        say "upload $meta/$m ($size bytes)"
+        ftp_put "$app/sce_sys/$m" "$meta/$m" || die "upload of $meta/$m failed"
+        { grep -v " $m\$" "$manifest" || true; printf '%s %s\n' "$sha" "$m"; } > "$manifest.new"
+        mv "$manifest.new" "$manifest"
+    done
 }
 
 launch() {
@@ -262,6 +287,7 @@ outputs() {
 case ${1:-} in
     status) status ;;
     deploy) deploy "${2:-}" ;;
+    appmeta) port_open "$ftp_port" || die "ftpsrv ($host:$ftp_port) is not reachable"; sync_appmeta "$([ "${2:-}" = --force ] && echo true || echo false)" ;;
     launch) launch ;;
     close) close ;;
     cycle) cycle ;;

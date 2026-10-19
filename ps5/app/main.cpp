@@ -7,13 +7,19 @@
 // A title gets the console's direct memory (12 GiB) where a payload gets none,
 // and RADV turns it into Vulkan device memory, so the whole model sits on the
 // GPU. The app runs stable-diffusion.cpp's HTTP server (sd_server() from
-// sd-server-lib, patches/sdcpp/0050-0053) on port 7860: the OpenAI and A1111
+// sd-server-lib, patches/sdcpp/0050-0054) on port 7860: the OpenAI and A1111
 // image APIs, sd.cpp's own, the web UI (ps5/webui) at / and the gallery of
-// /data/PS5SD/outputs. The model's path comes from /data/PS5SD/model.txt,
-// more of sd-server's arguments from /data/PS5SD/server-args.txt (one a
-// line). The server runs on its own thread with a 16 MiB stack; the main
-// thread draws the screen and waits for /data/PS5SD/quit, which stops the
-// server before the title ends.
+// /data/PS5SD/outputs. /data/PS5SD/model.txt names the model: an entry of the
+// library (models.hpp: a checkpoint in /data/PS5SD/models or a preset in
+// /data/PS5SD/presets) or a checkpoint's path; more of sd-server's arguments
+// come from /data/PS5SD/server-args.txt (one a line). The app's own routes,
+// /ps5sd/v1/app/models (list) and /ps5sd/v1/app/models/active (switch), are
+// answered here (sd_app_request), and so are the model downloader's
+// (downloader.hpp: the catalog, the download queue, Hugging Face search),
+// which runs on threads of its own. The server runs on its own thread with a
+// 16 MiB stack and is started again for a model switch; the main thread
+// draws the screen and waits for /data/PS5SD/quit, which stops the server
+// before the title ends.
 //
 // PS5SD_ONESHOT=1 in /data/PS5SD/env.txt makes one image instead ("hello
 // sd"): the model from model.txt, any of sd-cli's arguments that gen_args.cpp
@@ -41,11 +47,13 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <ctime>
 #include <exception>
 #include <fstream>
 #include <functional>
 #include <initializer_list>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -54,6 +62,8 @@
 #include "app_status.hpp"
 #include "gen_args.hpp"
 #include "ggml-backend.h"
+#include "downloader.hpp"
+#include "models.hpp"
 #include "server_hooks.h"
 #include "stable-diffusion.h"
 #include "version.hpp"
@@ -125,6 +135,8 @@ constexpr const char * kQuit    = "/data/PS5SD/quit";
 constexpr const char * kOutputs = "/data/PS5SD/outputs";
 constexpr const char * kLoras   = "/data/PS5SD/loras";
 constexpr const char * kEmbeddings = "/data/PS5SD/embeddings";
+constexpr const char * kModels  = "/data/PS5SD/models";
+constexpr const char * kPresets = "/data/PS5SD/presets";
 #ifndef PS5SD_NO_DISPLAY
 constexpr const char * kFont    = "/app0/assets/fonts/dejavu-sans-mono.huifont";
 #endif
@@ -134,13 +146,39 @@ constexpr int          kStopWaitSeconds = 120;  // how long a quit waits for the
 
 AppStatus g_status;
 
+const ModelLibrary g_library{ kModels, kPresets };
+
 // The server's life, for the quit request and the "ready" announcement:
 // started just before sd_server() is called, done once it has returned (its
-// HTTP threads and its job worker have ended, the model is freed).
+// HTTP threads and its job worker have ended, the model is freed). Both are
+// set again for every start; the worker is busy from the first start to the
+// last stop, model switches between them included.
 std::atomic<bool> g_server_started{false};
 std::atomic<bool> g_server_done{false};
+std::atomic<bool> g_worker_busy{false};
 std::atomic<int>  g_server_port{kPort};
+std::atomic<int>  g_generation{0};  // counts the server's starts
 std::atomic<bool> g_quit_requested{false};
+
+// A model switch: asked for by POST /ps5sd/v1/app/models/active (pending),
+// taken up by the main loop, which stops the server (restart), and over once
+// the new model is ready or has failed (switching).
+std::atomic<bool> g_switch_pending{false};
+std::atomic<bool> g_restart{false};
+std::atomic<bool> g_switching{false};
+// The server runs without a model (sd-server --standby, patches/sdcpp/0056).
+std::atomic<bool> g_standby{false};
+
+// The id of the model the server has ready ("" while it loads), and of the
+// last one that came up, to go back to when a switch fails.
+std::mutex  g_model_mutex;
+std::string g_loaded_id;
+std::string g_good_id;
+
+std::string loaded_id() {
+    std::lock_guard<std::mutex> lock(g_model_mutex);
+    return g_loaded_id;
+}
 
 std::vector<std::string> read_lines(const char * path) {
     std::vector<std::string> out;
@@ -211,12 +249,15 @@ void quit_if_asked() {
         g_quit_requested = true;
         asked            = clock::now();
         std::printf("ps5sd: quit requested\n");
+        // Downloads stop where they are (the queue keeps what is on disk) and
+        // carry on at the next start; the quit does not wait for them.
+        downloader_stop();
         if (g_server_started && !g_server_done) {
             set_phase("Stopping the server");
             sd_server_terminate();
         }
     }
-    if (g_server_started && !g_server_done) {
+    if (g_worker_busy) {
         if (clock::now() - asked < std::chrono::seconds(kStopWaitSeconds)) {
             return;  // asked again on the main loop's next pass
         }
@@ -316,7 +357,17 @@ void generate_once() {
 
     GenOptions options;
     if (const auto model = read_lines(kModel); !model.empty()) {
+        // A library id is the checkpoint it names; a path stays a path.
         options.model = model[0];
+        ModelEntry  entry;
+        std::string ignored;
+        if (g_library.find(model[0], entry, ignored)) {
+            for (size_t i = 0; i + 1 < entry.args.size(); i++) {
+                if (entry.args[i] == "-m" || entry.args[i] == "--model") {
+                    options.model = entry.args[i + 1];
+                }
+            }
+        }
     }
     std::string error;
     if (!parse_gen_args(read_lines(kArgs), options, error)) {
@@ -388,14 +439,49 @@ void generate_once() {
     log_memory("after freeing the model");
 }
 
-// sd-server's command line: the app's defaults, then server-args.txt (one
-// argument a line). sd-server appends to a string option given twice
-// (--backend Vulkan --backend CPU would be "Vulkan,CPU"), so a default is
-// only added when the file does not name that option itself.
-std::vector<std::string> server_args(std::string & error) {
-    const std::vector<std::string> extra = read_lines(kServerArgs);
+// One start of sd-server: its command line, and the model it loads.
+struct ServerPlan {
+    std::vector<std::string> args;
+    std::string              id;    // the library's id ("" for server-args.txt's own -m)
+    std::string              name;  // for the screen
+};
+
+// sd-server's command line: the active model's arguments (model.txt's entry
+// in the library), the app's defaults, then server-args.txt (one argument a
+// line). With an entry, server-args.txt's own model options are left out;
+// without model.txt, server-args.txt must name the model. sd-server appends
+// to a string option given twice (--backend Vulkan --backend CPU would be
+// "Vulkan,CPU"), so a default is only added when no argument names that
+// option itself.
+bool server_plan(ServerPlan & plan, std::string & error) {
+    std::vector<std::string> extra  = read_lines(kServerArgs);
+    const auto               active = read_lines(kModel);
+    std::vector<std::string> model_args;
+    if (!active.empty()) {
+        ModelEntry entry;
+        if (!g_library.find(active[0], entry, error)) {
+            error = "model.txt: " + error;
+            return false;
+        }
+        std::vector<std::string> kept;
+        for (size_t i = 0; i < extra.size(); i++) {
+            if (is_model_path_option(extra[i]) && i + 1 < extra.size()) {
+                std::printf("ps5sd: server-args.txt: %s %s left out, the model is %s\n", extra[i].c_str(),
+                            extra[i + 1].c_str(), entry.id.c_str());
+                i++;
+                continue;
+            }
+            kept.push_back(extra[i]);
+        }
+        extra      = kept;
+        model_args = entry.args;
+        plan.id    = entry.id;
+        plan.name  = entry.name;
+    }
+    std::vector<std::string> given = model_args;
+    given.insert(given.end(), extra.begin(), extra.end());
     const auto names = [&](std::initializer_list<const char *> options) {
-        for (const auto & a : extra) {
+        for (const auto & a : given) {
             for (const char * o : options) {
                 if (a == o) {
                     return true;
@@ -404,15 +490,16 @@ std::vector<std::string> server_args(std::string & error) {
         }
         return false;
     };
-    std::vector<std::string> args = { "sd-server" };
     if (!names({ "-m", "--model", "--diffusion-model" })) {
-        const auto model = read_lines(kModel);
-        if (model.empty()) {
-            error = "no model: put its path in /data/PS5SD/model.txt";
-            return {};
-        }
-        args.insert(args.end(), { "-m", model[0] });
+        error = "no model: put a model's id or path in /data/PS5SD/model.txt";
+        return false;
     }
+    if (plan.name.empty()) {
+        plan.name = read_server_config(kModel, kServerArgs, kPort).model;
+    }
+    std::vector<std::string> & args = plan.args;
+    args = { "sd-server" };
+    args.insert(args.end(), model_args.begin(), model_args.end());
     // Every interface, so the PC and the PS5's browser reach it.
     if (!names({ "-l", "--listen-ip" })) {
         args.insert(args.end(), { "--listen-ip", "0.0.0.0" });
@@ -449,60 +536,165 @@ std::vector<std::string> server_args(std::string & error) {
             g_server_port = std::atoi(args[i + 1].c_str());
         }
     }
-    return args;
+    return true;
 }
 
-// The server, on the worker thread, until a quit request stops it.
-void run_server() {
-    log_devices();
-    log_memory("before loading");
-    std::string              error;
-    std::vector<std::string> args = server_args(error);
-    if (args.empty()) {
-        std::printf("ps5sd: %s\n", error.c_str());
-        set_phase("Nothing to do", error);
-        notify_outcome(("PS5SD: " + error).c_str());
-        return;
-    }
-    std::printf("ps5sd: sd-server");
-    std::vector<char *> argv;
-    for (auto & a : args) {
-        argv.push_back(a.data());
-        if (&a != &args.front()) {
-            std::printf(" %s", a.c_str());
+// sd-server without a model: the web UI, the gallery and the app's routes,
+// so a fresh install can download and pick its first model. The listen
+// address and port as server-args.txt gives them, if it does.
+ServerPlan standby_plan() {
+    ServerPlan plan;
+    plan.name                     = "no model";
+    std::string                    ip   = "0.0.0.0";
+    std::string                    port = std::to_string(kPort);
+    const std::vector<std::string> extra = read_lines(kServerArgs);
+    for (size_t i = 0; i + 1 < extra.size(); i++) {
+        if (extra[i] == "-l" || extra[i] == "--listen-ip") {
+            ip = extra[i + 1];
+        } else if (extra[i] == "--listen-port") {
+            port = extra[i + 1];
         }
     }
-    std::printf("\n");
-    argv.push_back(nullptr);
+    g_server_port = std::atoi(port.c_str());
+    plan.args = { "sd-server", "--standby", "--listen-ip", ip, "--listen-port", port, "--output-dir", kOutputs };
+    return plan;
+}
 
-    set_phase("Loading the model", "then the API on port " + std::to_string(g_server_port.load()));
-    // Done however sd_server() ends, an exception included (start_thread
-    // reports it), so a quit request does not wait out its time for nothing.
-    struct MarkDone {
-        ~MarkDone() { g_server_done = true; }
-    } mark_done;
-    g_server_started = true;
-    const int rc     = sd_server((int) args.size(), argv.data());
-    std::printf("ps5sd: sd_server returned %d\n", rc);
-    log_memory("after the server");
-    if (g_quit_requested) {
-        set_phase("Server stopped");
-    } else if (rc != 0) {
-        // The model did not load, the port could not be bound, or an argument
-        // was wrong (the usage is in the log).
-        set_phase("The server did not start", "See /data/PS5SD/app.log");
-        notify_outcome("PS5SD: the server did not start, see /data/PS5SD/app.log");
-    } else {
-        set_phase("The server stopped", "See /data/PS5SD/app.log");
-        notify_outcome("PS5SD: the server stopped, see /data/PS5SD/app.log");
+// model.txt, written whole or not at all.
+bool write_active_model(const std::string & id) {
+    const std::string tmp = std::string(kModel) + ".tmp";
+    {
+        std::ofstream out(tmp, std::ios::binary | std::ios::trunc);
+        out << id << "\n";
+        if (!out) {
+            return false;
+        }
+    }
+    return std::rename(tmp.c_str(), kModel) == 0;
+}
+
+// The server, on the worker thread, until a quit request stops it; started
+// again with the new model after a switch, and with the last model that
+// worked when a switched-to one does not load.
+void run_server() {
+    struct NotBusy {
+        ~NotBusy() { g_worker_busy = false; }
+    } not_busy;
+    log_devices();
+    log_memory("before loading");
+    bool force_standby = false;  // a model failed to load with none to go back to
+    for (;;) {
+        std::string error;
+        ServerPlan  plan;
+        const bool  standby = force_standby || !server_plan(plan, error);
+        if (standby) {
+            // No model yet (a fresh install), or model.txt names one that is
+            // gone or does not load: the web UI without one, to fetch or pick one.
+            std::printf("ps5sd: %s; standby without a model\n", force_standby ? "the model did not load" : error.c_str());
+            plan = standby_plan();
+        }
+        force_standby = false;
+        g_standby     = standby;
+        std::printf("ps5sd: sd-server");
+        std::vector<char *> argv;
+        for (auto & a : plan.args) {
+            argv.push_back(a.data());
+            if (&a != &plan.args.front()) {
+                std::printf(" %s", a.c_str());
+            }
+        }
+        std::printf("\n");
+        argv.push_back(nullptr);
+
+        g_status.set_model(plan.name);
+        g_status.set_port(g_server_port.load());
+        if (standby) {
+            set_phase("Starting without a model", "the web UI on port " + std::to_string(g_server_port.load()));
+        } else {
+            set_phase("Loading the model", plan.name + ", then the API on port " + std::to_string(g_server_port.load()));
+        }
+        int rc = 0;
+        {
+            // Done however sd_server() ends, an exception included
+            // (start_thread reports it), so a quit request does not wait out
+            // its time for nothing.
+            struct MarkDone {
+                ~MarkDone() {
+                    g_server_done = true;
+                    std::lock_guard<std::mutex> lock(g_model_mutex);
+                    g_loaded_id.clear();
+                }
+            } mark_done;
+            g_server_done    = false;
+            g_server_started = true;
+            if (g_quit_requested) {
+                return;  // the quit came between two starts
+            }
+            ++g_generation;
+            rc = sd_server((int) plan.args.size(), argv.data());
+        }
+        std::printf("ps5sd: sd_server returned %d\n", rc);
+        log_memory("after the server");
+        if (g_quit_requested) {
+            set_phase("Server stopped");
+            return;
+        }
+        if (g_restart.exchange(false)) {
+            std::printf("ps5sd: switching the model\n");
+            continue;
+        }
+        std::string good;
+        {
+            std::lock_guard<std::mutex> lock(g_model_mutex);
+            good = g_good_id;
+        }
+        if (rc != 0 && !good.empty() && good != plan.id && write_active_model(good)) {
+            // A switch to a model that does not load (not enough memory, a
+            // broken file): back to the one that worked, so the web UI stays.
+            std::printf("ps5sd: %s did not load, back to %s\n", plan.id.c_str(), good.c_str());
+            notify_outcome(("PS5SD: " + plan.name + " did not load, back to the last model").c_str());
+            continue;
+        }
+        if (rc != 0 && !standby) {
+            // Nothing that worked to go back to: the web UI stays up anyway.
+            std::printf("ps5sd: %s did not load\n", plan.id.c_str());
+            notify_outcome(("PS5SD: " + plan.name + " did not load, see /data/PS5SD/app.log").c_str());
+            force_standby = true;
+            continue;
+        }
+        g_switching = false;
+        if (rc != 0) {
+            // The model did not load, the port could not be bound, or an
+            // argument was wrong (the usage is in the log).
+            set_phase("The server did not start", "See /data/PS5SD/app.log");
+            notify_outcome("PS5SD: the server did not start, see /data/PS5SD/app.log");
+        } else {
+            set_phase("The server stopped", "See /data/PS5SD/app.log");
+            notify_outcome("PS5SD: the server stopped, see /data/PS5SD/app.log");
+        }
+        return;
+    }
+}
+
+// A switch the web UI asked for: the main loop stops the server, which the
+// worker then starts again with the model model.txt now names.
+void switch_if_asked() {
+    if (!g_switch_pending.exchange(false) || g_quit_requested) {
+        return;
+    }
+    g_restart = true;
+    if (g_server_started && !g_server_done) {
+        set_phase("Switching the model");
+        sd_server_terminate();
     }
 }
 
 // Once the server accepts connections, says so: the phase, and a
 // notification. Checked from the main loop, by connecting to it on loopback.
 void announce_when_listening() {
-    static bool announced = false;
-    if (announced || !g_server_started || g_server_done || g_quit_requested) {
+    static int announced  = 0;  // the server start announced last
+    const int  generation = g_generation.load();
+    if (announced == generation || !g_server_started || g_server_done || g_quit_requested || g_restart) {
         return;
     }
     const int s = socket(AF_INET, SOCK_STREAM, 0);
@@ -518,9 +710,26 @@ void announce_when_listening() {
     if (!up) {
         return;
     }
-    announced = true;
-    log_memory("after loading");
+    announced = generation;
+    g_switching = false;
     const std::string port = std::to_string(g_server_port.load());
+    if (g_standby) {
+        std::printf("ps5sd: listening on port %s, without a model\n", port.c_str());
+        set_phase("No model loaded", "Web UI on port " + port + ": download or pick one under Models");
+        notify_outcome(("PS5SD: no model loaded; web UI on port " + port + ", tab Models").c_str());
+        return;
+    }
+    {
+        // The id of the model this start loaded: model.txt has not changed
+        // since, as a switch is only asked for through this server.
+        const auto  active = read_lines(kModel);
+        ModelEntry  entry;
+        std::string ignored;
+        std::lock_guard<std::mutex> lock(g_model_mutex);
+        g_loaded_id = !active.empty() && g_library.find(active[0], entry, ignored) ? entry.id : std::string();
+        g_good_id   = g_loaded_id;
+    }
+    log_memory("after loading");
     std::printf("ps5sd: listening on port %s\n", port.c_str());
     set_phase("Ready", "API and web UI on port " + port);
     notify_outcome(("PS5SD: ready, API and web UI on port " + port).c_str());
@@ -549,6 +758,51 @@ void start_thread(std::function<void()> & fn) {
     pthread_attr_destroy(&attr);
 }
 
+// Makes the library entry `id` the active model and has the server started
+// again with it, once the request that asks has been answered (models/active,
+// and A1111's options). The HTTP status; the body in out.
+int ask_switch(const std::string & id, std::string & out) {
+    ModelEntry  entry;
+    std::string error;
+    if (!g_library.find(id, entry, error)) {
+        out = error_json(error);
+        return 404;
+    }
+    if (g_switching || g_quit_requested) {
+        out = error_json("the server is switching the model or stopping");
+        return 409;
+    }
+    if (entry.id == loaded_id()) {
+        out = models_json(g_library, entry.id, entry.id, false);
+        return 200;
+    }
+    if (!write_active_model(entry.id)) {
+        out = error_json("could not write /data/PS5SD/model.txt");
+        return 500;
+    }
+    std::printf("ps5sd: switch to %s asked for\n", entry.id.c_str());
+    g_switching      = true;
+    g_switch_pending = true;
+    out              = models_json(g_library, entry.id, loaded_id(), true);
+    return 202;
+}
+
+// The model A1111 clients see: the one loaded, or while a switch runs (or
+// before the first load) the one model.txt names, as a library id.
+std::string current_checkpoint() {
+    const std::string loaded = loaded_id();
+    if (!loaded.empty() && !g_switching) {
+        return loaded;
+    }
+    const auto  active = read_lines(kModel);
+    ModelEntry  entry;
+    std::string ignored;
+    if (active.empty()) {
+        return {};
+    }
+    return g_library.find(active[0], entry, ignored) ? entry.id : active[0];
+}
+
 }  // namespace
 
 // sd-server's activity hooks (server_hooks.h), called around every request's
@@ -566,8 +820,129 @@ extern "C" void sd_activity_progress(int step, int steps, float secs) {
     on_progress(step, steps, secs, nullptr);
 }
 
-// TODO(dashboard): show the image being denoised.
-extern "C" void sd_activity_preview(const uint8_t *, int, int) {}
+// The image being denoised, for the screen's live preview; only called when
+// the request asked for previews. The no-display build has nothing to show it on.
+extern "C" void sd_activity_preview(const uint8_t * rgb, int w, int h) {
+#ifndef PS5SD_NO_DISPLAY
+    g_status.set_preview(rgb, w, h);
+#else
+    (void) rgb;
+    (void) w;
+    (void) h;
+#endif
+}
+
+// The app's routes under /ps5sd/v1/app/ (patches/sdcpp/0054), on the
+// server's HTTP threads:
+//   GET  models         the library, the active model and the loaded one
+//   POST models/active  {"id": "..."}: make it the active model and start the
+//                       server again with it (202, with the library as GET
+//                       gives it); the switch happens once this request has
+//                       been answered, after the job that runs, if any.
+//   DELETE models/<id>  delete a preset with its files, or a checkpoint
+//                       (ModelLibrary::remove); 409 for the model in use.
+//   compat/sd-models, compat/options (GET, POST), compat/models: the A1111
+//                       and OpenAI model routes (patches/sdcpp/0055), from
+//                       the library; POST options with sd_model_checkpoint
+//                       switches like models/active.
+//   catalog, downloads, downloads/<id>, hf/search: the model downloader
+//                       (downloader.hpp), which runs on its own threads and
+//                       keeps going while the server restarts.
+extern "C" int sd_app_request(const char * method, const char * path, const char * body, size_t body_len,
+                              char ** out_body, size_t * out_len, const char ** content_type) {
+    const std::string m = method;
+    const std::string p = path;
+    std::string       out;
+    // The downloader's routes (downloader.hpp: catalog, downloads, hf/search);
+    // it catches its own errors.
+    int status = downloader_route(m, p, body != nullptr ? std::string(body, body_len) : std::string(), out);
+    if (status > 0) {
+        // answered
+    } else if (m == "GET" && p == "models") {
+        const auto active = read_lines(kModel);
+        out    = models_json(g_library, active.empty() ? "" : active[0], loaded_id(), g_switching, g_standby && !g_switching);
+        status = 200;
+    } else if (m == "POST" && p == "models/active") {
+        const std::string id = id_from_json(std::string(body, body_len));
+        if (id.empty()) {
+            out    = error_json("the body must be {\"id\": \"<model id>\"}");
+            status = 400;
+        } else {
+            status = ask_switch(id, out);
+        }
+    } else if (m == "GET" && p == "info") {
+        out    = info_json(PS5SD_VERSION, sd_version(), sd_commit());
+        status = 200;
+    } else if (m == "GET" && p == "compat/sd-models") {
+        out    = sd_models_json(g_library);
+        status = 200;
+    } else if (m == "GET" && p == "compat/models") {
+        out    = openai_models_json(g_library);
+        status = 200;
+    } else if (m == "GET" && p == "compat/options") {
+        out    = options_json(current_checkpoint());
+        status = 200;
+    } else if (m == "POST" && p == "compat/options") {
+        // A1111 clients switch the model with {"sd_model_checkpoint": title};
+        // the other options do not apply here and are ignored. A1111 answers
+        // once the model has loaded; this answers at once, and GET options
+        // names the new model from then on.
+        const std::string checkpoint = checkpoint_from_options(std::string(body, body_len));
+        const std::string id         = checkpoint.empty() ? std::string() : checkpoint_id(g_library, checkpoint);
+        if (checkpoint.empty()) {
+            out    = "{}";
+            status = 200;
+        } else if (id.empty()) {
+            out    = error_json("no model " + checkpoint + "; GET /sdapi/v1/sd-models lists them");
+            status = 404;
+        } else {
+            status = ask_switch(id, out);
+            if (status == 200 || status == 202) {
+                out    = "{}";
+                status = 200;
+            }
+        }
+    } else if (m == "DELETE" && p.rfind("models/", 0) == 0) {
+        // Never the model that is active or loaded, nor a file it uses (a
+        // VAE that two presets share stays with the other one).
+        const std::string id = p.substr(7);
+        // In standby nothing is loaded, so model.txt's model may go too.
+        const auto        active = g_standby ? std::vector<std::string>() : read_lines(kModel);
+        const std::string loaded = loaded_id();
+        std::vector<std::string> keep, deleted, kept;
+        for (const std::string & in_use : { active.empty() ? std::string() : active[0], loaded }) {
+            ModelEntry  entry;
+            std::string ignored;
+            if (!in_use.empty() && g_library.find(in_use, entry, ignored)) {
+                keep.insert(keep.end(), entry.files.begin(), entry.files.end());
+            }
+        }
+        std::string error;
+        if (g_switching || g_quit_requested) {
+            out    = error_json("the server is switching the model or stopping");
+            status = 409;
+        } else if ((!active.empty() && id == active[0]) || id == loaded) {
+            out    = error_json(id + " is the model in use; switch to another one first");
+            status = 409;
+        } else if (!g_library.remove(id, keep, deleted, kept, error)) {
+            out    = error_json(error);
+            status = error.rfind("no model", 0) == 0 || error.rfind("not a model", 0) == 0 ? 404 : 409;
+        } else {
+            std::printf("ps5sd: deleted model %s (%zu file(s), %zu kept)\n", id.c_str(), deleted.size(), kept.size());
+            out    = removed_json(g_library, deleted, kept, active.empty() ? "" : active[0], loaded);
+            status = 200;
+        }
+    } else {
+        return 0;
+    }
+    *out_body = static_cast<char *>(std::malloc(out.size()));
+    if (*out_body != nullptr) {
+        std::memcpy(*out_body, out.data(), out.size());
+        *out_len = out.size();
+    }
+    *content_type = "application/json";
+    return status;
+}
 
 extern "C" void sd_activity_job_end(int ok, const char * output_path) {
     log_memory("after a request");
@@ -577,6 +952,10 @@ extern "C" void sd_activity_job_end(int ok, const char * output_path) {
     }
     if (*output_path != '\0') {
         g_status.set_result(output_path);
+    }
+    // A stop asked for during the job goes on once it ends; not ready then.
+    if (g_quit_requested || g_restart) {
+        return;
     }
     set_phase("Ready", *output_path != '\0' ? std::string("saved ") + output_path : "image sent");
 }
@@ -621,17 +1000,24 @@ int main(int, char **) {
         std::printf("ps5sd: no display\n");
     }
     hui::gfx::Renderer renderer;
-    StatusView         view;
+    Dashboard          view;
     const bool         ui_ok = renderer.init() && view.load(renderer, kFont);
     std::printf("ps5sd: screen %s\n", ui_ok ? "ready" : "failed");
-    // TODO(dashboard): a ps5-homebrew-ui dashboard replaces StatusView here; it
-    // draws into the same DrawList each frame.
-    hui::gfx::DrawList scene;
+    // The model and the port the server will use, for the screen before the
+    // server has started (the same files server_args() reads). The console's
+    // own address is not known yet: g_status.set_address("a.b.c.d") fills the
+    // dashboard's "http://<address>:<port>" once something finds it.
+    {
+        const ServerConfig config = read_server_config(kModel, kServerArgs, kPort);
+        g_status.set_model(config.model);
+        g_status.set_port(config.port);
+    }
+    auto last_frame = std::chrono::steady_clock::now();
     const auto render = [&] {
-        scene.clear();
-        view.draw(g_status.snapshot(), PS5SD_VERSION, scene);
-        renderer.begin();
-        renderer.draw(scene);
+        const auto now = std::chrono::steady_clock::now();
+        view.update(g_status.snapshot(), std::chrono::duration<float>(now - last_frame).count());
+        last_frame = now;
+        view.compose(renderer, PS5SD_VERSION);
         display.present(renderer);
     };
     set_phase("Opening the GPU");
@@ -658,7 +1044,28 @@ int main(int, char **) {
     // never joined or detached: the platform's pthread wraps (radv-link.sh)
     // own its stack, and the title never ends on its own.
     const char *          oneshot = std::getenv("PS5SD_ONESHOT");
-    std::function<void()> work    = oneshot != nullptr && std::string(oneshot) == "1" ? generate_once : run_server;
+    const bool            once    = oneshot != nullptr && std::string(oneshot) == "1";
+    std::function<void()> work    = once ? generate_once : run_server;
+    g_worker_busy                 = !once;  // before the first quit check
+    if (!once) {
+        // The model downloader, on its own threads, apart from the server
+        // (which is stopped and started again for a model switch): the queue
+        // in downloads.json carries on.
+        DownloaderConfig dl;
+        dl.models_dir         = kModels;
+        dl.presets_dir        = kPresets;
+        dl.queue_file         = std::string(kDir) + "/downloads.json";
+        dl.hf_token_file      = std::string(kDir) + "/hf-token.txt";
+        dl.civitai_token_file = std::string(kDir) + "/civitai-token.txt";
+        // For measuring (env.txt): PS5SD_DL_CONNECTIONS (16), PS5SD_DL_PIECE_MIB (8).
+        if (const char * v = std::getenv("PS5SD_DL_CONNECTIONS"); v != nullptr && std::atoi(v) > 0) {
+            dl.connections = std::atoi(v);
+        }
+        if (const char * v = std::getenv("PS5SD_DL_PIECE_MIB"); v != nullptr && std::atoi(v) > 0) {
+            dl.piece_mib = static_cast<unsigned>(std::atoi(v));
+        }
+        downloader_start(dl);
+    }
     start_thread(work);
 
 #ifndef PS5SD_NO_DISPLAY
@@ -673,6 +1080,7 @@ int main(int, char **) {
         }
         if (n % 60 == 0) {
             announce_when_listening();
+            switch_if_asked();
             quit_if_asked();
         }
     }
@@ -682,6 +1090,7 @@ int main(int, char **) {
     for (;;) {
         sceKernelUsleep(500 * 1000);
         announce_when_listening();
+        switch_if_asked();
         quit_if_asked();
     }
 #endif

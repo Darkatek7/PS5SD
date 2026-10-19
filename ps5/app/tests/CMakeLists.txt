@@ -28,7 +28,34 @@ target_include_directories(test_gen_args PRIVATE ..)
 target_link_libraries(test_gen_args PRIVATE stable-diffusion)
 add_test(NAME gen_args COMMAND test_gen_args)
 
+add_executable(test_models test_models.cpp ../models.cpp)
+target_include_directories(test_models PRIVATE .. "${SD_DIR}/thirdparty")
+add_test(NAME models COMMAND test_models)
+
 add_executable(test_sd_plan test_sd_plan.cpp ../sd_plan.cpp ../gen_args.cpp)
 target_include_directories(test_sd_plan PRIVATE ..)
 target_link_libraries(test_sd_plan PRIVATE stable-diffusion)
 add_test(NAME sd_plan COMMAND test_sd_plan)
+
+# AppStatus alone: no kit, no GL, no sd.cpp (what the no-display build compiles).
+add_executable(test_app_status test_app_status.cpp ../app_status.cpp)
+target_include_directories(test_app_status PRIVATE ..)
+add_test(NAME app_status COMMAND test_app_status)
+
+# The downloader's pure part: URLs, destinations, the catalog, the queue file.
+add_executable(test_downloads test_downloads.cpp ../download_core.cpp)
+target_include_directories(test_downloads PRIVATE .. "${SD_DIR}/thirdparty")
+add_test(NAME downloads COMMAND test_downloads)
+
+# The downloader against the real Hugging Face and Civitai (network; not run by
+# ctest): -DPS5SD_NET_SMOKE=ON -DMBEDTLS_ROOT=<a host install of mbedTLS 3.6>.
+option(PS5SD_NET_SMOKE "build smoke_downloader" OFF)
+if(PS5SD_NET_SMOKE)
+    set(MBEDTLS_ROOT "" CACHE PATH "mbedTLS 3.6 install prefix")
+    find_package(Threads REQUIRED)
+    add_executable(smoke_downloader smoke_downloader.cpp ../downloader.cpp ../https_client.cpp
+                   ../download_core.cpp ../models.cpp)
+    target_include_directories(smoke_downloader PRIVATE .. "${SD_DIR}/thirdparty" "${MBEDTLS_ROOT}/include")
+    target_link_libraries(smoke_downloader PRIVATE "${MBEDTLS_ROOT}/lib/libmbedtls.a"
+                          "${MBEDTLS_ROOT}/lib/libmbedx509.a" "${MBEDTLS_ROOT}/lib/libmbedcrypto.a" Threads::Threads)
+endif()
