@@ -321,5 +321,5 @@ Portrait sizes, dpm++2m, ays, 10 steps:
 | 640x960 | 24.2 s |
 | 576x832 | 19.6 s |
 
-All clean; from 640 px wide down, faces are softer at full size. The presets in `presets/`
-(`scripts/ps5sd-app.sh preset <file>`) hold these settings for 832x1216 and 1024x1024.
+All clean; from 640 px wide down, faces are softer at full size. `presets/ilustmix-portrait.txt`
+(`scripts/ps5sd-app.sh preset <file>`) holds these settings for 832x1216.
