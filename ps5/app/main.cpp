@@ -51,6 +51,7 @@
 #include <ctime>
 #include <exception>
 #include <fstream>
+#include <sstream>
 #include <functional>
 #include <initializer_list>
 #include <mutex>
@@ -134,6 +135,7 @@ constexpr const char * kServerArgs = "/data/PS5SD/server-args.txt";
 constexpr const char * kModel   = "/data/PS5SD/model.txt";
 constexpr const char * kEnv     = "/data/PS5SD/env.txt";  // driver and ggml switches, for measuring
 constexpr const char * kQuit    = "/data/PS5SD/quit";
+constexpr const char * kDocs    = "/app0/docs";  // the Help tab's docs (scripts/build-app.sh)
 constexpr const char * kOutputs = "/data/PS5SD/outputs";
 constexpr const char * kLoras   = "/data/PS5SD/loras";
 constexpr const char * kEmbeddings = "/data/PS5SD/embeddings";
@@ -866,6 +868,33 @@ extern "C" void sd_activity_preview(const uint8_t * rgb, int w, int h) {
 //   catalog, downloads, downloads/<id>, hf/search: the model downloader
 //                       (downloader.hpp), which runs on its own threads and
 //                       keeps going while the server restarts.
+// GET docs/<name>: docs/MODELS.md or docs/API.md, which the title carries,
+// for the web UI's Help tab.
+int doc_request(const std::string & name, char ** out_body, size_t * out_len, const char ** content_type) {
+    std::string out;
+    int         status = 404;
+    *content_type      = "application/json";
+    if (name == "MODELS.md" || name == "API.md") {
+        std::ifstream      in(std::string(kDocs) + "/" + name, std::ios::binary);
+        std::ostringstream text;
+        text << in.rdbuf();
+        out = text.str();
+        if (!out.empty()) {
+            status        = 200;
+            *content_type = "text/markdown; charset=utf-8";
+        }
+    }
+    if (status != 200) {
+        out = error_json("no doc " + name);
+    }
+    *out_body = static_cast<char *>(std::malloc(out.size()));
+    if (*out_body != nullptr) {
+        std::memcpy(*out_body, out.data(), out.size());
+        *out_len = out.size();
+    }
+    return status;
+}
+
 // PUT uploads/<kind>/<name>: a file from the web UI (upload.hpp).
 extern "C" int sd_app_upload(const char * path, uint64_t length, sd_app_reader read, void * read_ctx,
                              char ** out_body, size_t * out_len, const char ** content_type) {
@@ -905,6 +934,9 @@ extern "C" int sd_app_request(const char * method, const char * path, const char
                               char ** out_body, size_t * out_len, const char ** content_type) {
     const std::string m = method;
     const std::string p = path;
+    if (m == "GET" && p.rfind("docs/", 0) == 0) {
+        return doc_request(p.substr(5), out_body, out_len, content_type);
+    }
     std::string       out;
     // The downloader's routes (downloader.hpp: catalog, downloads, hf/search);
     // it catches its own errors.

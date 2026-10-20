@@ -57,6 +57,7 @@ loads a model and ends standby.
 | Route | |
 |---|---|
 | `GET /ps5sd/v1/app/info` | `{"name": "PS5SD", "version": "0.1.0", "sd_cpp": {"version", "commit"}}` |
+| `GET /ps5sd/v1/app/docs/<name>` | `MODELS.md` or `API.md` as the title carries them (`text/markdown`), for the web UI's Help tab; any other name is a 404 |
 | `GET /ps5sd/v1/app/models` | the library; see below |
 | `POST /ps5sd/v1/app/models/active` | `{"id": "<id>"}`: switch to that entry; the responses are below |
 | `DELETE /ps5sd/v1/app/models/<id>` | delete an entry; see below |
