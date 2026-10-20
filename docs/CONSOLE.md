@@ -283,13 +283,47 @@ Not done yet: a title thread that passes `sceAgcSuspendPoint()` every 100 ms, so
 reached while the main loop is stuck. It was built and run, but only in cases that closed cleanly
 without it; the stalled case was not tried with it.
 
-## iLustMix: sampler, steps and size (2026-10-20)
+## iLustMix portrait 832x1216: 73 s to 31 s (2026-10-20)
 
 CI build `759699f` (before 0.1.0), FW 13.42. iLustMix v11.1 (an Illustrious SDXL finetune, 7.1 GB f16
 safetensors with its own fp32 VAE), loaded from `model.txt`, options from `server-args.txt`.
 `POST /sdapi/v1/txt2img`, CFG 6, seed 11, the time around the whole request on the PC.
 
-1024x1024:
+832x1216, the size Illustrious is trained for, with `--type q8_0 --vae-tiling --vae-tile-size 512
+--eager-load`:
+
+| Sampler | Request |
+|---|---|
+| euler_a, 25 steps (the model page's recommendation) | 73.0 s |
+| dpm++2m, `ays`, 10 steps (`presets/ilustmix-portrait.txt`) | 30.5 s (35.1 s in another run) |
+
+- Side by side the same scene, as sharp, with a little more contrast with `ays`. The Align-Your-Steps
+  schedule (SDXL noise levels) needs 10 steps where euler_a needs 20 to 25.
+- The preset (`scripts/ps5sd-app.sh preset presets/ilustmix-portrait.txt`) holds these settings and
+  `# defaults: width=832 height=1216 steps=10 cfg=6 sampler=dpm++2m scheduler=ays`.
+- `--sampling-method`, `--scheduler`, `--steps` and `--cfg-scale` in `server-args.txt` are the defaults
+  of a request that does not name them, on the A1111 route too. `-W`/`-H` are not: `/sdapi/v1/txt2img`
+  without a size makes 512x512, so a client has to send 832x1216. The web UI takes the size from
+  `/sdcpp/v1/capabilities` unless it has one saved.
+
+<img src="images/ilustmix-portrait.jpg" alt="An anime-style woman with silver hair in a knit sweater in an autumn park, generated on a PS5 with the iLustMix portrait preset" width="384">
+
+The preset's settings, 30 to 35 s: "1girl, adult woman, long silver hair, cream knit sweater, autumn
+park, falling leaves, golden hour, warm backlight, gentle smile, upper body, looking at viewer,
+masterpiece, best quality, amazing quality, very aesthetic, detailed eyes, perfect eyes", seed 2026.
+
+Smaller portrait sizes, same settings:
+
+| Size | Request |
+|---|---|
+| 768x1152 | 30.4 s |
+| 704x1024 | 26.2 s |
+| 640x960 | 24.2 s |
+| 576x832 | 19.6 s |
+
+All clean; from 640 px wide down, faces are softer at full size.
+
+How the server options got there, at 1024x1024:
 
 | Variant | Request |
 |---|---|
@@ -300,26 +334,7 @@ safetensors with its own fp32 VAE), loaded from `model.txt`, options from `serve
 | the same, dpm++2m, ays, 10 steps | 31.6 s |
 | the same with `--eager-load` | 32.1 s for the first request, 32.0 s after |
 
-- **The steps are the lever.** dpm++2m with the Align-Your-Steps schedule (`ays`, SDXL noise levels) at
-  10 steps gives an image as sharp as euler_a at 20, side by side. The model page recommends euler_a
-  at 25 steps: at 832x1216 that is 73.0 s against 30.5 s, the same scene, a little more contrast with
-  ays.
+- As with IllustXL above, `--type q8_0` (converted while loading) avoids the f16 weights being moved
+  out and read again; the VAE tiles keep the decode from pushing them out too.
 - UCache at threshold 1.5, which cost SDXL Base only some detail, ruins this finetune's images.
 - `--eager-load` takes the first request from 71 to 32 s.
-- `--sampling-method`, `--scheduler`, `--steps` and `--cfg-scale` in `server-args.txt` are the defaults
-  of a request that does not name them, on the A1111 route too. `-W`/`-H` are not: `/sdapi/v1/txt2img`
-  without a size makes 512x512. The web UI takes the size from `/sdcpp/v1/capabilities` unless it has
-  one saved.
-
-Portrait sizes, dpm++2m, ays, 10 steps:
-
-| Size | Request |
-|---|---|
-| 832x1216 | 35.1 s |
-| 768x1152 | 30.4 s |
-| 704x1024 | 26.2 s |
-| 640x960 | 24.2 s |
-| 576x832 | 19.6 s |
-
-All clean; from 640 px wide down, faces are softer at full size. `presets/ilustmix-portrait.txt`
-(`scripts/ps5sd-app.sh preset <file>`) holds these settings for 832x1216.
