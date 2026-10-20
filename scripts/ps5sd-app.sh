@@ -15,6 +15,7 @@
 #   scripts/ps5sd-app.sh args <file>           upload app-args.txt (one sd-cli argument a line; PS5SD_ONESHOT=1)
 #   scripts/ps5sd-app.sh server-args <file>    upload server-args.txt (one sd-server argument a line)
 #   scripts/ps5sd-app.sh env <file>            upload env.txt (NAME=value a line)
+#   scripts/ps5sd-app.sh preset <file>         upload a preset to /data/PS5SD/presets (e.g. presets/*.txt)
 #   scripts/ps5sd-app.sh outputs [dir]         download the PNGs of /data/PS5SD/outputs (default ./out)
 #
 # PS5_HOST is the console (default 10.0.0.101). The app is never killed: it polls
@@ -296,6 +297,7 @@ case ${1:-} in
     args) put_config "${2:-}" app-args.txt ;;
     server-args) put_config "${2:-}" server-args.txt ;;
     env) put_config "${2:-}" env.txt ;;
+    preset) [ -f "${2:-}" ] || die "usage: $0 preset <file>"; put_config "$2" "presets/$(basename "$2")" ;;
     outputs) outputs "${2:-}" ;;
     *)
         sed -n '2,/^set -euo/p' "$0" | sed -e '/^set -euo/d' -e 's/^# \{0,1\}//' >&2

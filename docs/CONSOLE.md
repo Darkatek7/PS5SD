@@ -282,3 +282,44 @@ Other observations:
 Not done yet: a title thread that passes `sceAgcSuspendPoint()` every 100 ms, so the 25 s are never
 reached while the main loop is stuck. It was built and run, but only in cases that closed cleanly
 without it; the stalled case was not tried with it.
+
+## iLustMix: sampler, steps and size (2026-10-20)
+
+CI build `759699f` (before 0.1.0), FW 13.42. iLustMix v11.1 (an Illustrious SDXL finetune, 7.1 GB f16
+safetensors with its own fp32 VAE), loaded from `model.txt`, options from `server-args.txt`.
+`POST /sdapi/v1/txt2img`, CFG 6, seed 11, the time around the whole request on the PC.
+
+1024x1024:
+
+| Variant | Request |
+|---|---|
+| no `server-args.txt`, euler_a, 20 steps | 92.6 s |
+| `--type q8_0 --vae-tiling --vae-tile-size 512`, euler_a, 20 steps | 56.4 s (71.3 s the first request) |
+| the same with `--cache-mode ucache --cache-option threshold=1.5` | 34.9 s, visibly noisy and smeared |
+| the same without UCache, dpm++2m, karras, 14 steps | 41.5 s |
+| the same, dpm++2m, ays, 10 steps | 31.6 s |
+| the same with `--eager-load` | 32.1 s for the first request, 32.0 s after |
+
+- **The steps are the lever.** dpm++2m with the Align-Your-Steps schedule (`ays`, SDXL noise levels) at
+  10 steps gives an image as sharp as euler_a at 20, side by side. The model page recommends euler_a
+  at 25 steps: at 832x1216 that is 73.0 s against 30.5 s, the same scene, a little more contrast with
+  ays.
+- UCache at threshold 1.5, which cost SDXL Base only some detail, ruins this finetune's images.
+- `--eager-load` takes the first request from 71 to 32 s.
+- `--sampling-method`, `--scheduler`, `--steps` and `--cfg-scale` in `server-args.txt` are the defaults
+  of a request that does not name them, on the A1111 route too. `-W`/`-H` are not: `/sdapi/v1/txt2img`
+  without a size makes 512x512. The web UI takes the size from `/sdcpp/v1/capabilities` unless it has
+  one saved.
+
+Portrait sizes, dpm++2m, ays, 10 steps:
+
+| Size | Request |
+|---|---|
+| 832x1216 | 35.1 s |
+| 768x1152 | 30.4 s |
+| 704x1024 | 26.2 s |
+| 640x960 | 24.2 s |
+| 576x832 | 19.6 s |
+
+All clean; from 640 px wide down, faces are softer at full size. The presets in `presets/`
+(`scripts/ps5sd-app.sh preset <file>`) hold these settings for 832x1216 and 1024x1024.
