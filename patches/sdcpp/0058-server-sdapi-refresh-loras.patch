@@ -1,0 +1,26 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: ps5sd <ps5sd@localhost>
+Date: Tue, 20 Oct 2026 22:30:00 +0200
+Subject: [PATCH] server: /sdapi/v1/txt2img and img2img find a LoRA added
+ since the last listing
+
+The A1111 routes looked a "lora" path up in the cache that only
+GET /sdapi/v1/loras and the sdcpp routes refresh, so a LoRA uploaded or
+downloaded after the start failed with "invalid lora path" until a client
+listed the LoRAs. They refresh it now, as the sdcpp routes do.
+
+---
+ examples/server/routes_sdapi.cpp | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/examples/server/routes_sdapi.cpp b/examples/server/routes_sdapi.cpp
+--- a/examples/server/routes_sdapi.cpp
++++ b/examples/server/routes_sdapi.cpp
+@@ -153,6 +153,7 @@
+     }
+
+     if (j.contains("lora") && j["lora"].is_array()) {
++        refresh_lora_cache(runtime);  // PS5SD: a LoRA added since the last listing
+         request.gen_params.lora_map.clear();
+         request.gen_params.high_noise_lora_map.clear();
+

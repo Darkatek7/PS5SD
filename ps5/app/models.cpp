@@ -338,6 +338,25 @@ std::string removed_json(const ModelLibrary & library, const std::vector<std::st
     return out.dump(-1, ' ', false, nlohmann::json::error_handler_t::replace);
 }
 
+std::string loras_json(const std::string & dir) {
+    std::vector<std::pair<std::string, uint64_t>> files;
+    std::error_code                               ec;
+    const fs::path                                root = fs::u8path(dir);
+    for (fs::recursive_directory_iterator it(root, ec), end; !ec && it != end; it.increment(ec)) {
+        std::error_code e2;
+        if (it->is_regular_file(e2) && is_checkpoint_name(it->path().filename().u8string())) {
+            const uint64_t size = it->file_size(e2);
+            files.emplace_back(it->path().lexically_relative(root).generic_u8string(), e2 ? 0 : size);
+        }
+    }
+    std::sort(files.begin(), files.end());
+    nlohmann::json list = nlohmann::json::array();
+    for (const auto & f : files) {
+        list.push_back({ { "name", fs::u8path(f.first).stem().u8string() }, { "path", f.first }, { "bytes", f.second } });
+    }
+    return nlohmann::json{ { "loras", list } }.dump();
+}
+
 std::string sd_models_json(const ModelLibrary & library) {
     nlohmann::json list = nlohmann::json::array();
     for (const ModelEntry & e : library.list()) {

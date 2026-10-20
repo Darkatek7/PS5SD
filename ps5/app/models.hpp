@@ -90,6 +90,11 @@ std::string sd_models_json(const ModelLibrary & library);
 // The same entries as the OpenAI API's /v1/models lists them.
 std::string openai_models_json(const ModelLibrary & library);
 
+// GET /ps5sd/v1/app/loras: {"loras": [{"name", "path", "bytes"}]}, the model
+// files under dir and its subfolders (as sd-server's /sdapi/v1/loras lists
+// them, with sizes), sorted by path.
+std::string loras_json(const std::string & dir);
+
 // The id of the entry an A1111 client names as sd_model_checkpoint: its id or
 // its name, either with A1111's " [hash]" after it. Empty when none matches.
 std::string checkpoint_id(const ModelLibrary & library, const std::string & checkpoint);

@@ -437,6 +437,7 @@ json record_object(const DownloadRecord & d) {
     return { { "id", d.id },
              { "url", d.url },
              { "dest", d.dest },
+             { "kind", d.kind },
              { "bytes", d.bytes },
              { "total", d.total },
              { "state", d.state },
@@ -527,6 +528,27 @@ bool upload_target(const std::string & path, std::string & kind, std::string & n
     return true;
 }
 
+bool is_lora_type(const std::string & civitai_type) {
+    const std::string t = lower(civitai_type);
+    return t == "lora" || t == "locon" || t == "dora";
+}
+
+bool valid_target(const std::string & kind, const std::string & dest, std::string & error) {
+    if (kind == "models") {
+        return valid_dest(dest, error);
+    }
+    if (kind != "loras") {
+        error = "kind is models or loras, not '" + kind + "'";
+        return false;
+    }
+    std::string ignored_kind, ignored_name;
+    return upload_target("loras/" + dest, ignored_kind, ignored_name, error);
+}
+
+std::string download_key(const std::string & kind, const std::string & dest) {
+    return kind == "loras" ? "loras/" + dest : dest;
+}
+
 bool gallery_name_ok(const std::string & name) {
     if (name.size() <= 4 || name.size() > 200 || name[0] == '.' || lower(name).compare(name.size() - 4, 4, ".png") != 0) {
         return false;
@@ -562,6 +584,7 @@ std::vector<DownloadRecord> queue_from_json(const std::string & text) {
         DownloadRecord d;
         d.url     = str_of(e, "url");
         d.dest    = str_of(e, "dest");
+        d.kind    = str_of(e, "kind") == "loras" ? "loras" : "models";
         d.catalog = str_of(e, "catalog");
         d.state   = str_of(e, "state");
         d.error   = str_of(e, "error");
@@ -570,10 +593,10 @@ std::vector<DownloadRecord> queue_from_json(const std::string & text) {
         d.pieces  = str_of(e, "pieces");
         std::string ignored;
         Source      src;
-        if (!valid_dest(d.dest, ignored) || !classify_url(d.url, src, ignored)) {
+        if (!valid_target(d.kind, d.dest, ignored) || !classify_url(d.url, src, ignored)) {
             continue;
         }
-        d.id = download_id(d.dest);
+        d.id = download_id(download_key(d.kind, d.dest));
         if (std::any_of(out.begin(), out.end(), [&](const DownloadRecord & o) { return o.id == d.id; })) {
             continue;
         }
@@ -599,12 +622,21 @@ bool parse_download_request(const std::string & body, DownloadRequest & out, std
     out = DownloadRequest{};
     const json j = json::parse(body, nullptr, false);
     if (!j.is_object()) {
-        error = "the body must be {\"url\": \"...\", \"dest\": \"optional\", \"catalog\": \"optional\"}";
+        error = "the body must be {\"url\": \"...\", \"dest\": \"optional\", \"kind\": \"optional\", \"catalog\": \"optional\"}";
         return false;
     }
     out.url     = str_of(j, "url");
     out.dest    = str_of(j, "dest");
     out.catalog = str_of(j, "catalog");
+    out.kind    = str_of(j, "kind");
+    if (!out.kind.empty() && out.kind != "models" && out.kind != "loras") {
+        error = "kind is models or loras, not '" + out.kind + "'";
+        return false;
+    }
+    if (out.kind == "loras" && !out.catalog.empty()) {
+        error = "a catalog entry goes to models, not loras";
+        return false;
+    }
     if (out.url.empty() && out.catalog.empty()) {
         error = "give a \"url\", or a \"catalog\" id to install a starter model";
         return false;
@@ -702,7 +734,7 @@ std::string search_json(const std::vector<SearchResult> & results) {
 }
 
 bool parse_civitai_version(const std::string & text, const std::string & file_id, std::string & name,
-                           std::string & url, uint64_t & bytes, std::string & error) {
+                           std::string & url, uint64_t & bytes, std::string & error, std::string * model_type) {
     const json j = json::parse(text, nullptr, false);
     if (!j.is_object() || !j.contains("files") || !j["files"].is_array()) {
         const std::string message = str_of(j, "error");
@@ -739,6 +771,9 @@ bool parse_civitai_version(const std::string & text, const std::string & file_id
     if (name.empty() || !is_model_file_name(name)) {
         error = "the file of this model version is not a model file: " + name;
         return false;
+    }
+    if (model_type != nullptr) {
+        *model_type = j.contains("model") && j["model"].is_object() ? str_of(j["model"], "type") : "";
     }
     return true;
 }

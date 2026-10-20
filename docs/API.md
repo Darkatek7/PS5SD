@@ -61,6 +61,8 @@ loads a model and ends standby.
 | `GET /ps5sd/v1/app/models` | the library; see below |
 | `POST /ps5sd/v1/app/models/active` | `{"id": "<id>"}`: switch to that entry; the responses are below |
 | `DELETE /ps5sd/v1/app/models/<id>` | delete an entry; see below |
+| `GET /ps5sd/v1/app/loras` | `{"loras": [{"name", "path", "bytes"}]}`: the LoRA files in `/data/PS5SD/loras` and its subfolders |
+| `DELETE /ps5sd/v1/app/loras/<path>` | delete one LoRA file; the answer is the list as `GET` gives it |
 
 `GET /ps5sd/v1/app/models` returns:
 
@@ -113,7 +115,7 @@ survives a restart of the title (`/data/PS5SD/downloads.json`).
 |---|---|
 | `GET /ps5sd/v1/app/catalog` | the recommended models: `{"entries": [...]}`, each with its files, its size and `installed` |
 | `POST /ps5sd/v1/app/downloads` | `{"catalog": "<id>"}`: fetch a catalog entry; its preset is written once every file is there |
-| `POST /ps5sd/v1/app/downloads` | `{"url": "...", "dest": "<path under models/>"}`: fetch one file |
+| `POST /ps5sd/v1/app/downloads` | `{"url": "...", "dest": "<path under models/>", "kind": "models"}`: fetch one file; `"kind": "loras"` puts it into `loras/` (a file name, no folders). Without `kind`, a Civitai LoRA (model type LORA, LoCon or DoRA) goes to `loras/`, anything else to `models/` |
 | `GET /ps5sd/v1/app/downloads` | the queue, oldest first: state, bytes, speed |
 | `DELETE /ps5sd/v1/app/downloads/<id>` | cancel a download, or remove a finished one from the list |
 | `POST /ps5sd/v1/app/downloads/<id>/retry` | resume a failed or cancelled download from its `.part` file |
@@ -180,10 +182,14 @@ There are two differences from A1111:
   generate requests fail or wait. Poll `GET /ps5sd/v1/app/models` (or `GET /sdapi/v1/options`) for the
   switch to end.
 - In standby only `POST /sdapi/v1/options` answers. The other `/sdapi/` routes answer `503`.
+- LoRAs go in a `lora` field, `[{"path": "<path as /sdapi/v1/loras lists it>", "multiplier": 1.0}]`,
+  not as `<lora:name:1>` in the prompt: sd-server leaves such tags out. `POST /sdcpp/v1/img_gen` takes
+  the same field. A path that is not in `/data/PS5SD/loras` fails the request.
 
 ```sh
 curl http://<console>:7860/sdapi/v1/txt2img -d '{"prompt": "a lighthouse at dusk", "steps": 16, "cfg_scale": 1, "width": 1024, "height": 1024}'
 curl -X POST http://<console>:7860/sdapi/v1/options -d '{"sd_model_checkpoint": "flux3-klein-q4"}'
+curl http://<console>:7860/sdapi/v1/txt2img -d '{"prompt": "a lighthouse at dusk", "steps": 6, "cfg_scale": 1.5, "sampler_name": "lcm", "width": 1024, "height": 1024, "lora": [{"path": "lcm-lora-sdxl.safetensors", "multiplier": 1}]}'
 ```
 
 ## The OpenAI API

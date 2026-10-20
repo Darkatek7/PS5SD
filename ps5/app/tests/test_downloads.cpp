@@ -242,6 +242,27 @@ int main() {
         check(b.size() == 1 && b[0].pieces == "000" && b[0].bytes == 0, "a piece map of the wrong length starts over");
     }
     check(queue_from_json("not json").empty() && queue_from_json("{}").empty(), "garbage gives an empty queue");
+    {
+        std::vector<DownloadRecord> l(2);
+        l[0].url  = "https://huggingface.co/a/b/resolve/main/style.safetensors";
+        l[0].dest = "style.safetensors";
+        l[0].kind = "loras";
+        l[1]      = l[0];
+        l[1].dest = "x/style.safetensors";  // no folders for LoRAs: dropped on load
+        const auto b = queue_from_json(queue_to_json(l));
+        check(b.size() == 1 && b[0].kind == "loras" && b[0].id == download_id("loras/style.safetensors") &&
+                  b[0].id != download_id("style.safetensors"),
+              "a LoRA download keeps its kind, and its id differs from a model's of the same name");
+        check(queue_from_json(R"({"downloads":[{"url":"https://huggingface.co/a/b/resolve/main/m.gguf","dest":"m.gguf","state":"done"}]})")[0].kind ==
+                  "models",
+              "an old record without kind is a model");
+    }
+    check(is_lora_type("LORA") && is_lora_type("LoCon") && is_lora_type("DoRA") && !is_lora_type("Checkpoint") &&
+              !is_lora_type("TextualInversion"),
+          "Civitai's LoRA types");
+    check(valid_target("loras", "style.safetensors", error) && !valid_target("loras", "a/style.safetensors", error) &&
+              valid_target("models", "a/m.gguf", error) && !valid_target("vae", "v.safetensors", error),
+          "download targets");
 
     // The .part grows as pieces land: a done piece must lie inside it.
     check(pieces_within("1100", 10, 35, 20) && pieces_within("0000", 10, 35, 0), "pieces inside the .part");
@@ -291,6 +312,9 @@ int main() {
     check(parse_download_request("{\"catalog\":\"sdxs-512\"}", dr, error) && dr.url.empty() && dr.catalog == "sdxs-512",
           "catalog install request");
     check(!parse_download_request("{}", dr, error), "empty request");
+    check(parse_download_request("{\"url\":\"u\",\"kind\":\"loras\"}", dr, error) && dr.kind == "loras", "a LoRA download");
+    check(!parse_download_request("{\"url\":\"u\",\"kind\":\"vae\"}", dr, error), "an unknown kind");
+    check(!parse_download_request("{\"catalog\":\"sdxs-512\",\"kind\":\"loras\"}", dr, error), "no catalog entry as a LoRA");
     check(!parse_download_request("[1]", dr, error), "not an object");
     check(parse_download_request("{\"url\":5,\"catalog\":\"x\"}", dr, error) && dr.url.empty(),
           "a wrong type is ignored, not thrown");
@@ -342,6 +366,15 @@ int main() {
     check(parse_civitai_version(civ, "2", name, url, bytes, error) && name == "dreamshaper_8_inpaint.safetensors",
           "Civitai file by id");
     check(!parse_civitai_version(civ, "1", name, url, bytes, error), "a VAE .pt is not a model file");
+    {
+        std::string type = "x";
+        check(parse_civitai_version(civ, "", name, url, bytes, error, &type) && type.empty(), "no model object: no type");
+        const std::string lora = R"({"model":{"name":"Detail","type":"LORA"},"files":[
+            {"id":5,"name":"detail.safetensors","type":"Model","primary":true,"sizeKB":1}]})";
+        check(parse_civitai_version(lora, "", name, url, bytes, error, &type) && type == "LORA" &&
+                  name == "detail.safetensors",
+              "Civitai's model type");
+    }
     check(!parse_civitai_version("{\"error\":\"Model not found\"}", "", name, url, bytes, error) &&
               error.find("Model not found") != std::string::npos,
           "Civitai's error is passed on");

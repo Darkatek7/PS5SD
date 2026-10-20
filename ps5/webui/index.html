@@ -24,6 +24,7 @@
     PUT  /ps5sd/v1/app/uploads/<models|loras|embeddings|presets>/<name> (the Models tab: upload a file)
     GET  /ps5sd/v1/app/docs/<MODELS.md|API.md>                          (the Help tab)
     DELETE /ps5sd/v1/app/gallery/<name>                                 (the image viewer's Delete)
+    GET  /ps5sd/v1/app/loras, DELETE /ps5sd/v1/app/loras/<path>         (the LoRA picker and list)
     GET  /ps5sd/v1/app/catalog, GET/POST /ps5sd/v1/app/downloads,      (downloads; a 404 hides that part)
          DELETE .../downloads/<id>, POST .../app/hf/search
   SPDX-License-Identifier: MIT
@@ -242,6 +243,10 @@
   @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
   .drow .bar { margin: 0.45rem 0 0.35rem; }
   .inrow { display: flex; }
+  .lrow { display: flex; align-items: center; margin-bottom: 0.5rem; }
+  .lrow .lname { flex: 1; min-width: 0; color: var(--text); word-wrap: break-word; }
+  .lrow input { flex: none; width: 6rem; margin: 0 0.5rem; }
+  .lrow button { flex: none; min-width: 3.25rem; padding: 0 0.8rem; }
   .inrow select.upkind { flex: none; width: auto; margin-right: 0.6rem; }
   .upmeta { display: flex; align-items: center; }
   .upmeta .mmeta { flex: 1; min-width: 0; }
@@ -350,6 +355,11 @@
         <div><label for="scheduler">Scheduler</label><select id="scheduler"><option value="default">default</option></select></div>
       </div>
 
+      <div class="lbl">LoRAs</div>
+      <div id="lora-sel"></div>
+      <select id="lora-add" aria-label="Add a LoRA"><option value="">Add a LoRA…</option></select>
+      <p class="hint" id="lora-hint"></p>
+
       <label for="seed">Seed</label>
       <div class="seed"><input id="seed" type="number" step="1" value="-1"><button type="button" id="rnd">Random</button></div>
       <p class="hint">-1 picks a random seed. One image per run.</p>
@@ -381,6 +391,11 @@
       <div id="mlist"></div>
       <p class="hint" id="mnote"></p>
     </section>
+    <section class="panel" id="pnl-loras" style="display:none">
+      <div class="ph"><h2>LoRAs</h2></div>
+      <div id="llist"></div>
+      <p class="hint">A LoRA adds a style, a character or a look to a model. It works only with models of the family it was made for (SD 1.5, SDXL, FLUX…). Pick them on the Create tab, under Settings.</p>
+    </section>
     <section class="panel" id="pnl-dl" style="display:none">
       <div class="ph"><h2>Downloads</h2></div>
       <div id="dlist"></div>
@@ -397,8 +412,8 @@
     </section>
     <section class="panel" id="pnl-url" style="display:none">
       <div class="ph"><h2>Add by link</h2></div>
-      <div class="inrow"><input id="dl-url" type="text" placeholder="Hugging Face or Civitai link to a model file" autocomplete="off" autocapitalize="off" spellcheck="false"><button type="button" id="dl-go">Download</button></div>
-      <p class="hint">A link to a file on huggingface.co, or a Civitai model version (a link that ends in modelVersionId=...). The file goes into the models folder on the console.</p>
+      <div class="inrow"><select id="dl-kind" class="upkind" aria-label="What it is"><option value="">Model</option><option value="loras">LoRA</option></select><input id="dl-url" type="text" placeholder="Hugging Face or Civitai link to a model file" autocomplete="off" autocapitalize="off" spellcheck="false"><button type="button" id="dl-go">Download</button></div>
+      <p class="hint">A link to a file on huggingface.co, or a Civitai model version (a link that ends in modelVersionId=...). The file goes into the models folder on the console, or the loras folder for a LoRA; a Civitai LoRA goes there by itself.</p>
     </section>
     <section class="panel" id="pnl-up" style="display:none">
       <div class="ph"><h2>Upload from this computer</h2></div>
@@ -659,7 +674,8 @@
       w: size8('w', 512), h: size8('h', 512),
       steps: Math.round(num('steps', 20, 1, 150)), cfg: num('cfg', 7, 0, 30),
       sampler: $('sampler').value, scheduler: $('scheduler').value,
-      seed: parseInt($('seed').value, 10)
+      seed: parseInt($('seed').value, 10),
+      loras: loraSel.slice()
     };
   }
 
@@ -679,6 +695,12 @@
     setSelect('sampler', o.sampler || 'default');
     setSelect('scheduler', o.scheduler || 'default');
     if (o.seed !== undefined && o.seed !== null && !isNaN(o.seed)) $('seed').value = o.seed;
+    loraSel = [];
+    var ls = o.loras && o.loras.length ? o.loras : [];
+    for (var i = 0; i < ls.length; i++) {
+      if (ls[i] && typeof ls[i].path === 'string') loraSel.push({ path: ls[i].path, m: Number(ls[i].m) || 0 });
+    }
+    drawLoraPicker();
     markPreset();
     summary();
   }
@@ -695,7 +717,8 @@
     var steps = Math.round(num('steps', 20, 1, 150));
     text($('summary'), parseInt($('w').value, 10) + '×' + parseInt($('h').value, 10) + ' · ' + steps +
       (steps === 1 ? ' step' : ' steps') + ' · CFG ' + num('cfg', 7, 0, 30) +
-      ' · seed ' + (isNaN(seed) || seed < 0 ? 'random' : seed));
+      ' · seed ' + (isNaN(seed) || seed < 0 ? 'random' : seed) +
+      (loraSel.length ? ' · ' + loraSel.length + (loraSel.length === 1 ? ' LoRA' : ' LoRAs') : ''));
   }
 
   // The form follows the loaded model. After the user pressed Use (st.announce) it gets the
@@ -725,6 +748,170 @@
         'Its defaults are set: ' + p.w + '×' + p.h + ', ' + p.steps + (p.steps === 1 ? ' step' : ' steps') + ', CFG ' + p.cfg + '.'));
     }
     st.announce = '';
+  }
+
+  // ---------- LoRAs ----------
+  // loraList: the files in /data/PS5SD/loras ({name, path, bytes}; null until known).
+  // loraSel: the ones picked for the loaded model ({path, m}), saved with its settings.
+  var loraList = null;
+  var loraSel = [];
+
+  function loadLoras(cb) {
+    req('GET', APP + '/loras', null, function (code, data) {
+      if (code === 200 && data && data.loras) {
+        loraList = data.loras;
+        show('pnl-loras', true);
+        drawLoraList();
+        drawLoraPicker();
+        if (cb) cb();
+        return;
+      }
+      // a plain sd-server: its own list, without sizes
+      req('GET', '/sdapi/v1/loras', null, function (c2, list) {
+        loraList = c2 === 200 && list && list.length !== undefined ? list : [];
+        drawLoraPicker();
+        if (cb) cb();
+      });
+    });
+  }
+
+  function loraKnown(path) {
+    if (!loraList) return true;  // not loaded yet: the server says if it is gone
+    for (var i = 0; i < loraList.length; i++) if (loraList[i].path === path) return true;
+    return false;
+  }
+
+  function loraName(path) {
+    return path.replace(/^.*\//, '').replace(/\.(gguf|safetensors|ckpt|sft)$/i, '');
+  }
+
+  // The request's "lora" field: the picked LoRAs that are still there, strength 0 left out.
+  function loraBody(p) {
+    var out = [];
+    var ls = p.loras || [];
+    for (var i = 0; i < ls.length; i++) {
+      if (ls[i].m !== 0 && loraKnown(ls[i].path)) out.push({ path: ls[i].path, multiplier: ls[i].m });
+    }
+    return out;
+  }
+
+  function drawLoraPicker() {
+    var box = $('lora-sel');
+    clear(box);
+    for (var i = 0; i < loraSel.length; i++) {
+      (function (s) {
+        var row = el('div', 'lrow');
+        var gone = !loraKnown(s.path);
+        row.appendChild(el('span', 'lname', loraName(s.path) + (gone ? ' (not on the console)' : '')));
+        var inp = document.createElement('input');
+        inp.type = 'number';
+        inp.min = '-2';
+        inp.max = '2';
+        inp.step = '0.05';
+        inp.value = s.m;
+        inp.setAttribute('aria-label', 'Strength of ' + loraName(s.path));
+        inp.onchange = function () {
+          var v = parseFloat(inp.value);
+          s.m = isNaN(v) ? 1 : Math.max(-2, Math.min(2, v));
+          inp.value = s.m;
+          persist();
+        };
+        row.appendChild(inp);
+        var rm = actionButton('×', function () {
+          for (var j = 0; j < loraSel.length; j++) if (loraSel[j] === s) { loraSel.splice(j, 1); break; }
+          drawLoraPicker();
+          persist();
+        });
+        rm.setAttribute('aria-label', 'Remove ' + loraName(s.path));
+        row.appendChild(rm);
+        box.appendChild(row);
+      })(loraSel[i]);
+    }
+    var add = $('lora-add');
+    clear(add);
+    var first = document.createElement('option');
+    first.value = '';
+    text(first, 'Add a LoRA…');
+    add.appendChild(first);
+    var free = 0;
+    var list = loraList || [];
+    for (var k = 0; k < list.length; k++) {
+      var picked = false;
+      for (var n = 0; n < loraSel.length; n++) if (loraSel[n].path === list[k].path) picked = true;
+      if (picked) continue;
+      var o = document.createElement('option');
+      o.value = list[k].path;
+      text(o, list[k].name || loraName(list[k].path));
+      add.appendChild(o);
+      free++;
+    }
+    add.value = '';
+    show('lora-add', free > 0);
+    text($('lora-hint'), !list.length
+      ? 'No LoRAs on the console yet. Upload or download one on the Models tab.'
+      : 'Strength 1 is the full effect, 0.5 half of it. A LoRA works only with the model family it was made for.');
+  }
+
+  function addLora() {
+    var path = $('lora-add').value;
+    if (!path) return;
+    loraSel.push({ path: path, m: 1 });
+    drawLoraPicker();
+    persist();
+  }
+
+  function drawLoraList() {
+    var box = $('llist');
+    clear(box);
+    var list = loraList || [];
+    if (!list.length) {
+      box.appendChild(el('div', 'empty-note', 'No LoRAs yet. Upload one, or download one by link as LoRA.'));
+      return;
+    }
+    for (var i = 0; i < list.length; i++) {
+      (function (l) {
+        var row = el('div', 'mrow mwrap');
+        var main = el('div', 'mmain');
+        main.appendChild(el('div', 'mname', l.name || loraName(l.path)));
+        main.appendChild(el('div', 'mmeta', (l.bytes > 0 ? bytes(l.bytes) + ' · ' : '') + l.path));
+        row.appendChild(main);
+        var acts = el('div', 'macts');
+        var del = actionButton('Delete', function () { askDeleteLora(l); });
+        del.className = 'danger';
+        acts.appendChild(del);
+        row.appendChild(acts);
+        box.appendChild(row);
+      })(list[i]);
+    }
+  }
+
+  function askDeleteLora(l) {
+    dlgFor = { lora: l };
+    dlgFrom = document.activeElement;
+    text($('dlg-title'), 'Delete ' + (l.name || loraName(l.path)) + (l.bytes > 0 ? ' (' + bytes(l.bytes) + ')' : '') + '?');
+    text($('dlg-body'), 'The LoRA file is deleted from the console.');
+    $('dlg-ok').disabled = false;
+    $('dlg-cancel').disabled = false;
+    text($('dlg-ok'), 'Delete');
+    show('dlg', true, 'flex');
+    $('dlg-cancel').focus();
+  }
+
+  function deleteLora(l) {
+    req('DELETE', APP + '/loras/' + encodePath(l.path), null, function (code, data) {
+      closeDlg();
+      if (code === 200 || code === 404) {
+        if (data && data.loras) loraList = data.loras;
+        for (var i = loraSel.length - 1; i >= 0; i--) if (loraSel[i].path === l.path) loraSel.splice(i, 1);
+        persist();
+        drawLoraList();
+        drawLoraPicker();
+        if (code === 404) loadLoras(null);
+        toast('Deleted ' + (l.name || loraName(l.path)) + '.');
+      } else {
+        toast(errText(code, data, 'Could not delete ' + (l.name || l.path)), 6000);
+      }
+    }, 30000);
   }
 
   // ---------- result panel ----------
@@ -906,6 +1093,7 @@
     };
     if (p.sampler !== 'default') body.sample_params.sample_method = p.sampler;
     if (p.scheduler !== 'default') body.sample_params.scheduler = p.scheduler;
+    if (loraBody(p).length) body.lora = loraBody(p);
     begin(null);
     var token = st.token;
     req('POST', '/sdcpp/v1/img_gen', body, function (code, data) {
@@ -1001,6 +1189,7 @@
     };
     if (p.sampler !== 'default') body.sampler_name = p.sampler;
     if (p.scheduler !== 'default') body.scheduler = p.scheduler;
+    if (loraBody(p).length) body.lora = loraBody(p);
     begin(null);
     var token = st.token;
     status('Generating…');
@@ -1681,6 +1870,7 @@
     $('dlg-cancel').disabled = true;
     text($('dlg-ok'), 'Deleting…');
     if (m.image) { deleteImage(m.image); return; }
+    if (m.lora) { deleteLora(m.lora); return; }
     st.delErr = null;
     req('DELETE', APP + '/models/' + encodeURIComponent(m.id), null, function (code, data) {
       closeDlg();
@@ -1834,6 +2024,7 @@
 
   function enterModels() {
     loadModels(null);
+    loadLoras(null);
     loadCatalog();
     dlPoll();
   }
@@ -1892,7 +2083,7 @@
     show('mdot', active > 0, 'inline-block');
     drawDownloads();
     updateCatalog();
-    if (refresh) { loadModels(null); loadCatalog(); }
+    if (refresh) { loadModels(null); loadLoras(null); loadCatalog(); }
   }
 
   function drawDownloads() {
@@ -1983,9 +2174,11 @@
     }, 10000);
   }
 
-  function startDownload(url, b, sticky, done) {
+  function startDownload(url, b, sticky, done, kind) {
     if (b) { b.disabled = true; text(b, 'Starting…'); }
-    req('POST', APP + '/downloads', { url: url }, function (code, data) {
+    var body = { url: url };
+    if (kind) body.kind = kind;
+    req('POST', APP + '/downloads', body, function (code, data) {
       var ok = code === 202 || code === 200 || code === 409;
       if (b) {
         b.disabled = ok && sticky;
@@ -2026,7 +2219,7 @@
     if (r.error) { toast(r.error, 6000); return; }
     startDownload(r.url, $('dl-go'), false, function (ok) {
       if (ok) $('dl-url').value = '';
-    });
+    }, $('dl-kind').value);
   }
 
   // ---------- upload ----------
@@ -2077,9 +2270,9 @@
     $('up-pick').disabled = false;
     $('up-kind').disabled = false;
     if (code === 200) {
-      var listed = kind === 'models' || kind === 'presets';
+      var listed = kind === 'models' || kind === 'presets' || kind === 'loras';
       toast(name + ' is on the console' + (listed ? ' and in the list.' : '.'), 6000);
-      if (listed) loadModels(null);
+      if (kind === 'loras') loadLoras(null); else if (listed) loadModels(null);
     } else if (code === 0) {
       toast('The upload of ' + name + ' stopped.', 6000);
     } else {
@@ -2289,6 +2482,7 @@
           }
           fill($('sampler'), names(samplers));
           fill($('scheduler'), names(schedulers));
+          loadLoras(null);
           loadModels(function () {
             modelName(function (name, reachable) {
               st.infoBusy = false;
@@ -2405,6 +2599,7 @@
     $('cm-change').onclick = function () { setView('models'); };
     $('m-refresh').onclick = enterModels;
     $('dl-go').onclick = addByUrl;
+    $('lora-add').onchange = addLora;
     $('up-pick').onclick = function () { $('up-file').click(); };
     $('up-file').onchange = upStart;
     $('up-cancel').onclick = function () { if (upXhr) upXhr.abort(); };

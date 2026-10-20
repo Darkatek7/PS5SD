@@ -989,6 +989,27 @@ extern "C" int sd_app_request(const char * method, const char * path, const char
                 status = 200;
             }
         }
+    } else if (m == "GET" && p == "loras") {
+        out    = loras_json(kLoras);
+        status = 200;
+    } else if (m == "DELETE" && p.rfind("loras/", 0) == 0) {
+        // One LoRA file (subfolders as sd-server lists them). A job that
+        // uses it has read it already.
+        const std::string path = p.substr(6);
+        std::string       error;
+        if (!valid_dest(path, error)) {
+            out    = error_json("not a LoRA file: " + path);
+            status = 400;
+        } else if (::unlink((std::string(kLoras) + "/" + path).c_str()) == 0) {
+            out    = loras_json(kLoras);
+            status = 200;
+        } else if (errno == ENOENT) {
+            out    = error_json("no LoRA " + path);
+            status = 404;
+        } else {
+            out    = error_json("could not delete " + path + ": " + std::strerror(errno));
+            status = 500;
+        }
     } else if (m == "DELETE" && p.rfind("gallery/", 0) == 0) {
         // One image of the gallery (the PNGs in outputs); the gallery lists
         // that folder on each request, so the file is all there is.
@@ -1066,6 +1087,9 @@ extern "C" void sd_activity_job_end(int ok, const char * output_path) {
 
 int main(int, char **) {
     mkdir(kDir, 0777);
+    for (const char * dir : { kModels, kLoras, kEmbeddings, kPresets }) {
+        mkdir(dir, 0777);  // uploads, downloads and sd-server's lists expect them
+    }
     // stdout and stderr to a file the PC can fetch over FTP.
     if (std::freopen(kLog, "w", stdout) != nullptr) {
         setvbuf(stdout, nullptr, _IOLBF, 0);
@@ -1157,6 +1181,7 @@ int main(int, char **) {
         // in downloads.json carries on.
         DownloaderConfig dl;
         dl.models_dir         = kModels;
+        dl.loras_dir          = kLoras;
         dl.presets_dir        = kPresets;
         dl.queue_file         = std::string(kDir) + "/downloads.json";
         dl.hf_token_file      = std::string(kDir) + "/hf-token.txt";

@@ -14,7 +14,7 @@ It reads `.safetensors`, `.gguf`, `.ckpt` and `.sft` files. Everything lives und
 | `/data/PS5SD/models` | model files; a single-file checkpoint directly here shows up in the library by itself |
 | `/data/PS5SD/models/diffusion_models`, `text_encoders`, `vae` | the parts of multi-file models (FLUX, Z-Image); any subfolder works, these are the catalog's |
 | `/data/PS5SD/presets` | one `<id>.txt` per multi-file model, or per checkpoint that needs its own options |
-| `/data/PS5SD/loras` | LoRAs, used with `<lora:name:1>` in the prompt |
+| `/data/PS5SD/loras` | LoRAs; see **LoRAs** below |
 | `/data/PS5SD/embeddings` | textual inversions |
 
 There are four ways to get a model there:
@@ -147,6 +147,35 @@ Put the preset in place like a model file, with FTP or the script:
 curl -T my-finetune.txt ftp://<console IP>:2121/data/PS5SD/presets/
 PS5_HOST=<console IP> scripts/ps5sd-app.sh model my-finetune
 ```
+
+## LoRAs
+
+A LoRA adds a style, a character or a look to a model. It works only with models of the family it was
+made for: an SDXL LoRA with SDXL and its finetunes (Illustrious, Pony, ...), an SD 1.5 LoRA with SD 1.5.
+With a model of another family it does nothing.
+
+Getting one onto the console:
+
+- **Upload**: on the Models tab, under **Upload from this computer**, pick **LoRA**.
+- **Download**: under **Add by link**, pick **LoRA** and paste the link. A Civitai link to a LoRA goes
+  to the loras folder by itself.
+- **FTP**: into `/data/PS5SD/loras`; subfolders work.
+
+The Models tab lists the LoRAs, with their size and a Delete button.
+
+Using them: on the Create tab, open **Settings** and pick them under **LoRAs**, each with a strength.
+1 is the full effect, 0.5 half of it, and a negative strength works against the LoRA. Several LoRAs
+work together. The web UI keeps the picks per model, with the model's other settings. Many LoRAs also
+need their trigger words in the prompt (the LoRA's page names them), for example `pixel art` for
+pixel-art-xl.
+
+A `<lora:name:1>` tag in the prompt does nothing: sd-server leaves such tags out on purpose. Clients
+of the API send the LoRAs in a `lora` field instead; see [API.md](API.md).
+
+On the console, a LoRA costs no time per step: it is merged into the loaded weights, and taken out
+again for a request without it. Changing the set of LoRAs makes the first step of that request longer
+once (about 1.5 s for the first SDXL LoRA, about 13 s when a second one comes or goes); the next
+requests with the same LoRAs run at full speed. The measurements are in [CONSOLE.md](CONSOLE.md).
 
 ## How big a model can be
 

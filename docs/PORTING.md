@@ -216,6 +216,12 @@ instead of trapping, so `main.cpp` reports an out-of-memory load or generation a
   `upload.cpp` sends it in 1 MiB blocks to ftpsrv as one `STOR` of `<name>.part` (`ftp_writer.cpp`),
   or writes it itself when ftpsrv does not answer, and renames it at the end. A refused upload's body
   is not read, so the server answers it with `Connection: close`.
+- LoRAs: `--lora-model-dir /data/PS5SD/loras`; `GET /ps5sd/v1/app/loras` (`loras_json` in
+  `models.cpp`) lists the files with their sizes, `DELETE .../loras/<path>` deletes one. Downloads
+  carry a `kind` (`models` or `loras`, `download_core.cpp`); a Civitai version whose model type is
+  LORA, LoCon or DoRA gets `loras` by itself. `patches/sdcpp/0058` makes the A1111 routes refresh
+  sd-server's LoRA cache before they look a `lora` path up, as its sdcpp routes do; before, a LoRA
+  added after the start failed there with "invalid lora path" until a client listed the LoRAs.
 - Without a display (`PS5SD_NO_DISPLAY`): no `Display`, no renderer. Every phase (`set_phase`)
   goes to `app.log` as `ps5sd: status: ...`, to the kernel log through `sceKernelDebugOutText`
   (klogsrv, `scripts/ps5sd-app.sh log -f`) and to a system notification; the sampling progress

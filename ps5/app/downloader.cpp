@@ -54,6 +54,11 @@ std::string models_path(const std::string & dest) {
     return g_cfg.models_dir + "/" + dest;
 }
 
+// Where a download of kind ("models" or "loras") lands.
+std::string target_path(const std::string & kind, const std::string & dest) {
+    return (kind == "loras" ? g_cfg.loras_dir : g_cfg.models_dir) + "/" + dest;
+}
+
 bool file_exists(const std::string & path) {
     std::error_code ec;
     return fs::is_regular_file(fs::u8path(path), ec) && !ec;
@@ -594,7 +599,7 @@ void run_one(Item & item) {
         return;
     }
     client.close();
-    const std::string dest = models_path(rec.dest);
+    const std::string dest = target_path(rec.kind, rec.dest);
     const std::string part = dest + ".part";
     std::error_code   ec;
     fs::create_directories(fs::u8path(dest).parent_path(), ec);
@@ -774,9 +779,9 @@ int answer(std::string & out, int status, const std::string & body) {
 
 // A new download, or one taken up again. g_mutex held. Returns the HTTP status
 // for this file alone (202, or an error with out set).
-int enqueue_locked(const std::string & url, const std::string & dest, const std::string & catalog_id,
-                   std::vector<DownloadRecord> & added, std::string & out) {
-    const std::string id   = download_id(dest);
+int enqueue_locked(const std::string & url, const std::string & kind, const std::string & dest,
+                   const std::string & catalog_id, std::vector<DownloadRecord> & added, std::string & out) {
+    const std::string id   = download_id(download_key(kind, dest));
     Item *            item = find_item_locked(id);
     if (item != nullptr) {
         if (item->active) {
@@ -788,7 +793,7 @@ int enqueue_locked(const std::string & url, const std::string & dest, const std:
         if (item->rec.state == "queued") {
             return answer(out, 409, error_json(dest + " is queued already"));
         }
-        if (item->rec.state == "done" && file_exists(models_path(dest))) {
+        if (item->rec.state == "done" && file_exists(target_path(kind, dest))) {
             return answer(out, 409, error_json(dest + " is downloaded already"));
         }
         // Cancelled or failed (or done and gone since): again, from what
@@ -801,13 +806,14 @@ int enqueue_locked(const std::string & url, const std::string & dest, const std:
         added.push_back(item->rec);
         return 202;
     }
-    if (file_exists(models_path(dest))) {
-        return answer(out, 409, error_json(dest + " is in the models directory already"));
+    if (file_exists(target_path(kind, dest))) {
+        return answer(out, 409, error_json(dest + " is in the " + kind + " folder already"));
     }
     auto fresh          = std::make_unique<Item>();
     fresh->rec.id       = id;
     fresh->rec.url      = url;
     fresh->rec.dest     = dest;
+    fresh->rec.kind     = kind;
     fresh->rec.catalog  = catalog_id;
     fresh->rec.state    = "queued";
     added.push_back(fresh->rec);
@@ -842,7 +848,7 @@ int post_catalog(const CatalogEntry & e, std::string & out) {
                 continue;
             }
             std::string err;
-            const int   status = enqueue_locked(f.url, f.dest, e.id, added, err);
+            const int   status = enqueue_locked(f.url, "models", f.dest, e.id, added, err);
             if (status != 202) {
                 return answer(out, status, err);
             }
@@ -863,8 +869,9 @@ int post_catalog(const CatalogEntry & e, std::string & out) {
     return answer(out, 202, downloads_json(added));
 }
 
-// Civitai: the file's name from its API (/api/v1/model-versions/<v>).
-bool civitai_name(const Source & src, std::string & name, std::string & error) {
+// Civitai: the file's name from its API (/api/v1/model-versions/<v>), and
+// the model's type (LORA, Checkpoint, ...) when the API answers.
+bool civitai_name(const Source & src, std::string & name, std::string & type, std::string & error) {
     HttpClient  client;
     std::string body, url, ignored_url;
     int         status = 0;
@@ -873,7 +880,7 @@ bool civitai_name(const Source & src, std::string & name, std::string & error) {
                        [](const Url & u) { return headers_for(u); }, 4u << 20, body, status, error)) {
         return false;
     }
-    if (status == 200 && parse_civitai_version(body, src.civitai_file, name, ignored_url, bytes, error)) {
+    if (status == 200 && parse_civitai_version(body, src.civitai_file, name, ignored_url, bytes, error, &type)) {
         return true;
     }
     // Without the API: the name the download itself gives (Content-Disposition).
@@ -921,29 +928,37 @@ int post_download(const std::string & body, std::string & out) {
         return answer(out, 400, error_json(error));
     }
     std::string dest = req.dest;
+    std::string kind = req.kind;
     if (dest.empty()) {
         if (src.kind == "civitai") {
-            if (!civitai_name(src, dest, error)) {
+            std::string type;
+            if (!civitai_name(src, dest, type, error)) {
                 return answer(out, 502, error_json(error));
+            }
+            if (kind.empty() && is_lora_type(type)) {
+                kind = "loras";  // a Civitai LoRA, LoCon or DoRA
             }
         } else {
             dest = src.file_name;
         }
     }
-    if (!valid_dest(dest, error)) {
+    if (kind.empty()) {
+        kind = "models";
+    }
+    if (!valid_target(kind, dest, error)) {
         return answer(out, 400, error_json(error));
     }
     std::vector<DownloadRecord> added;
     {
         std::lock_guard<std::mutex> lock(g_mutex);
-        const int status = enqueue_locked(src.url, dest, req.catalog, added, out);
+        const int status = enqueue_locked(src.url, kind, dest, req.catalog, added, out);
         if (status != 202) {
             return status;
         }
         save_queue_locked();
     }
     g_cv.notify_all();
-    std::printf("ps5sd: download: %s queued from %s\n", dest.c_str(), src.url.c_str());
+    std::printf("ps5sd: download: %s/%s queued from %s\n", kind.c_str(), dest.c_str(), src.url.c_str());
     return answer(out, 202, downloads_json(added));
 }
 
@@ -970,7 +985,7 @@ int delete_download(const std::string & id, std::string & out) {
     // Done, failed or cancelled: the entry goes; a failed or cancelled one's
     // partial file with it. A finished file stays in the models directory.
     if (r.state != "done") {
-        ::unlink(models_path(r.dest + ".part").c_str());
+        ::unlink(target_path(r.kind, r.dest + ".part").c_str());
     }
     const DownloadRecord gone = r;
     g_items.erase(std::remove_if(g_items.begin(), g_items.end(),
@@ -995,7 +1010,7 @@ int retry_download(const std::string & id, std::string & out) {
             return answer(out, 409, error_json(item->rec.dest + " is " + item->rec.state + ", not failed or cancelled"));
         }
         const DownloadRecord rec = item->rec;
-        const int status = enqueue_locked(rec.url, rec.dest, rec.catalog, added, out);
+        const int status = enqueue_locked(rec.url, rec.kind, rec.dest, rec.catalog, added, out);
         if (status != 202) {
             return status;
         }

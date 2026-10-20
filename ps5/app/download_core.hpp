@@ -55,6 +55,16 @@ bool valid_dest(const std::string & dest, std::string & error);
 // ending in .txt. False with a message otherwise.
 bool upload_target(const std::string & path, std::string & kind, std::string & name, std::string & error);
 
+// Civitai's model types that are LoRAs (LORA, LoCon, DoRA): such a download
+// goes to the loras folder.
+bool is_lora_type(const std::string & civitai_type);
+
+// A download's target: kind "models" takes dest as valid_dest does, "loras" a
+// model file name without folders (as upload_target). The id of a LoRA is
+// made from "loras/<dest>", so it differs from a model of the same name.
+bool valid_target(const std::string & kind, const std::string & dest, std::string & error);
+std::string download_key(const std::string & kind, const std::string & dest);
+
 // A gallery image's name (DELETE /ps5sd/v1/app/gallery/<name>): a .png file
 // name of letters, digits, '_', '-' and '.', as the gallery lists them, not
 // starting with '.' and without folders.
@@ -107,7 +117,8 @@ std::string catalog_json(const std::string & models_dir, const std::string & pre
 struct DownloadRecord {
     std::string id;
     std::string url;      // as asked for (after the blob -> resolve rewrite)
-    std::string dest;     // relative to the models directory
+    std::string dest;     // relative to the folder of kind
+    std::string kind = "models";  // "models" or "loras"
     std::string catalog;  // the catalog entry it belongs to, or ""
     std::string state;    // queued, running, done, failed, cancelled
     std::string error;
@@ -146,6 +157,7 @@ std::string pieces_in_order(const std::string & pieces, uint64_t piece, uint64_t
 
 struct DownloadRequest {
     std::string url, dest, catalog;
+    std::string kind;  // "models", "loras", or "" (models; Civitai: from the model's type)
 };
 bool parse_download_request(const std::string & body, DownloadRequest & out, std::string & error);
 
@@ -178,9 +190,11 @@ std::string search_json(const std::vector<SearchResult> & results);
 // Civitai's /api/v1/model-versions/<v>: the file to fetch (the one with
 // file_id when given, else the primary model file): its name, its download
 // URL and its size (from sizeKB, rounded; the exact one comes from the
-// download). False with a message when there is none.
+// download), and the model's type (model.type: Checkpoint, LORA, ...) when
+// model_type is given. False with a message when there is none.
 bool parse_civitai_version(const std::string & json, const std::string & file_id, std::string & name,
-                           std::string & url, uint64_t & bytes, std::string & error);
+                           std::string & url, uint64_t & bytes, std::string & error,
+                           std::string * model_type = nullptr);
 
 std::string url_encode(const std::string & s);
 

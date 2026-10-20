@@ -140,6 +140,20 @@ int main() {
           "a preset with missing files can be deleted");
     const auto r = nlohmann::json::parse(ps5sd::removed_json(lib, { "a" }, { "b" }, "x", "y"));
     check(r["deleted"][0] == "a" && r["kept"][0] == "b" && r["active"] == "x", "removed json");
+    {
+        const fs::path loras = root / "loras";
+        fs::create_directories(loras / "styles");
+        std::ofstream(loras / "detail.safetensors") << "12345";
+        std::ofstream(loras / "styles" / "ink.gguf") << "1";
+        std::ofstream(loras / "detail.safetensors.part") << "x";
+        std::ofstream(loras / "notes.txt") << "x";
+        const auto l = nlohmann::json::parse(ps5sd::loras_json(loras.u8string()))["loras"];
+        check(l.size() == 2 && l[0]["path"] == "detail.safetensors" && l[0]["name"] == "detail" && l[0]["bytes"] == 5 &&
+                  l[1]["path"] == "styles/ink.gguf",
+              "loras json: model files only, with subfolders and sizes");
+        check(nlohmann::json::parse(ps5sd::loras_json((root / "none").u8string()))["loras"].empty(),
+              "loras json: no folder, no LoRAs");
+    }
 
     fs::remove_all(root);
     std::printf("%s (%d failure(s))\n", failures == 0 ? "ok" : "FAILED", failures);

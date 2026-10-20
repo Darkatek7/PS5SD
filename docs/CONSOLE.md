@@ -404,3 +404,44 @@ How the server options got there, at 1024x1024:
   out and read again; the VAE tiles keep the decode from pushing them out too.
 - UCache at threshold 1.5, which cost SDXL Base only some detail, ruins this finetune's images.
 - `--eager-load` takes the first request from 71 to 32 s.
+
+## LoRAs on a q8_0 model (2026-10-20)
+
+0.1.0, FW 13.00. iLustMix v11.1 from `presets/ilustmix-portrait.txt` (`--type q8_0`, converted while
+loading), with LCM-LoRA SDXL (`latent-consistency/lcm-lora-sdxl`, 394 MB) in `/data/PS5SD/loras`.
+`POST /sdapi/v1/txt2img`, 832x1216, the prompt of the iLustMix section, seed 2026, the time around the
+whole request on the PC.
+
+| Request | Sampling | Request |
+|---|---|---|
+| dpm++2m, `ays`, 10 steps, CFG 6, no LoRA | 25.3 s (2.5 s/step) | 30.2 s |
+| `lcm`, 6 steps, CFG 1.5, LCM-LoRA at 1.0 | 16.6 s (2.5 s/step) | 26.4 s |
+
+- sd.cpp applies the LoRA "immediately" (2364 of 2364 tensors): `apply_loras` returns after 0.09 s,
+  and the merge into the weights shows in the first step (4.0 s instead of 2.5 s). The other steps cost
+  the same as without it. Memory after the request was the same (3.9 GiB of the pool free).
+- The next request without the LoRA gave an image byte for byte equal to the one from before the LoRA,
+  so taking it out again restores the q8_0 weights exactly.
+- With a model of another family loaded (FLUX.3 Klein), the same request applied 0 of the 2364 tensors
+  and logged each one as unused; the image is the model's own.
+- The LCM image is clean at 6 steps, with a softer, more painted look than the `ays` one.
+
+Two LoRAs at once, 1024x1024, `lcm`, 6 steps, CFG 1.5, seed 5, a building prompt, after a fresh start of
+the server; pixel-art-xl (`nerijs/pixel-art-xl`, 170 MB) downloaded with `"kind": "loras"`:
+
+| Request (in this order) | Step 1 | Steps 2 to 6 | Sampling | Request |
+|---|---|---|---|---|
+| A: LCM-LoRA | 3.9 s | 2.46 s | 16.3 s | 27.7 s |
+| B: LCM-LoRA + pixel-art-xl | 15.3 s | 2.45 s | 27.6 s | 45.4 s |
+| A again | 13.6 s | 2.46 s | 25.9 s | 42.2 s |
+| B again | 15.4 s | 2.45 s | 27.7 s | 45.5 s |
+| B once more | 2.4 s | 2.45 s | 14.8 s | 24.1 s |
+
+- Both LoRAs are applied in full (2364 and 2166 tensors). A step costs the same with none, one or two.
+- A change of the set costs time once, in the first step, while sd.cpp merges the new set into the
+  q8_0 weights (and takes the old one out). The same set again costs nothing.
+- "A again" gave A's image byte for byte, so taking pixel-art-xl out restores the weights exactly. B
+  gave the same image each time.
+- Before `patches/sdcpp/0058`, B failed on `/sdapi/v1/txt2img` with "invalid lora path" because the
+  file had come after the server started; the web UI's route (`/sdcpp/v1/img_gen`) already refreshed
+  the list.
