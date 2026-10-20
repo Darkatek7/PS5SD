@@ -500,6 +500,18 @@ bool pieces_within(const std::string & pieces, uint64_t piece, uint64_t total, u
     return true;
 }
 
+std::string pieces_in_order(const std::string & pieces, uint64_t piece, uint64_t total, uint64_t file_size) {
+    std::string out(pieces.size(), '0');
+    for (size_t i = 0; i < pieces.size() && pieces[i] == '1' && piece > 0; i++) {
+        const uint64_t start = static_cast<uint64_t>(i) * piece;
+        if (start >= total || start + std::min(piece, total - start) > file_size) {
+            break;
+        }
+        out[i] = '1';
+    }
+    return out;
+}
+
 std::vector<DownloadRecord> queue_from_json(const std::string & text) {
     std::vector<DownloadRecord> out;
     const json j = json::parse(text, nullptr, false);

@@ -55,6 +55,7 @@
 #include <initializer_list>
 #include <mutex>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include <vulkan/vulkan_core.h>
@@ -159,6 +160,7 @@ std::atomic<bool> g_worker_busy{false};
 std::atomic<int>  g_server_port{kPort};
 std::atomic<int>  g_generation{0};  // counts the server's starts
 std::atomic<bool> g_quit_requested{false};
+std::atomic<bool> g_quit_file{false};  // kQuit seen by watch_quit_file()
 
 // A model switch: asked for by POST /ps5sd/v1/app/models/active (pending),
 // taken up by the main loop, which stops the server (restart), and over once
@@ -239,11 +241,26 @@ void notify_outcome(const char * text) {
 // generation is on the GPU when it goes. The request is latched: the quit file
 // stays until the very end (scripts/ps5sd-app.sh close waits for it to go),
 // and a withdrawn file does not cancel a stop that has begun.
+// The quit file is looked for on a thread of its own, once a second: an
+// access() on /data can wait behind other I/O, and the main loop must keep
+// presenting frames, or a Close from the home screen finds no GPU suspend
+// point and ends in a crash report (docs/CONSOLE.md).
+void watch_quit_file() {
+    std::thread([] {
+        while (!g_quit_file) {
+            if (access(kQuit, F_OK) == 0) {
+                g_quit_file = true;
+            }
+            sceKernelUsleep(1000 * 1000);
+        }
+    }).detach();
+}
+
 void quit_if_asked() {
     using clock = std::chrono::steady_clock;
     static clock::time_point asked;
     if (!g_quit_requested) {
-        if (access(kQuit, F_OK) != 0) {
+        if (!g_quit_file) {
             return;
         }
         g_quit_requested = true;
@@ -1067,6 +1084,7 @@ int main(int, char **) {
         downloader_start(dl);
     }
     start_thread(work);
+    watch_quit_file();
 
 #ifndef PS5SD_NO_DISPLAY
     // The screen and the quit request until the system closes the title: a

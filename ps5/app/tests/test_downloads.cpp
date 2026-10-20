@@ -248,6 +248,12 @@ int main() {
     check(!pieces_within("1010", 10, 35, 25), "a piece past the end of the .part");
     check(pieces_within("0001", 10, 35, 35) && !pieces_within("0001", 10, 35, 34), "the short last piece");
     check(!pieces_within("1", 0, 35, 35), "no piece size");
+    check(pieces_in_order("1101", 10, 35, 35) == "1100", "in order: a done piece after a gap is fetched again");
+    check(pieces_in_order("1110", 10, 35, 25) == "1100", "in order: a piece the file does not hold");
+    check(pieces_in_order("1111", 10, 35, 35) == "1111" && pieces_in_order("1111", 10, 35, 34) == "1110",
+          "in order: the short last piece");
+    check(pieces_in_order("0111", 10, 35, 35) == "0000" && pieces_in_order("11", 0, 35, 35) == "00",
+          "in order: nothing kept");
     {
         const json j = json::parse(downloads_json(back));
         check(j["downloads"].size() == 2, "downloads JSON");

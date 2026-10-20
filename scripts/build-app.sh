@@ -219,6 +219,7 @@ cmp -s "$ca_h.new" "$ca_h" 2> /dev/null && rm -f "$ca_h.new" || mv -f "$ca_h.new
 cxx -std=c++17 "${eh[@]}" -I "$sd/thirdparty" -c "$app_src/download_core.cpp" -o "$obj/download_core.o"
 cxx -std=c++17 "${eh[@]}" -I "$sd/thirdparty" -c "$app_src/downloader.cpp" -o "$obj/downloader.o"
 cxx -std=c++17 "${eh[@]}" -I "$mbedtls/include" -I "$out" -c "$app_src/https_client.cpp" -o "$obj/https_client.o"
+cxx -std=c++17 "${eh[@]}" -c "$app_src/ftp_writer.cpp" -o "$obj/ftp_writer.o"
 if [ "$display" = 1 ]; then
     for src in display dashboard; do
         cxx "${eh[@]}" "${kitinc[@]}" -I "$app_src" -c "$app_src/$src.cpp" -o "$obj/$src.o"
@@ -235,7 +236,7 @@ rm -f "$obj/libps5app_compat.a"
 cxx -fno-exceptions -fno-rtti -c "$vk/tooling/native/app_crt.cpp" -o "$obj/app_crt.o"
 cxx -fexceptions -fcxx-exceptions -c "$app_src/cpp_runtime.cpp" -o "$obj/app_cpp_runtime.o"
 app_objects=("$obj/app_crt.o" "$obj/app_cpp_runtime.o" "$obj/main.o" "$obj/gen_args.o" "$obj/app_status.o"
-    "$obj/models.o" "$obj/download_core.o" "$obj/downloader.o" "$obj/https_client.o")
+    "$obj/models.o" "$obj/download_core.o" "$obj/downloader.o" "$obj/https_client.o" "$obj/ftp_writer.o")
 [ "$display" = 1 ] && app_objects+=("$obj/display.o" "$obj/dashboard.o" "$obj/image_file.o")
 
 # ---- the screen (display builds only) --------------------------------------------

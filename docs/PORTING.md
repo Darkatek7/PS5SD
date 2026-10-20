@@ -287,15 +287,22 @@ restart).
   host (`huggingface.co` gets `/data/PS5SD/hf-token.txt`, `civitai.com` gets
   `/data/PS5SD/civitai-token.txt`, as `Authorization: Bearer`; the CDNs' signed URLs never see it),
   gives the size (`Content-Range`) and the signed URL. Up to 16 threads, each with its own
-  connection, fetch 8 MiB pieces into a buffer of their own; a whole piece is written into
-  `<dest>.part` with one `pwrite`, one piece at a time (scattered 256 KiB writes from 16 connections
-  were slower). The `.part` grows as pieces land (no `ftruncate` up front), and a resume keeps the
-  recorded pieces only while each lies inside it. For measuring, `env.txt` takes `PS5SD_DL_CONNECTIONS`,
+  connection, fetch 8 MiB pieces into a buffer of their own. The console slows a title's own writes
+  to `/data` to about 2 MB/s after 1.4 GB, but not a payload's (docs/CONSOLE.md), so ftpsrv writes
+  the file (`ftp_writer.cpp`): the pieces go into `<dest>.part` in file order, each as `REST <offset>`
+  + `STOR` over a loopback FTP connection, and a piece is done once ftpsrv answered 226. A piece
+  that is ready early waits for the ones before it. A resume keeps the leading done pieces that lie
+  wholly inside the `.part` (`pieces_in_order`), and the first write cuts off anything after them.
+  The finished file is renamed with `RNFR`/`RNTO`. When ftpsrv does not answer on port 2121 (or with
+  `PS5SD_DL_FTP=0`), the title writes itself, with one `pwrite` per whole piece, one piece at a
+  time, and the download shows why it is slow. The `.part` grows as pieces land (no `ftruncate` up
+  front), and a resume keeps the recorded pieces only while each lies inside it. For measuring,
+  `env.txt` takes `PS5SD_DL_CONNECTIONS`,
   `PS5SD_DL_PIECE_MIB`, `PS5SD_DL_TRUNCATE=1` (make the `.part` its full size first),
   `PS5SD_DL_ORDERED=1` (pieces written in file order only), `PS5SD_DL_SYNC_S` (seconds between
   `fsync`s, 0 only at the end) and `PS5SD_DL_WRITETEST` (disk write tests without the network before
-  the queue starts, see `write_test`). Sustained writes from the title to `/data` are the limit, not
-  the network (docs/CONSOLE.md). Every 5 s the map of finished pieces is copied, the file `fsync`ed, and the map
+  the queue starts, see `write_test`; a dir of `ftp/data/...` writes through ftpsrv). Every 5 s the
+  map of finished pieces is copied, the file `fsync`ed (direct writes only), and the map
   saved in `downloads.json` (written whole: `.tmp`, `fsync`, rename), so a piece is never recorded
   before its bytes are on disk. A failed piece goes back in the queue; its connection waits 1, 2, 4, 8
   then 16 s, and gives up after 8 failures in a row; a 403, 410 or redirect on a piece fetches a

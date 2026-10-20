@@ -126,6 +126,11 @@ uint64_t pieces_bytes(const std::string & pieces, uint64_t piece, uint64_t total
 // bytes (the file grows as pieces land; a shorter one lost some).
 bool pieces_within(const std::string & pieces, uint64_t piece, uint64_t total, uint64_t file_size);
 
+// For a .part written in file order (through ftpsrv): the map with only its
+// leading done pieces that lie wholly inside file_size bytes; the rest is
+// fetched again, and the next write cuts the file at the first of them.
+std::string pieces_in_order(const std::string & pieces, uint64_t piece, uint64_t total, uint64_t file_size);
+
 // ---- request bodies and Hugging Face's answers -----------------------------------
 
 struct DownloadRequest {

@@ -4,12 +4,10 @@ stable-diffusion.cpp on the PS5 GPU — a native title running ggml-vulkan on RA
 OpenAI/A1111-compatible image API, a browser UI and a TV dashboard.
 
 > **Status: 0.1.0, work in progress, no release yet.** The title runs the server, the web UI, the
-> model downloader and the TV dashboard on the console. Known problems:
-> - After about 1.4 GB, a download's writes to `/data` slow to about 2 MB/s.
-> - Closing the title from the home screen during a download can end in a crash report. A download
->   still resumes after that.
->
-> Both are in [docs/CONSOLE.md](docs/CONSOLE.md).
+> model downloader and the TV dashboard on the console. Downloads run at 50 to 75 MB/s from start to
+> end and resume after a close. Closing from the home screen during a download used to end in a
+> crash report about 1 time in 5; that has not happened in 8 Closes since the download fix. The
+> measurements are in [docs/CONSOLE.md](docs/CONSOLE.md).
 
 ## Milestone: the first image made on a PS5
 
@@ -25,7 +23,8 @@ seed 42, on the console's GPU through ggml-vulkan and RADV, in 2.6 s. Measuremen
   - [etaHEN](https://github.com/LightningMods/etaHEN) and kstuff-lite
   - ShadowMountPlus
   - elfldr
-  - ftpsrv
+  - ftpsrv (port 2121): the model downloader writes its files through it. Without it, downloads
+    slow to about 2 MB/s after 1.4 GB.
 - A host with a Vulkan-capable toolchain for building the payload and the driver patches.
 
 ## Models
@@ -35,7 +34,11 @@ Klein, Z-Image Turbo and a few smaller ones; one click installs the files and a 
 Hugging Face or Civitai file URL, with progress, cancel and resume. Downloads keep going while
 images are generated. A gated or private Hugging Face repository needs a token in
 `/data/PS5SD/hf-token.txt`, a Civitai model that asks for a login one in
-`/data/PS5SD/civitai-token.txt` (one line each). How the downloader works is in
+`/data/PS5SD/civitai-token.txt` (one line each).
+
+A model from anywhere else (your own merge or training, another site, a file already on the PC) goes
+onto the console by FTP; [docs/MODELS.md](docs/MODELS.md) has the steps, the preset format for models
+of several files, and which models fit. How the downloader works is in
 [docs/PORTING.md](docs/PORTING.md#the-model-downloader-downloadercpp-https_clientcpp-download_corecpp-cataloghpp).
 
 ## API

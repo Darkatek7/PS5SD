@@ -25,6 +25,7 @@
 #include <vector>
 
 #include "download_core.hpp"
+#include "ftp_writer.hpp"
 #include "https_client.hpp"
 #include "models.hpp"
 #include "version.hpp"
@@ -220,13 +221,24 @@ bool stopping(const Item & item) {
     return item.cancel || g_stop;
 }
 
-// The file in one stream from its start, for a server without ranges.
-void fetch_whole(Item & item, const Probe & p, int fd) {
+// ftpsrv's answer when the disk is full (552, or 451/452 with errno's text).
+bool ftp_disk_full(const std::string & error) {
+    return error.find(" 552 ") != std::string::npos || error.find(" 452 ") != std::string::npos ||
+           error.find("No space") != std::string::npos;
+}
+
+// The file in one stream from its start, for a server without ranges. With
+// ftp, through one long transfer to part; otherwise pwrite to fd.
+void fetch_whole(Item & item, const Probe & p, int fd, FtpWriter * ftp, const std::string & part) {
     HttpClient   client;
     HttpResponse r;
     std::string  error, final_url;
     std::atomic<uint64_t> got{ 0 };
     bool         disk_full = false;
+    if (ftp != nullptr && !ftp->begin(part, 0, error)) {
+        set_failed(item, error);
+        return;
+    }
     const auto   t0        = clock_type::now();
     std::thread  monitor;
     std::atomic<bool> done{ false };
@@ -243,7 +255,12 @@ void fetch_whole(Item & item, const Probe & p, int fd) {
         client, p.final_url, [](const Url & u) { return headers_for(u); },
         [](const HttpResponse & res) { return res.status == 200; },
         [&](const char * data, size_t n) {
-            if (::pwrite(fd, data, n, static_cast<off_t>(got.load())) != static_cast<ssize_t>(n)) {
+            if (ftp != nullptr) {
+                if (!ftp->send(data, n, error)) {
+                    disk_full = ftp_disk_full(error);
+                    return false;
+                }
+            } else if (::pwrite(fd, data, n, static_cast<off_t>(got.load())) != static_cast<ssize_t>(n)) {
                 disk_full = errno == ENOSPC;
                 return false;
             }
@@ -253,6 +270,14 @@ void fetch_whole(Item & item, const Probe & p, int fd) {
         r, final_url, error);
     done = true;
     monitor.join();
+    if (ftp != nullptr) {
+        std::string end_error;
+        if (!ftp->end(end_error) && ok && !stopping(item)) {
+            disk_full = ftp_disk_full(end_error);
+            set_failed(item, disk_full ? "the console's storage is full" : end_error);
+            return;
+        }
+    }
     if (stopping(item)) {
         return;
     }
@@ -269,7 +294,10 @@ void fetch_whole(Item & item, const Probe & p, int fd) {
 
 // Pieces over several connections, in place. Returns when they are all on
 // disk, the item is cancelled or the app stops, or it failed (state set).
-void fetch_pieces(Item & item, const Probe & p0, const std::string & url, int fd) {
+// With ftp, each piece goes to part through ftpsrv, in file order; otherwise
+// pwrite to fd. note is shown with the record while it runs ("" for none).
+void fetch_pieces(Item & item, const Probe & p0, const std::string & url, int fd, FtpWriter * ftp,
+                  const std::string & part, const std::string & note) {
     std::string pieces;
     uint64_t    piece = 0, total = 0;
     {
@@ -293,8 +321,9 @@ void fetch_pieces(Item & item, const Probe & p0, const std::string & url, int fd
     // connections at scattered offsets brought /data down to 1-8 MB/s
     // (docs/CONSOLE.md), with every connection blocked in pwrite.
     std::mutex         write_mutex;
-    // PS5SD_DL_ORDERED: a piece waits until the ones before it are written,
-    // so the file only ever grows at its end.
+    // PS5SD_DL_ORDERED, and always through ftpsrv: a piece waits until the
+    // ones before it are written, so the file only ever grows at its end.
+    const bool              ordered = g_cfg.ordered || ftp != nullptr;
     std::condition_variable written;
     const auto before_done = [&](size_t k) {  // m held
         for (size_t i = 0; i < k; i++) {
@@ -353,7 +382,7 @@ void fetch_pieces(Item & item, const Probe & p0, const std::string & url, int fd
                     return !stopping(item);
                 },
                 r, error);
-            if (ok && r.status == 206 && wrote == len && g_cfg.ordered) {
+            if (ok && r.status == 206 && wrote == len && ordered) {
                 std::unique_lock<std::mutex> lock(m);
                 while (!before_done(k) && !stopping(item) && !fatal && !disk_full) {
                     written.wait_for(lock, std::chrono::milliseconds(250));
@@ -369,7 +398,21 @@ void fetch_pieces(Item & item, const Probe & p0, const std::string & url, int fd
                 {
                     std::lock_guard<std::mutex> lock(write_mutex);
                     const auto w0 = clock_type::now();
-                    done = ::pwrite(fd, buffer.data(), len, static_cast<off_t>(start)) == static_cast<ssize_t>(len);
+                    if (ftp != nullptr) {
+                        // Confirmed (226) means in the file. A failed write is
+                        // cut off by the next one at this piece's start; one
+                        // more try on a new connection (ftpsrv may have
+                        // dropped an idle one).
+                        done = ftp->write_at(part, start, buffer.data(), len, error);
+                        if (!done && !ftp_disk_full(error)) {
+                            std::printf("ps5sd: download %s: piece %zu: %s, writing it again\n",
+                                        item.rec.dest.c_str(), k, error.c_str());
+                            error.clear();
+                            done = ftp->write_at(part, start, buffer.data(), len, error);
+                        }
+                    } else {
+                        done = ::pwrite(fd, buffer.data(), len, static_cast<off_t>(start)) == static_cast<ssize_t>(len);
+                    }
                     write_us += static_cast<uint64_t>(
                         std::chrono::duration_cast<std::chrono::microseconds>(clock_type::now() - w0).count());
                 }
@@ -382,10 +425,12 @@ void fetch_pieces(Item & item, const Probe & p0, const std::string & url, int fd
                     written.notify_all();
                     continue;
                 }
-                if (errno == ENOSPC) {
-                    disk_full = true;
+                if (ftp != nullptr) {
+                    disk_full = ftp_disk_full(error);
+                } else {
+                    disk_full = disk_full || errno == ENOSPC;
+                    error     = std::string("pwrite: ") + std::strerror(errno);
                 }
-                error = std::string("pwrite: ") + std::strerror(errno);
             }
             received -= wrote;  // fetched again from its start
             {
@@ -465,7 +510,7 @@ void fetch_pieces(Item & item, const Probe & p0, const std::string & url, int fd
             c = c == '1' ? '1' : '0';
         }
         const auto f0 = clock_type::now();
-        if (last || (g_cfg.sync_s > 0 && f0 - synced >= std::chrono::seconds(g_cfg.sync_s))) {
+        if (fd >= 0 && (last || (g_cfg.sync_s > 0 && f0 - synced >= std::chrono::seconds(g_cfg.sync_s)))) {
             ::fsync(fd);
             synced   = clock_type::now();
             fsync_us = static_cast<uint64_t>(
@@ -496,7 +541,7 @@ void fetch_pieces(Item & item, const Probe & p0, const std::string & url, int fd
                 std::lock_guard<std::mutex> lock2(m);
                 item.rec.error = "connection lost (" + last_error + "), trying again";
             } else if (!item.cancel) {
-                item.rec.error.clear();
+                item.rec.error = note;
             }
         }
         if (!running) {
@@ -555,6 +600,16 @@ void run_one(Item & item) {
     fs::create_directories(fs::u8path(dest).parent_path(), ec);
     const uint64_t piece = static_cast<uint64_t>(std::max(1u, g_cfg.piece_mib)) << 20;
     bool           fresh = false;  // nothing of the .part is kept
+    // Through ftpsrv when it answers: the title's own writes slow to about
+    // 2 MB/s after 1.4 GB (ftp_writer.hpp).
+    FtpWriter   ftp;
+    std::string ftp_error, note;
+    const bool  via_ftp = g_cfg.ftp && ftp.connect(ftp_error);
+    if (g_cfg.ftp && !via_ftp) {
+        note = "ftpsrv does not answer on port 2121, so the app writes the file itself, which gets slow after "
+               "about 1.4 GB (" + ftp_error + ")";
+        std::printf("ps5sd: download %s: %s\n", rec.dest.c_str(), note.c_str());
+    }
     {
         std::lock_guard<std::mutex> lock(g_mutex);
         Item & it = item;
@@ -562,10 +617,17 @@ void run_one(Item & item) {
         // any more, start over. The .part grows as pieces land (no ftruncate
         // up front, see fetch_pieces), so a piece the map has must lie inside
         // it, and it can never be longer than the file.
+        // Through ftpsrv the .part is written in order, and a piece is done
+        // once ftpsrv confirmed it; a tail past the done pieces is cut off by
+        // the first write.
         const size_t   count     = p.ranges ? static_cast<size_t>((p.total + piece - 1) / piece) : 0;
         const uint64_t part_size = file_size_of(part);
-        if (!p.ranges || it.rec.total != p.total || it.rec.piece != piece || it.rec.pieces.size() != count ||
-            part_size > p.total || !pieces_within(it.rec.pieces, piece, p.total, part_size)) {
+        const bool     same      = p.ranges && it.rec.total == p.total && it.rec.piece == piece &&
+                                   it.rec.pieces.size() == count && part_size <= p.total;
+        if (same && via_ftp) {
+            it.rec.pieces = pieces_in_order(it.rec.pieces, piece, p.total, part_size);
+        }
+        if (!same || !pieces_within(it.rec.pieces, piece, p.total, part_size)) {
             it.rec.pieces.assign(count, '0');
             fresh = true;
         }
@@ -575,32 +637,42 @@ void run_one(Item & item) {
         save_queue_locked();
         rec = it.rec;
     }
-    std::printf("ps5sd: download %s: %llu bytes from %s (%s; %d x %u MiB%s%s, fsync %u s; %llu bytes kept)\n",
+    const std::string how = via_ftp ? std::string("through ftpsrv") : "fsync every " + std::to_string(g_cfg.sync_s) + " s";
+    std::printf("ps5sd: download %s: %llu bytes from %s (%s; %d x %u MiB%s%s, %s; %llu bytes kept)\n",
                 rec.dest.c_str(), (unsigned long long) p.total, rec.url.c_str(), p.ranges ? "in pieces" : "one stream",
-                g_cfg.connections, g_cfg.piece_mib, g_cfg.truncate ? ", truncate" : "", g_cfg.ordered ? ", ordered" : "",
-                g_cfg.sync_s, (unsigned long long) rec.bytes);
-    const int fd = ::open(part.c_str(), O_RDWR | O_CREAT, 0666);
-    if (fd < 0) {
-        set_failed(item, "cannot write " + part + ": " + std::strerror(errno));
-        return;
-    }
-    if (fresh && ::ftruncate(fd, 0) != 0) {
-        ::close(fd);
-        set_failed(item, "cannot empty " + part + ": " + std::strerror(errno));
-        return;
-    }
-    if (p.ranges && g_cfg.truncate && file_size_of(part) != p.total && ::ftruncate(fd, static_cast<off_t>(p.total)) != 0) {
-        ::close(fd);
-        set_failed(item, "cannot make " + part + " " + std::to_string(p.total) + " bytes: " + std::strerror(errno));
-        return;
-    }
-    if (p.ranges) {
-        fetch_pieces(item, p, rec.url, fd);
+                g_cfg.connections, g_cfg.piece_mib, g_cfg.truncate && !via_ftp ? ", truncate" : "",
+                g_cfg.ordered || via_ftp ? ", ordered" : "", how.c_str(), (unsigned long long) rec.bytes);
+    if (via_ftp) {
+        if (p.ranges) {
+            fetch_pieces(item, p, rec.url, -1, &ftp, part, note);
+        } else {
+            fetch_whole(item, p, -1, &ftp, part);
+        }
     } else {
-        fetch_whole(item, p, fd);
+        const int fd = ::open(part.c_str(), O_RDWR | O_CREAT, 0666);
+        if (fd < 0) {
+            set_failed(item, "cannot write " + part + ": " + std::strerror(errno));
+            return;
+        }
+        if (fresh && ::ftruncate(fd, 0) != 0) {
+            ::close(fd);
+            set_failed(item, "cannot empty " + part + ": " + std::strerror(errno));
+            return;
+        }
+        if (p.ranges && g_cfg.truncate && file_size_of(part) != p.total &&
+            ::ftruncate(fd, static_cast<off_t>(p.total)) != 0) {
+            ::close(fd);
+            set_failed(item, "cannot make " + part + " " + std::to_string(p.total) + " bytes: " + std::strerror(errno));
+            return;
+        }
+        if (p.ranges) {
+            fetch_pieces(item, p, rec.url, fd, nullptr, part, note);
+        } else {
+            fetch_whole(item, p, fd, nullptr, part);
+        }
+        ::fsync(fd);
+        ::close(fd);
     }
-    ::fsync(fd);
-    ::close(fd);
 
     std::unique_lock<std::mutex> lock(g_mutex);
     if (g_stop) {
@@ -626,7 +698,10 @@ void run_one(Item & item) {
         save_queue_locked();
         return;
     }
-    if (std::rename(part.c_str(), dest.c_str()) != 0) {
+    // ftpsrv made the file, so ftpsrv renames it; the title's own rename if
+    // that fails.
+    std::string rename_error;
+    if (!(via_ftp && ftp.rename(part, dest, rename_error)) && std::rename(part.c_str(), dest.c_str()) != 0) {
         item.rec.state = "failed";
         item.rec.error = "cannot rename " + part + ": " + std::strerror(errno);
         save_queue_locked();
@@ -994,7 +1069,8 @@ int hf_search(const std::string & body, std::string & out) {
 // every sync_mb MB (0: only at the end); prealloc 1 makes the file its full
 // size first (ftruncate); it stops after max_s seconds (0: when it is all
 // written), then pauses pause_s seconds. The rate is logged every 2 s, and
-// the file is removed at the end.
+// the file is removed at the end. A dir of "ftp/data/..." writes through
+// ftpsrv instead, one 8 MiB STOR after the other (fsync and prealloc unused).
 void write_test(const std::string & spec) {
     std::vector<std::string> f;
     size_t                   at = 0;
@@ -1015,15 +1091,24 @@ void write_test(const std::string & spec) {
     const bool        prealloc = num(3, 0) != 0;
     const long        pause_s  = std::max(0L, num(4, 0));
     const long        max_s    = std::max(0L, num(5, 0));  // 0: no limit
-    const std::string path     = f[0] + "/.ps5sd-writetest";
-    std::printf("ps5sd: write test %s: %.0f MB, fsync every %llu MB, %s\n", path.c_str(), total / 1e6,
-                (unsigned long long) sync_mb, prealloc ? "preallocated" : "growing");
-    const int fd = ::open(path.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0666);
-    if (fd < 0) {
+    const bool        via_ftp  = f[0].rfind("ftp/", 0) == 0;
+    const std::string path     = (via_ftp ? f[0].substr(3) : f[0]) + "/.ps5sd-writetest";
+    std::printf("ps5sd: write test %s: %.0f MB, %s\n", path.c_str(), total / 1e6,
+                via_ftp  ? "through ftpsrv"
+                : prealloc ? ("fsync every " + std::to_string(sync_mb) + " MB, preallocated").c_str()
+                           : ("fsync every " + std::to_string(sync_mb) + " MB, growing").c_str());
+    FtpWriter   ftp;
+    std::string ftp_error;
+    const int   fd = via_ftp ? -1 : ::open(path.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0666);
+    if (via_ftp && !ftp.connect(ftp_error)) {
+        std::printf("ps5sd: write test: %s\n", ftp_error.c_str());
+        return;
+    }
+    if (!via_ftp && fd < 0) {
         std::printf("ps5sd: write test %s: %s\n", path.c_str(), std::strerror(errno));
         return;
     }
-    if (prealloc && ::ftruncate(fd, static_cast<off_t>(total)) != 0) {
+    if (!via_ftp && prealloc && ::ftruncate(fd, static_cast<off_t>(total)) != 0) {
         std::printf("ps5sd: write test: ftruncate: %s\n", std::strerror(errno));
     }
     std::vector<char> block(8u << 20, 0);
@@ -1035,13 +1120,18 @@ void write_test(const std::string & spec) {
            (max_s == 0 || clock_type::now() - t0 < std::chrono::seconds(max_s))) {
         const size_t n  = static_cast<size_t>(std::min<uint64_t>(block.size(), total - done));
         const auto   w0 = clock_type::now();
-        if (::write(fd, block.data(), n) != static_cast<ssize_t>(n)) {
+        if (via_ftp) {
+            if (!ftp.write_at(path, done, block.data(), n, ftp_error)) {
+                std::printf("ps5sd: write test: %s\n", ftp_error.c_str());
+                break;
+            }
+        } else if (::write(fd, block.data(), n) != static_cast<ssize_t>(n)) {
             std::printf("ps5sd: write test: write: %s\n", std::strerror(errno));
             break;
         }
         done += n;
         since_sync += n;
-        if (sync_mb > 0 && since_sync >= sync_mb * 1000000) {
+        if (!via_ftp && sync_mb > 0 && since_sync >= sync_mb * 1000000) {
             const auto f0 = clock_type::now();
             ::fsync(fd);
             sync_s += std::chrono::duration<double>(clock_type::now() - f0).count();
@@ -1061,14 +1151,20 @@ void write_test(const std::string & spec) {
     }
     const double before = std::chrono::duration<double>(clock_type::now() - t0).count();
     const auto   f0     = clock_type::now();
-    ::fsync(fd);
+    if (fd >= 0) {
+        ::fsync(fd);
+        ::close(fd);
+    }
     const double fs_s = std::chrono::duration<double>(clock_type::now() - f0).count();
-    ::close(fd);
     const double all = std::chrono::duration<double>(clock_type::now() - t0).count();
     std::printf("ps5sd: write test %s: %.0f MB in %.1f s (%.1f MB/s; %.1f MB/s before the last fsync of %.1f s)\n",
                 path.c_str(), done / 1e6, all, all > 0 ? done / 1e6 / all : 0.0,
                 before > 0 ? done / 1e6 / before : 0.0, fs_s);
-    ::unlink(path.c_str());
+    // The title's own unlink, also of a file ftpsrv made (a cancelled
+    // download's .part, a deleted model).
+    if (::unlink(path.c_str()) != 0) {
+        std::printf("ps5sd: write test: unlink %s: %s\n", path.c_str(), std::strerror(errno));
+    }
     for (long i = 0; i < pause_s * 4 && !g_stop; i++) {
         std::this_thread::sleep_for(std::chrono::milliseconds(250));
     }
@@ -1096,6 +1192,9 @@ void downloader_start(const DownloaderConfig & config) {
         }
         if (const char * v = std::getenv("PS5SD_DL_ORDERED"); v != nullptr) {
             g_cfg.ordered = std::atoi(v) != 0;
+        }
+        if (const char * v = std::getenv("PS5SD_DL_FTP"); v != nullptr) {
+            g_cfg.ftp = std::atoi(v) != 0;
         }
         if (const char * v = std::getenv("PS5SD_DL_SYNC_S"); v != nullptr) {
             g_cfg.sync_s = static_cast<unsigned>(std::max(0, std::atoi(v)));

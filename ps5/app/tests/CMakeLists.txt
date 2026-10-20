@@ -54,7 +54,7 @@ if(PS5SD_NET_SMOKE)
     set(MBEDTLS_ROOT "" CACHE PATH "mbedTLS 3.6 install prefix")
     find_package(Threads REQUIRED)
     add_executable(smoke_downloader smoke_downloader.cpp ../downloader.cpp ../https_client.cpp
-                   ../download_core.cpp ../models.cpp)
+                   ../download_core.cpp ../models.cpp ../ftp_writer.cpp)
     target_include_directories(smoke_downloader PRIVATE .. "${SD_DIR}/thirdparty" "${MBEDTLS_ROOT}/include")
     target_link_libraries(smoke_downloader PRIVATE "${MBEDTLS_ROOT}/lib/libmbedtls.a"
                           "${MBEDTLS_ROOT}/lib/libmbedx509.a" "${MBEDTLS_ROOT}/lib/libmbedcrypto.a" Threads::Threads)

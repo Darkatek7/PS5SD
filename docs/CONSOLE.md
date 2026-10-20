@@ -223,10 +223,43 @@ Disk only, no network (`PS5SD_DL_WRITETEST`): 8 MiB `write()`s one after the oth
 
 - About 1.4 GB go in at 230 MB/s; after that the title's writes to `/data` slow to about 2 MB/s, and
   30 s of rest do not bring the rate back. With or without `fsync` and preallocation the floor is the
-  same. Not established: whether the limit is per process, a write budget, or the writeback of a
-  cache that the first 1.4 GB filled.
-- For comparison, ftpsrv (a payload) took a 1.5 GB upload from the PC into `/data` at 13.4 MB/s
-  sustained, with the title closed. The network may limit that number.
+  same. The limit is on the title's process; see the next section.
+- ftpsrv (a payload) took a 1.5 GB upload from the PC into `/data` at 13.4 MB/s, with the title
+  closed. A later upload ran at 83 MB/s (next section), so that number was not the disk's limit.
+
+## The write limit is the title's, and the way around it (2026-10-20)
+
+The limit is on the title's process, not on the disk: in the same minute that the title's writes were
+down to 2 MB/s, ftpsrv wrote 4.86 GB from the PC into `/data/PS5SD/models` at a steady 83 MB/s
+(59 s). A fresh start of the title gets the 1.4 GB at full speed again.
+
+So the downloader now has ftpsrv write the files (`ftp_writer.cpp`): one FTP connection on
+`127.0.0.1:2121`, and for each piece, in file order, `REST <offset>`, `STOR <part path>` and the piece
+over a data connection. ftpsrv's `REST n` + `STOR` cuts the file at n and writes from there; a `REST`
+past the end is refused (`551 Restart point beyond EOF`). Absolute paths with spaces work in `STOR`,
+`SIZE` and `RNFR`/`RNTO`.
+
+Disk only, from the title (`PS5SD_DL_WRITETEST`), one test right after the other in one process:
+
+| Test | Rate over time | Average |
+|---|---|---|
+| `/data`, the title's own 8 MiB `write()`s | 223, 226, 216, then 64, 26, 21, 12, then 8.8 to 11.6 MB/s | 2282 MB in 61.2 s |
+| the same, right after, through ftpsrv (8 MiB `STOR`s) | 78 to 89 MB/s from start to end; slowest piece 0.17 s | 6000 MB in 71.6 s |
+
+The title could `unlink` the file that ftpsrv had made (uid 0, mode 0666).
+
+With the downloader writing through ftpsrv (16 connections, 8 MiB pieces):
+
+- SDXL Base 1.0 from the catalog (6.94 GB): 52 to 74 MB/s from start to end, done in 110.4 s
+  (62.8 MB/s), the preset written. The sha256 of the file on the console (read back over FTP) is
+  Hugging Face's.
+- The same file, closed with `scripts/ps5sd-app.sh close` at 3.1 GB and started again: the `.part`
+  held exactly the 392 pieces the record had, the next run kept them (3,288,334,336 bytes) and fetched
+  the rest in 59.7 s. sha256 as above.
+- The same file, closed from the home screen at about 2 GB (the system suspends and kills the title,
+  so the last 5 s of the record are lost): the `.part` held 2,175,399,872 bytes, the record 232 done
+  pieces. The next run kept those (1,946,157,056 bytes), its first write cut off the rest, and it
+  finished; sha256 as above.
 
 ## Close from the home screen (2026-10-20)
 
@@ -254,6 +287,9 @@ path (`/data/PS5SD/quit`) on a home-screen Close.
 | Downloading, fsync only at the end (`PS5SD_DL_SYNC_S=0`) | 694 ms | 0.9 s | none |
 | SDXL 1024x1024 generation, step 4 of 25 | 253 ms | 0.5 s | none |
 | Downloading, main loop stalled (below) | never | killed after 7.8 s | **0xa0d0c00f, coredump** |
+| Downloading through ftpsrv, 70 MB/s, at 2 GB of 6.9 | not postponed | not timed | none |
+| Idle, quit file watched on its own thread (sdxl-base loaded) | not postponed | not timed | none |
+| 6 Closes in a row, each followed by a new start (5 while a download ran through ftpsrv, 1 just after it finished) | not postponed, all 6 | not timed | none |
 
 The failing case (00:33, pid 191, a 6.9 GB download at 65 to 70 MB/s, no generation):
 
@@ -279,6 +315,12 @@ Other observations:
   take 300 to 870 ms, and the kernel logs `### suspendPoint timeout 200msec`; that did not stop the
   suspend.
 
-Not done yet: a title thread that passes `sceAgcSuspendPoint()` every 100 ms, so the 25 s are never
+What changed since the failures: the title no longer writes or `fsync`s the downloaded file itself
+(ftpsrv does, above), and the quit file is looked for on a thread of its own, so an `access()` that
+waits on the disk cannot hold up the main loop. The failure did not come back in 8 Closes (the
+table's last three rows; the first of them still without the quit thread); the old build failed 1
+in 5. Which change removed the cause is not established.
+
+Not done: a title thread that passes `sceAgcSuspendPoint()` every 100 ms, so the 25 s are never
 reached while the main loop is stuck. It was built and run, but only in cases that closed cleanly
 without it; the stalled case was not tried with it.
