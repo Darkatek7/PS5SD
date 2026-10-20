@@ -13,6 +13,8 @@ OpenAI/A1111-compatible image API, a browser UI and a TV dashboard.
 >
 > Install: unpack the release's `PPSA99576.zip` into `/data/homebrew/` on the console (the zip holds
 > the `PPSA99576` folder) and let ShadowMountPlus scan, or install it from the homebrew store.
+>
+> What comes next (batch, hires fix and upscaling, ControlNet): [ROADMAP.md](ROADMAP.md).
 
 ## Milestone: the first image made on a PS5
 
