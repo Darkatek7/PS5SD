@@ -6,6 +6,10 @@
 // ftpsrv's REST n + STOR cuts the file at n and writes from there; a REST past
 // the end is refused (551). So a file is written from its start, in order: one
 // STOR per piece, at the end of what is already there.
+//
+// connect_ftp_writer finds the server: the user's ftpsrv on 2121, else PS5SD's
+// own copy on 2122 (third_party/ftpsrv with patches/ftpsrv, loopback only),
+// which the title sends to the ELF loader itself when neither answers.
 #pragma once
 
 #include <cstddef>
@@ -37,6 +41,11 @@ public:
     void close();
 
     void set_timeout(int seconds) { timeout_ = seconds; }
+    // Only while not connected.
+    void set_port(int port) { port_ = port; }
+    int  port() const { return port_; }
+    // The last connect() found nothing listening (the TCP connect itself failed).
+    bool refused() const { return refused_; }
 
 private:
     bool command(const std::string & line, int & code, std::string & reply, std::string & error);
@@ -48,7 +57,20 @@ private:
     std::string host_;
     int         port_;
     int         timeout_ = 30;
+    bool        refused_ = false;
     int         ctrl_    = -1;
     int         data_    = -1;
     std::string inbox_;  // control bytes read past the last reply line
 };
+
+constexpr int kFtpsrvPort      = 2121;  // the user's ftpsrv
+constexpr int kOwnFtpsrvPort   = 2122;  // PS5SD's copy (patches/ftpsrv)
+constexpr int kElfLoaderPort   = 9021;
+constexpr const char * kOwnFtpsrvElf = "/app0/ftpsrv/ps5sd-ftpsrv.elf";
+
+// Connects ftp (not connected yet) to 2121, else 2122. When nothing listens on
+// either, the first call sends kOwnFtpsrvElf to the ELF loader on 9021 and
+// waits up to 5 s for 2122; that happens at most once per app run, also when
+// several threads get here at once. False with error when no server answers:
+// the caller writes the file itself then.
+bool connect_ftp_writer(FtpWriter & ftp, std::string & error);

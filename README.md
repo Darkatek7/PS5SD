@@ -22,9 +22,14 @@ seed 42, on the console's GPU through ggml-vulkan and RADV, in 2.6 s. Measuremen
 - A jailbroken PS5 on firmware 7.00–13.60, with:
   - [etaHEN](https://github.com/LightningMods/etaHEN) and kstuff-lite
   - ShadowMountPlus
-  - elfldr
-  - ftpsrv (port 2121): the model downloader writes its files through it. Without it, downloads
-    slow to about 2 MB/s after 1.4 GB.
+  - elfldr (port 9021)
+  - ftpsrv (port 2121), optional: the model downloader and the web UI's uploads write their files
+    through an FTP server, because the console slows a title's own writes to about 2 MB/s after
+    1.4 GB. When nothing answers on 2121, the title starts the copy of
+    [ftpsrv](https://github.com/drakmor/ftpsrv) it carries (GPL-3.0+, John Törnblom and drakmor;
+    `third_party/ftpsrv` at 1.16-ng-stable with `patches/ftpsrv`). That copy listens on
+    127.0.0.1:2122 only, so it opens nothing on the LAN. It runs until the console restarts.
+    `scripts/ps5sd-app.sh` (deploy, close, log) still needs ftpsrv on 2121.
 - A host with a Vulkan-capable toolchain for building the payload and the driver patches.
 
 ## Models

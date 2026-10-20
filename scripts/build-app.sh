@@ -34,6 +34,7 @@ tool="$vk/build/host/ps5-native-tool"
 sd="$root/third_party/stable-diffusion.cpp"
 ggml="$sd/ggml"
 kit="$root/third_party/ps5-homebrew-ui"
+ftpsrv="$root/third_party/ftpsrv"
 app_src="$root/ps5/app"
 out="$root/build/app-ps5"
 headers="$root/.deps/ps5-vk-headers"
@@ -50,9 +51,9 @@ expected=$(echo "$version" | awk -F. '{ printf "%02d.%03d.%03d", $1 + 1, $2, $3 
     exit 2
 }
 
-[ -f "$sd/CMakeLists.txt" ] && [ -f "$ggml/CMakeLists.txt" ] && [ -d "$kit/src" ] || {
+[ -f "$sd/CMakeLists.txt" ] && [ -f "$ggml/CMakeLists.txt" ] && [ -d "$kit/src" ] && [ -f "$ftpsrv/Makefile.ps5" ] || {
     echo "build-app: submodules missing; run: git submodule update --init third_party/stable-diffusion.cpp" \
-        "third_party/ps5-homebrew-ui && git -C third_party/stable-diffusion.cpp submodule update --init ggml" >&2
+        "third_party/ps5-homebrew-ui third_party/ftpsrv && git -C third_party/stable-diffusion.cpp submodule update --init ggml" >&2
     exit 2
 }
 # ps5-opengl: PS5_OPENGL_SDK (scripts/setup-deps.sh sets one up in
@@ -160,7 +161,17 @@ apply_series() { # apply_series <repo> <name> <patch>...
 shopt -s nullglob
 apply_series "$ggml" ggml "$root"/patches/ggml/*.patch
 apply_series "$sd" stable-diffusion.cpp "$root"/patches/sdcpp/*.patch
+apply_series "$ftpsrv" ftpsrv "$root"/patches/ftpsrv/*.patch
 shopt -u nullglob
+
+# ---- ftpsrv, PS5SD's copy ------------------------------------------------------
+# A payload the title sends to elfldr when no ftpsrv answers (connect_ftp_writer
+# in ps5/app/ftp_writer.hpp): payloads write to /data at full speed, the title
+# does not after 1.4 GB. patches/ftpsrv puts it on 127.0.0.1:2122 only.
+ftpsrv_elf="$out/ftpsrv/ps5sd-ftpsrv.elf"
+mkdir -p "$out/ftpsrv"
+make -C "$ftpsrv" -f Makefile.ps5 PS5_PAYLOAD_SDK="$sdk" ELF="$ftpsrv_elf" > "$out/ftpsrv.build.log" 2>&1 ||
+    { tail -30 "$out/ftpsrv.build.log" >&2; exit 1; }
 
 # ---- stable-diffusion.cpp and ggml, as static libraries -----------------------
 flags="-I$headers/include"
@@ -442,5 +453,13 @@ if [ "$display" = 1 ]; then
     cp "$kit/assets/fonts/"{inter-regular,inter-semibold,montserrat-medium,dejavu-sans-mono}.huifont \
         "$kit/assets/fonts/"{Inter,Montserrat,DejaVu}-LICENSE.txt "$app/assets/fonts/"
 fi
+# ftpsrv (GPL-3.0+) with its licence and where its source is.
+mkdir -p "$app/ftpsrv"
+cp "$ftpsrv_elf" "$app/ftpsrv/ps5sd-ftpsrv.elf"
+cp "$ftpsrv/LICENSE" "$app/ftpsrv/LICENSE.txt"
+printf '%s\n' "ftpsrv by John Törnblom and drakmor, GPL-3.0-or-later." \
+    "Source: https://github.com/drakmor/ftpsrv at $(git -C "$ftpsrv" rev-parse HEAD) (1.16-ng-stable)," \
+    "with PS5SD's patches/ftpsrv (https://github.com/Darkatek7/PS5SD): 127.0.0.1:2122 only." \
+    > "$app/ftpsrv/SOURCE.txt"
 "$tool" self --inspect --file "$app/eboot.bin" > /dev/null
 echo "build-app: $app ($(stat -c %s "$app/eboot.bin") bytes, $([ "$display" = 1 ] && echo "with" || echo "without") a display)"

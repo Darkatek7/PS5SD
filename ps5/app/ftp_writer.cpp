@@ -9,8 +9,15 @@
 #include <unistd.h>
 
 #include <cerrno>
+#include <chrono>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <fstream>
+#include <iterator>
+#include <mutex>
+#include <thread>
+#include <vector>
 
 namespace {
 
@@ -136,7 +143,8 @@ bool FtpWriter::connect(std::string & error) {
     if (ctrl_ >= 0) {
         return true;
     }
-    ctrl_ = dial(port_, error);
+    ctrl_    = dial(port_, error);
+    refused_ = ctrl_ < 0;
     if (ctrl_ < 0) {
         return false;
     }
@@ -284,4 +292,95 @@ bool FtpWriter::size(const std::string & path, uint64_t & out, std::string & err
     }
     out = std::strtoull(text.c_str() + 4, nullptr, 10);
     return true;
+}
+
+namespace {
+
+// Hands the ELF to the loader, which runs what it read once the connection ends.
+bool send_own_ftpsrv(std::string & error) {
+    std::ifstream     in(kOwnFtpsrvElf, std::ios::binary);
+    std::vector<char> elf((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    if (elf.empty()) {
+        error = std::string("cannot read ") + kOwnFtpsrvElf;
+        return false;
+    }
+    const int fd = ::socket(AF_INET, SOCK_STREAM, 0);
+    if (fd < 0) {
+        error = std::string("socket: ") + std::strerror(errno);
+        return false;
+    }
+    sockaddr_in sa{};
+    sa.sin_family      = AF_INET;
+    sa.sin_port        = htons(kElfLoaderPort);
+    sa.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    if (::connect(fd, reinterpret_cast<sockaddr *>(&sa), sizeof(sa)) != 0) {
+        error = "no ELF loader on port " + std::to_string(kElfLoaderPort) + ": " + std::strerror(errno);
+        ::close(fd);
+        return false;
+    }
+    const char * p = elf.data();
+    size_t       n = elf.size();
+    while (n > 0) {
+        const ssize_t k = ::send(fd, p, n, kSendFlags);
+        if (k < 0 && errno == EINTR) {
+            continue;
+        }
+        if (k <= 0) {
+            error = std::string("sending to the ELF loader: ") + (k < 0 ? std::strerror(errno) : "connection closed");
+            ::close(fd);
+            return false;
+        }
+        p += k;
+        n -= static_cast<size_t>(k);
+    }
+    ::close(fd);
+    return true;
+}
+
+}  // namespace
+
+bool connect_ftp_writer(FtpWriter & ftp, std::string & error) {
+    static std::mutex m;
+    static bool       sent = false;
+    std::string       error_2121, error_2122;
+    ftp.set_port(kFtpsrvPort);
+    if (ftp.connect(error_2121)) {
+        return true;
+    }
+    ftp.set_port(kOwnFtpsrvPort);
+    if (ftp.connect(error_2122)) {
+        return true;
+    }
+    const auto none = [&](const std::string & why) {
+        error = "no ftpsrv on 2121 (" + error_2121 + ") or 2122 (" + why + ")";
+        return false;
+    };
+    std::lock_guard<std::mutex> lock(m);
+    if (sent) {
+        // Sent by this run already, maybe by another thread a moment ago.
+        return ftp.connect(error_2122) || none(error_2122);
+    }
+    if (!ftp.refused()) {
+        // Something listens on 2122 and does not answer: a copy that is busy,
+        // not one to start again on top of it.
+        return none(error_2122);
+    }
+    sent = true;
+    std::string send_error;
+    if (!send_own_ftpsrv(send_error)) {
+        std::printf("ps5sd: ftpsrv: starting PS5SD's own copy: %s\n", send_error.c_str());
+        return none(error_2122 + "; not started: " + send_error);
+    }
+    std::printf("ps5sd: ftpsrv: sent %s to the ELF loader on %d\n", kOwnFtpsrvElf, kElfLoaderPort);
+    const auto t0 = std::chrono::steady_clock::now();
+    for (int i = 0; i < 25; i++) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(200));
+        if (ftp.connect(error_2122)) {
+            std::printf("ps5sd: ftpsrv: PS5SD's own copy answers on %d after %.1f s\n", kOwnFtpsrvPort,
+                        std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count());
+            return true;
+        }
+    }
+    std::printf("ps5sd: ftpsrv: PS5SD's own copy does not answer on %d: %s\n", kOwnFtpsrvPort, error_2122.c_str());
+    return none(error_2122 + "; sent to the ELF loader, but it did not start within 5 s");
 }

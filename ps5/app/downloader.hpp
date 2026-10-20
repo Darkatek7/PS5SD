@@ -39,8 +39,9 @@ struct DownloaderConfig {
     // Seconds between fsyncs of the .part while it downloads
     // (PS5SD_DL_SYNC_S; 0: only at the end, a cancel or the app ending).
     unsigned    sync_s   = 5;
-    // Write the files through ftpsrv on 127.0.0.1:2121 (ftp_writer.hpp), in
-    // file order; directly when it does not answer (PS5SD_DL_FTP=0: always).
+    // Write the files through ftpsrv on 127.0.0.1:2121, else PS5SD's own copy
+    // on 2122, started if need be (connect_ftp_writer, ftp_writer.hpp), in
+    // file order; directly when neither answers (PS5SD_DL_FTP=0: always).
     bool        ftp      = true;
 };
 

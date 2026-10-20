@@ -89,11 +89,12 @@ int upload_file(const UploadDirs & dirs, const std::string & path, uint64_t leng
     } release{ dest };
     fs::create_directories(fs::u8path(dest).parent_path(), ec);
 
-    // Through ftpsrv: the title's own writes slow to about 2 MB/s after
-    // 1.4 GB (ftp_writer.hpp). Directly when it does not answer.
+    // Through ftpsrv, or PS5SD's own copy, started here if need be: the
+    // title's own writes slow to about 2 MB/s after 1.4 GB (ftp_writer.hpp).
+    // Directly when neither answers.
     FtpWriter   ftp;
     std::string ftp_error;
-    const bool  via_ftp = ftp.begin(part, 0, ftp_error);
+    const bool  via_ftp = connect_ftp_writer(ftp, ftp_error) && ftp.begin(part, 0, ftp_error);
     int         fd      = -1;
     if (!via_ftp) {
         std::printf("ps5sd: upload %s: ftpsrv: %s; writing directly\n", dest.c_str(), ftp_error.c_str());
@@ -104,7 +105,7 @@ int upload_file(const UploadDirs & dirs, const std::string & path, uint64_t leng
         }
     }
     std::printf("ps5sd: upload %s: %llu bytes, %s\n", dest.c_str(), (unsigned long long) length,
-                via_ftp ? "through ftpsrv" : "directly");
+                via_ftp ? ("through ftpsrv on " + std::to_string(ftp.port())).c_str() : "directly");
     const auto        t0 = std::chrono::steady_clock::now();
     std::vector<char> block;
     block.reserve(kBlock);

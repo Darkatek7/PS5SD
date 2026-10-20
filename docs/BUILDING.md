@@ -51,7 +51,7 @@ scripts/build-app.sh
 ```
 
 Without `--recursive`: `git submodule update --init third_party/stable-diffusion.cpp
-third_party/ps5-homebrew-ui && git -C third_party/stable-diffusion.cpp submodule update --init ggml`.
+third_party/ps5-homebrew-ui third_party/ftpsrv && git -C third_party/stable-diffusion.cpp submodule update --init ggml`.
 
 ## Dependencies (`.deps`)
 

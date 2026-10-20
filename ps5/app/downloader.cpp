@@ -600,14 +600,15 @@ void run_one(Item & item) {
     fs::create_directories(fs::u8path(dest).parent_path(), ec);
     const uint64_t piece = static_cast<uint64_t>(std::max(1u, g_cfg.piece_mib)) << 20;
     bool           fresh = false;  // nothing of the .part is kept
-    // Through ftpsrv when it answers: the title's own writes slow to about
-    // 2 MB/s after 1.4 GB (ftp_writer.hpp).
+    // Through ftpsrv when it answers, or PS5SD's own copy, started here if
+    // need be: the title's own writes slow to about 2 MB/s after 1.4 GB
+    // (ftp_writer.hpp).
     FtpWriter   ftp;
     std::string ftp_error, note;
-    const bool  via_ftp = g_cfg.ftp && ftp.connect(ftp_error);
+    const bool  via_ftp = g_cfg.ftp && connect_ftp_writer(ftp, ftp_error);
     if (g_cfg.ftp && !via_ftp) {
-        note = "ftpsrv does not answer on port 2121, so the app writes the file itself, which gets slow after "
-               "about 1.4 GB (" + ftp_error + ")";
+        note = "ftpsrv does not answer and did not start, so the app writes the file itself, which gets slow "
+               "after about 1.4 GB (" + ftp_error + ")";
         std::printf("ps5sd: download %s: %s\n", rec.dest.c_str(), note.c_str());
     }
     {
@@ -637,7 +638,8 @@ void run_one(Item & item) {
         save_queue_locked();
         rec = it.rec;
     }
-    const std::string how = via_ftp ? std::string("through ftpsrv") : "fsync every " + std::to_string(g_cfg.sync_s) + " s";
+    const std::string how = via_ftp ? "through ftpsrv on " + std::to_string(ftp.port())
+                                    : "fsync every " + std::to_string(g_cfg.sync_s) + " s";
     std::printf("ps5sd: download %s: %llu bytes from %s (%s; %d x %u MiB%s%s, %s; %llu bytes kept)\n",
                 rec.dest.c_str(), (unsigned long long) p.total, rec.url.c_str(), p.ranges ? "in pieces" : "one stream",
                 g_cfg.connections, g_cfg.piece_mib, g_cfg.truncate && !via_ftp ? ", truncate" : "",
@@ -1070,7 +1072,8 @@ int hf_search(const std::string & body, std::string & out) {
 // size first (ftruncate); it stops after max_s seconds (0: when it is all
 // written), then pauses pause_s seconds. The rate is logged every 2 s, and
 // the file is removed at the end. A dir of "ftp/data/..." writes through
-// ftpsrv instead, one 8 MiB STOR after the other (fsync and prealloc unused).
+// ftpsrv instead (connect_ftp_writer), one 8 MiB STOR after the other (fsync
+// and prealloc unused).
 void write_test(const std::string & spec) {
     std::vector<std::string> f;
     size_t                   at = 0;
@@ -1100,7 +1103,7 @@ void write_test(const std::string & spec) {
     FtpWriter   ftp;
     std::string ftp_error;
     const int   fd = via_ftp ? -1 : ::open(path.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0666);
-    if (via_ftp && !ftp.connect(ftp_error)) {
+    if (via_ftp && !connect_ftp_writer(ftp, ftp_error)) {
         std::printf("ps5sd: write test: %s\n", ftp_error.c_str());
         return;
     }

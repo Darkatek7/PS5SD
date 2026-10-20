@@ -29,7 +29,7 @@ jobs:
 
       - name: Submodules
         run: |
-          git submodule update --init third_party/stable-diffusion.cpp third_party/ps5-homebrew-ui
+          git submodule update --init third_party/stable-diffusion.cpp third_party/ps5-homebrew-ui third_party/ftpsrv
           git -C third_party/stable-diffusion.cpp submodule update --init ggml
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
@@ -166,7 +166,7 @@ jobs:
 
       - name: Submodules
         run: |
-          git submodule update --init third_party/stable-diffusion.cpp third_party/ps5-homebrew-ui
+          git submodule update --init third_party/stable-diffusion.cpp third_party/ps5-homebrew-ui third_party/ftpsrv
           git -C third_party/stable-diffusion.cpp submodule update --init ggml
 
       - name: Apply the patches

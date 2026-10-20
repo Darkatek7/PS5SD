@@ -261,6 +261,30 @@ With the downloader writing through ftpsrv (16 connections, 8 MiB pieces):
   pieces. The next run kept those (1,946,157,056 bytes), its first write cut off the rest, and it
   finished; sha256 as above.
 
+### When ftpsrv is not running
+
+The title carries its own ftpsrv build (`/app0/ftpsrv/ps5sd-ftpsrv.elf`, from `third_party/ftpsrv` at
+1.16-ng-stable with `patches/ftpsrv`). That copy listens on `127.0.0.1:2122` only, for both control and
+passive data connections. It runs under the process name `ps5sd-ftpsrv`, so it and a user's
+`ftpsrv.elf` never kill each other at start. A download or an upload first tries 2121, then 2122. If
+nothing listens on either, the first one sends the ELF to elfldr on 9021, at most once per run of the
+app, and waits up to 5 s for 2122. When it still does not answer, the file is written directly, as
+before. A copy that was started stays up until the console restarts, so the next run of the app finds
+it on 2122.
+
+Measured on 2026-10-20 with a local build:
+
+- The user's ftpsrv was stopped with its `KILL` command first, so nothing listened on 2121 or 2122.
+- The title was started and SDXL Base 1.0 (6.94 GB) was downloaded from the web UI's API.
+- The first download sent the ELF. `ps5sd-ftpsrv` answered on 2122 0.2 s later, and the whole file
+  went through it.
+- The rate was 37 to 54 MB/s the whole way, also past 1.4 GB, ending at 45.7 MB/s average (151.8 s).
+  The title never fell to its 2 MB/s floor.
+- The writer was busy 0.46 to 0.65 s per second, and no piece waited for it. So the download side set
+  the rate, not the disk. The 62.8 MB/s run above went through the user's ftpsrv on another day.
+- From the PC, 2122 stayed closed (loopback only).
+- The file came out at full size and was renamed in place.
+
 ## Close from the home screen (2026-10-20)
 
 Local build of the current tree (0.1.0, the downloader's new write path), with a display, plus a klog
