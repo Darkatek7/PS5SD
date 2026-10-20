@@ -44,6 +44,19 @@ void sd_activity_job_end(int ok, const char* output_path);
 int sd_app_request(const char* method, const char* path, const char* body, size_t body_len,
                    char** out_body, size_t* out_len, const char** content_type);
 
+// PUT /ps5sd/v1/app/<path>: an upload. The body is handed over as it
+// arrives instead of whole, since a model file can be several GB. length is
+// the Content-Length (0 when not given). The application calls read at most
+// once: read(read_ctx, sink, sink_ctx) calls sink(sink_ctx, data, n) for each
+// piece of the body in order, and returns 1 once all of it went through, 0
+// when the connection failed or sink returned 0 to stop. The return value and
+// the out_ arguments are as for sd_app_request. Called on the server's HTTP
+// threads, possibly several at once.
+typedef int (*sd_app_sink)(void* sink_ctx, const char* data, size_t n);
+typedef int (*sd_app_reader)(void* read_ctx, sd_app_sink sink, void* sink_ctx);
+int sd_app_upload(const char* path, uint64_t length, sd_app_reader read, void* read_ctx, char** out_body,
+                  size_t* out_len, const char** content_type);
+
 #ifdef __cplusplus
 }
 #endif

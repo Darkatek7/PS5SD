@@ -17,15 +17,34 @@ It reads `.safetensors`, `.gguf`, `.ckpt` and `.sft` files. Everything lives und
 | `/data/PS5SD/loras` | LoRAs, used with `<lora:name:1>` in the prompt |
 | `/data/PS5SD/embeddings` | textual inversions |
 
-There are three ways to get a model there:
+There are four ways to get a model there:
 
-1. **The web UI.** On the Models tab, install from the catalog, paste a Hugging Face or Civitai file
-   link, or search Hugging Face. The console downloads the files itself, so the PC can be off. For a
-   gated or login-only model, put a token in `/data/PS5SD/hf-token.txt` or
+1. **Download in the web UI.** On the Models tab, install from the catalog, paste a Hugging Face or
+   Civitai file link, or search Hugging Face. The console downloads the files itself, so the PC can
+   be off. For a gated or login-only model, put a token in `/data/PS5SD/hf-token.txt` or
    `/data/PS5SD/civitai-token.txt`.
-2. **FTP from the PC.** This works for any file you have on the PC, including models from other sites,
-   your own merges and trainings, and files you already downloaded. See below.
-3. **A USB drive.** A preset can name files on it. See below.
+2. **Upload in the web UI.** For any file on the computer the browser runs on: models from other
+   sites, your own merges and trainings, files you already downloaded. See below.
+3. **FTP from the PC.** The same, with an FTP client or a script. See below.
+4. **A USB drive.** A preset can name files on it. See below.
+
+## Upload in the web UI
+
+1. Open `http://<console IP>:7860` and go to **Models**.
+2. Under **Upload from this computer**, pick what the file is (Model, LoRA, Embedding or Preset),
+   press **Choose a file** and pick it. The upload starts at once and shows its progress.
+3. Keep the page open until it is done. A model or preset is then in the list; press **Use**.
+
+- The file keeps its name, and an existing file is not replaced. To replace one, delete it first.
+- A model goes into `/data/PS5SD/models` itself. A model of several files needs a preset that names
+  them (below); upload the preset last, as a Preset.
+- Over wired gigabit Ethernet, a 3 GB file took 36.5 s (82 MB/s). The app passes the file on to
+  ftpsrv; without ftpsrv it writes the file itself, which slows to a few MB/s after about 1.4 GB.
+- From a terminal it is one `curl` (`docs/API.md`, "Uploading files"):
+
+```sh
+curl -T myModel.safetensors http://<console IP>:7860/ps5sd/v1/app/uploads/models/myModel.safetensors
+```
 
 ## FTP from the PC
 

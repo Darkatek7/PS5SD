@@ -500,6 +500,33 @@ bool pieces_within(const std::string & pieces, uint64_t piece, uint64_t total, u
     return true;
 }
 
+bool upload_target(const std::string & path, std::string & kind, std::string & name, std::string & error) {
+    const size_t slash = path.find('/');
+    kind               = path.substr(0, slash);
+    name               = slash == std::string::npos ? std::string() : path.substr(slash + 1);
+    if (kind != "models" && kind != "loras" && kind != "embeddings" && kind != "presets") {
+        error = "uploads go to models, loras, embeddings or presets, not '" + kind + "'";
+        return false;
+    }
+    if (kind == "models") {
+        return valid_dest(name, error);
+    }
+    if (name.find('/') != std::string::npos) {
+        error = "no folders in " + kind + ": " + name;
+        return false;
+    }
+    if (kind != "presets") {
+        return valid_dest(name, error);
+    }
+    const std::string n = lower(name);
+    std::string       ignored;
+    if (n.size() <= 4 || n.compare(n.size() - 4, 4, ".txt") != 0 || !valid_dest(name.substr(0, name.size() - 4) + ".gguf", ignored)) {
+        error = "a preset is a file name ending in .txt: " + name;
+        return false;
+    }
+    return true;
+}
+
 std::string pieces_in_order(const std::string & pieces, uint64_t piece, uint64_t total, uint64_t file_size) {
     std::string out(pieces.size(), '0');
     for (size_t i = 0; i < pieces.size() && pieces[i] == '1' && piece > 0; i++) {

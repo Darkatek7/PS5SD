@@ -249,6 +249,21 @@ int main() {
     check(pieces_within("0001", 10, 35, 35) && !pieces_within("0001", 10, 35, 34), "the short last piece");
     check(!pieces_within("1", 0, 35, 35), "no piece size");
     check(pieces_in_order("1101", 10, 35, 35) == "1100", "in order: a done piece after a gap is fetched again");
+    {
+        std::string kind, name, e;
+        check(upload_target("models/vae/my vae.safetensors", kind, name, e) && kind == "models" &&
+                  name == "vae/my vae.safetensors",
+              "upload: a model in a folder");
+        check(upload_target("loras/style.safetensors", kind, name, e) && kind == "loras", "upload: a LoRA");
+        check(!upload_target("loras/x/style.safetensors", kind, name, e), "upload: no folders for LoRAs");
+        check(upload_target("presets/my-model.txt", kind, name, e), "upload: a preset");
+        check(!upload_target("presets/my-model.gguf", kind, name, e), "upload: a preset must be .txt");
+        check(!upload_target("presets/.hidden.txt", kind, name, e), "upload: no hidden preset");
+        check(!upload_target("models/../env.txt", kind, name, e) && !upload_target("models/a.txt", kind, name, e),
+              "upload: no .. and no other files into models");
+        check(!upload_target("outputs/a.gguf", kind, name, e) && !upload_target("models", kind, name, e),
+              "upload: only the four folders");
+    }
     check(pieces_in_order("1110", 10, 35, 25) == "1100", "in order: a piece the file does not hold");
     check(pieces_in_order("1111", 10, 35, 35) == "1111" && pieces_in_order("1111", 10, 35, 34) == "1110",
           "in order: the short last piece");

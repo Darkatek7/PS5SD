@@ -49,6 +49,12 @@ bool is_model_file_name(const std::string & name);
 // extension. False with a message otherwise.
 bool valid_dest(const std::string & dest, std::string & error);
 
+// An upload's target, from "<kind>/<name>" (PUT /ps5sd/v1/app/uploads/...).
+// kind "models" takes a name as valid_dest does (folders allowed); "loras"
+// and "embeddings" a model file name without folders; "presets" a file name
+// ending in .txt. False with a message otherwise.
+bool upload_target(const std::string & path, std::string & kind, std::string & name, std::string & error);
+
 // A stable id for a destination (16 hex digits): the same file is one entry.
 std::string download_id(const std::string & dest);
 

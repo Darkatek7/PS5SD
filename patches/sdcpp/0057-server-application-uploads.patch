@@ -1,0 +1,111 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: ps5sd <ps5sd@localhost>
+Date: Tue, 20 Oct 2026 19:15:34 +0200
+Subject: [PATCH] server: PUT /ps5sd/v1/app/<path> streams the body to the
+ application (sd_app_upload)
+
+---
+ examples/server/gallery.cpp      | 41 ++++++++++++++++++++++++++++++++
+ examples/server/server_hooks.cpp |  3 +++
+ examples/server/server_hooks.h   | 13 ++++++++++
+ 3 files changed, 57 insertions(+)
+
+diff --git a/examples/server/gallery.cpp b/examples/server/gallery.cpp
+index 2730953..bdbf164 100644
+--- a/examples/server/gallery.cpp
++++ b/examples/server/gallery.cpp
+@@ -122,6 +122,46 @@ static void app_route(const httplib::Request& req, httplib::Response& res) {
+     std::free(out);
+ }
+ 
++// PUT /ps5sd/v1/app/<path>: an upload, streamed to the application
++// (sd_app_upload). When it did not read the body, the connection is closed
++// after the answer, so the unread body is not taken for the next request.
++struct AppUploadBody {
++    const httplib::ContentReader* reader;
++    bool used;
++};
++
++static int app_upload_read(void* ctx, sd_app_sink sink, void* sink_ctx) {
++    auto* body = static_cast<AppUploadBody*>(ctx);
++    if (body->used) {
++        return 0;
++    }
++    body->used = true;
++    return (*body->reader)([&](const char* data, size_t n) { return sink(sink_ctx, data, n) != 0; }) ? 1 : 0;
++}
++
++static void app_upload_route(const httplib::Request& req, httplib::Response& res,
++                             const httplib::ContentReader& reader) {
++    char* out              = nullptr;
++    size_t out_len         = 0;
++    const char* type       = nullptr;
++    const std::string path = req.matches[1];
++    const uint64_t length  = std::strtoull(req.get_header_value("Content-Length").c_str(), nullptr, 10);
++    AppUploadBody body{&reader, false};
++    const int status = sd_app_upload(path.c_str(), length, app_upload_read, &body, &out, &out_len, &type);
++    if (status <= 0) {
++        res.status = 404;
++        res.set_content("{\"error\":\"not found\"}", "application/json");
++    } else {
++        res.status = status;
++        res.set_content(out != nullptr ? std::string(out, out_len) : std::string(),
++                        type != nullptr ? type : "application/json");
++    }
++    if (!body.used || status <= 0 || status >= 400) {
++        res.set_header("Connection", "close");
++    }
++    std::free(out);
++}
++
+ bool app_compat_route(const char* name, const httplib::Request& req, httplib::Response& res) {
+     char* out              = nullptr;
+     size_t out_len         = 0;
+@@ -224,6 +264,7 @@ void register_ps5sd_endpoints(httplib::Server& svr, ServerRuntime& rt) {
+     svr.Get(R"(/ps5sd/v1/app/(.+))", app_route);
+     svr.Post(R"(/ps5sd/v1/app/(.+))", app_route);
+     svr.Delete(R"(/ps5sd/v1/app/(.+))", app_route);
++    svr.Put(R"(/ps5sd/v1/app/(.+))", app_upload_route);
+ 
+     svr.Get("/ps5sd/v1/gallery", [svr_params](const httplib::Request& req, httplib::Response& res) {
+         size_t limit = 100;
+diff --git a/examples/server/server_hooks.cpp b/examples/server/server_hooks.cpp
+index 695f96c..816af9b 100644
+--- a/examples/server/server_hooks.cpp
++++ b/examples/server/server_hooks.cpp
+@@ -21,5 +21,8 @@ SD_SERVER_WEAK void sd_activity_job_end(int, const char*) {}
+ SD_SERVER_WEAK int sd_app_request(const char*, const char*, const char*, size_t, char**, size_t*, const char**) {
+     return 0;
+ }
++SD_SERVER_WEAK int sd_app_upload(const char*, uint64_t, sd_app_reader, void*, char**, size_t*, const char**) {
++    return 0;
++}
+ 
+ }
+diff --git a/examples/server/server_hooks.h b/examples/server/server_hooks.h
+index fee9aa1..addefb6 100644
+--- a/examples/server/server_hooks.h
++++ b/examples/server/server_hooks.h
+@@ -47,6 +47,19 @@ void sd_activity_job_end(int ok, const char* output_path);
+ int sd_app_request(const char* method, const char* path, const char* body, size_t body_len,
+                    char** out_body, size_t* out_len, const char** content_type);
+ 
++// PUT /ps5sd/v1/app/<path>: an upload. The body is handed over as it
++// arrives instead of whole, since a model file can be several GB. length is
++// the Content-Length (0 when not given). The application calls read at most
++// once: read(read_ctx, sink, sink_ctx) calls sink(sink_ctx, data, n) for each
++// piece of the body in order, and returns 1 once all of it went through, 0
++// when the connection failed or sink returned 0 to stop. The return value and
++// the out_ arguments are as for sd_app_request. Called on the server's HTTP
++// threads, possibly several at once.
++typedef int (*sd_app_sink)(void* sink_ctx, const char* data, size_t n);
++typedef int (*sd_app_reader)(void* read_ctx, sd_app_sink sink, void* sink_ctx);
++int sd_app_upload(const char* path, uint64_t length, sd_app_reader read, void* read_ctx, char** out_body,
++                  size_t* out_len, const char** content_type);
++
+ #ifdef __cplusplus
+ }
+ #endif
+-- 
+2.56.0.windows.2
+

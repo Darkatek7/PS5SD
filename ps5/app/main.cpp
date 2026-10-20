@@ -64,6 +64,7 @@
 #include "gen_args.hpp"
 #include "ggml-backend.h"
 #include "downloader.hpp"
+#include "upload.hpp"
 #include "models.hpp"
 #include "server_hooks.h"
 #include "stable-diffusion.h"
@@ -865,6 +866,41 @@ extern "C" void sd_activity_preview(const uint8_t * rgb, int w, int h) {
 //   catalog, downloads, downloads/<id>, hf/search: the model downloader
 //                       (downloader.hpp), which runs on its own threads and
 //                       keeps going while the server restarts.
+// PUT uploads/<kind>/<name>: a file from the web UI (upload.hpp).
+extern "C" int sd_app_upload(const char * path, uint64_t length, sd_app_reader read, void * read_ctx,
+                             char ** out_body, size_t * out_len, const char ** content_type) {
+    const std::string p = path;
+    if (p.rfind("uploads/", 0) != 0) {
+        return 0;
+    }
+    std::string out;
+    int         status;
+    if (g_quit_requested) {
+        out    = error_json("the app is stopping");
+        status = 503;
+    } else {
+        const UploadReader reader = [&](const std::function<bool(const char *, size_t)> & sink) {
+            struct Ctx {
+                const std::function<bool(const char *, size_t)> * sink;
+            } ctx{ &sink };
+            return read(
+                       read_ctx,
+                       [](void * c, const char * data, size_t n) -> int {
+                           return (*static_cast<Ctx *>(c)->sink)(data, n) ? 1 : 0;
+                       },
+                       &ctx) != 0;
+        };
+        status = upload_file(UploadDirs{ kModels, kLoras, kEmbeddings, kPresets }, p.substr(8), length, reader, out);
+    }
+    *out_body = static_cast<char *>(std::malloc(out.size()));
+    if (*out_body != nullptr) {
+        std::memcpy(*out_body, out.data(), out.size());
+        *out_len = out.size();
+    }
+    *content_type = "application/json";
+    return status;
+}
+
 extern "C" int sd_app_request(const char * method, const char * path, const char * body, size_t body_len,
                               char ** out_body, size_t * out_len, const char ** content_type) {
     const std::string m = method;

@@ -37,8 +37,8 @@ images are generated. A gated or private Hugging Face repository needs a token i
 `/data/PS5SD/civitai-token.txt` (one line each).
 
 A model from anywhere else (your own merge or training, another site, a file already on the PC) goes
-onto the console by FTP; [docs/MODELS.md](docs/MODELS.md) has the steps, the preset format for models
-of several files, and which models fit. How the downloader works is in
+onto the console with the web UI's upload button or by FTP; [docs/MODELS.md](docs/MODELS.md) has the
+steps, the preset format for models of several files, and which models fit. How the downloader works is in
 [docs/PORTING.md](docs/PORTING.md#the-model-downloader-downloadercpp-https_clientcpp-download_corecpp-cataloghpp).
 
 ## API

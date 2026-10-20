@@ -21,6 +21,7 @@
     GET  /sdapi/v1/progress                                            (health, every few seconds)
     GET  /ps5sd/v1/gallery, /ps5sd/v1/gallery/<file>                   (saved images, --output-dir)
     GET  /ps5sd/v1/app/models, POST .../app/models/active              (the Models tab: library and switching)
+    PUT  /ps5sd/v1/app/uploads/<models|loras|embeddings|presets>/<name> (the Models tab: upload a file)
     GET  /ps5sd/v1/app/catalog, GET/POST /ps5sd/v1/app/downloads,      (downloads; a 404 hides that part)
          DELETE .../downloads/<id>, POST .../app/hf/search
   SPDX-License-Identifier: MIT
@@ -213,6 +214,9 @@
   @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
   .drow .bar { margin: 0.45rem 0 0.35rem; }
   .inrow { display: flex; }
+  .inrow select.upkind { flex: none; width: auto; margin-right: 0.6rem; }
+  .upmeta { display: flex; align-items: center; }
+  .upmeta .mmeta { flex: 1; min-width: 0; }
   .inrow input { flex: 1; min-width: 0; margin-right: 0.6rem; }
   .inrow button { flex: none; }
   .hrow { margin-top: 0.6rem; padding: 0.8rem 1rem; background: var(--field); border: 1px solid var(--border); border-radius: 12px; }
@@ -366,6 +370,17 @@
       <div class="ph"><h2>Add by link</h2></div>
       <div class="inrow"><input id="dl-url" type="text" placeholder="Hugging Face or Civitai link to a model file" autocomplete="off" autocapitalize="off" spellcheck="false"><button type="button" id="dl-go">Download</button></div>
       <p class="hint">A link to a file on huggingface.co, or a Civitai model version (a link that ends in modelVersionId=...). The file goes into the models folder on the console.</p>
+    </section>
+    <section class="panel" id="pnl-up" style="display:none">
+      <div class="ph"><h2>Upload from this computer</h2></div>
+      <div class="inrow"><select id="up-kind" class="upkind" aria-label="What it is"><option value="models">Model</option><option value="loras">LoRA</option><option value="embeddings">Embedding</option><option value="presets">Preset (.txt)</option></select><button type="button" id="up-pick">Choose a file</button></div>
+      <input id="up-file" type="file" style="display:none">
+      <div id="up-box" style="display:none">
+        <div class="mname" id="up-name"></div>
+        <div class="bar"><div id="up-fill"></div></div>
+        <div class="upmeta"><div class="mmeta" id="up-meta"></div><button type="button" id="up-cancel" class="danger">Cancel</button></div>
+      </div>
+      <p class="hint">Any model file on this computer: your own merge or training, or one from another site. It keeps its file name. A model in several files also needs a preset; docs/MODELS.md shows how. Keep this page open until the upload is done.</p>
     </section>
     <section class="panel" id="pnl-hf" style="display:none">
       <div class="ph"><h2>Search Hugging Face</h2></div>
@@ -1569,6 +1584,7 @@
   function drawPanels() {
     show('pnl-dl', st.dl === true);
     show('pnl-url', st.dl === true);
+    show('pnl-up', st.dl === true);
     show('pnl-hf', st.dl === true && st.hf !== false);
     show('pnl-cat', st.cat === true);
     show('pnl-nodl', st.dl === false && st.cat !== true);
@@ -1769,6 +1785,64 @@
     startDownload(r.url, $('dl-go'), false, function (ok) {
       if (ok) $('dl-url').value = '';
     });
+  }
+
+  // ---------- upload ----------
+  // PUT with the file as the body; the app passes it on to ftpsrv as it comes.
+  var upXhr = null;
+
+  function upStart() {
+    var input = $('up-file');
+    var f = input.files && input.files[0];
+    input.value = '';
+    if (!f || upXhr) return;
+    var kind = $('up-kind').value;
+    var name = f.name;
+    if (kind === 'presets' ? !/\.txt$/i.test(name) : !/\.(gguf|safetensors|ckpt|sft)$/i.test(name)) {
+      toast(kind === 'presets' ? 'A preset is a .txt file.' : 'Only .gguf, .safetensors, .ckpt and .sft files.', 6000);
+      return;
+    }
+    var x = new XMLHttpRequest();
+    var t0 = Date.now();
+    upXhr = x;
+    text($('up-name'), name);
+    $('up-fill').style.width = '0%';
+    text($('up-meta'), 'Starting');
+    show('up-box', true);
+    $('up-pick').disabled = true;
+    $('up-kind').disabled = true;
+    x.upload.onprogress = function (e) {
+      if (!e.lengthComputable) return;
+      var s = (Date.now() - t0) / 1000;
+      $('up-fill').style.width = (100 * e.loaded / e.total).toFixed(1) + '%';
+      text($('up-meta'), bytes(e.loaded) + ' of ' + bytes(e.total) + (s > 1 ? ', ' + (e.loaded / 1e6 / s).toFixed(1) + ' MB/s' : ''));
+    };
+    x.onreadystatechange = function () {
+      if (x.readyState !== 4) return;
+      var data = null;
+      try { data = JSON.parse(x.responseText); } catch (e) {}
+      upDone(x.status, data, name, kind);
+    };
+    x.open('PUT', '/ps5sd/v1/app/uploads/' + kind + '/' + encodeURIComponent(name), true);
+    x.setRequestHeader('Content-Type', 'application/octet-stream');
+    x.send(f);
+  }
+
+  function upDone(code, data, name, kind) {
+    if (!upXhr) return;
+    upXhr = null;
+    show('up-box', false);
+    $('up-pick').disabled = false;
+    $('up-kind').disabled = false;
+    if (code === 200) {
+      var listed = kind === 'models' || kind === 'presets';
+      toast(name + ' is on the console' + (listed ? ' and in the list.' : '.'), 6000);
+      if (listed) loadModels(null);
+    } else if (code === 0) {
+      toast('The upload of ' + name + ' stopped.', 6000);
+    } else {
+      toast((data && data.error) || ('The upload failed (' + code + ').'), 8000);
+    }
   }
 
   // ---------- catalog ----------
@@ -2085,6 +2159,10 @@
     $('cm-change').onclick = function () { setView('models'); };
     $('m-refresh').onclick = enterModels;
     $('dl-go').onclick = addByUrl;
+    $('up-pick').onclick = function () { $('up-file').click(); };
+    $('up-file').onchange = upStart;
+    $('up-cancel').onclick = function () { if (upXhr) upXhr.abort(); };
+    window.onbeforeunload = function () { return upXhr ? 'An upload is still running.' : undefined; };
     $('dl-url').onkeydown = function (e) { e = e || window.event; if (e.keyCode === 13) { addByUrl(); return false; } return true; };
     $('hf-go').onclick = hfSearch;
     $('hf-q').onkeydown = function (e) { e = e || window.event; if (e.keyCode === 13) { hfSearch(); return false; } return true; };

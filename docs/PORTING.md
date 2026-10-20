@@ -210,6 +210,12 @@ instead of trapping, so `main.cpp` reports an out-of-memory load or generation a
   lists it under `kept` next to `deleted` (with the library as `GET models` gives it). 409 for the model
   in use, during a switch, and for a checkpoint that a preset names; 404 for an unknown id. Only files
   under `/data/PS5SD/models` are deleted, and a preset whose files are missing can be deleted too.
+- Uploads (`patches/sdcpp/0057`, `sd_app_upload` in `main.cpp`, `upload.cpp`): `PUT
+  /ps5sd/v1/app/uploads/<folder>/<name>` is registered with cpp-httplib's `ContentReader` handler,
+  so the body is never held whole; the hook gets a read function that passes it on piece by piece.
+  `upload.cpp` sends it in 1 MiB blocks to ftpsrv as one `STOR` of `<name>.part` (`ftp_writer.cpp`),
+  or writes it itself when ftpsrv does not answer, and renames it at the end. A refused upload's body
+  is not read, so the server answers it with `Connection: close`.
 - Without a display (`PS5SD_NO_DISPLAY`): no `Display`, no renderer. Every phase (`set_phase`)
   goes to `app.log` as `ps5sd: status: ...`, to the kernel log through `sceKernelDebugOutText`
   (klogsrv, `scripts/ps5sd-app.sh log -f`) and to a system notification; the sampling progress

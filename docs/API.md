@@ -122,6 +122,34 @@ survives a restart of the title (`/data/PS5SD/downloads.json`).
 A Hugging Face or Civitai token for gated models goes in `/data/PS5SD/hf-token.txt` or
 `/data/PS5SD/civitai-token.txt`.
 
+## Uploading files
+
+`PUT /ps5sd/v1/app/uploads/<folder>/<name>` with the file as the body puts a file from the client
+onto the console. The web UI's Models tab uses it.
+
+| Folder | Name |
+|---|---|
+| `models` | a `.gguf`, `.safetensors`, `.ckpt` or `.sft` file, optionally in subfolders (`vae/my-vae.safetensors`) |
+| `loras`, `embeddings` | a model file name, no subfolders |
+| `presets` | `<id>.txt`, at most 64 KB |
+
+- The body is passed on to ftpsrv as it arrives, so the file size is not limited by memory. Without
+  ftpsrv the title writes the file itself, which slows down after about 1.4 GB.
+- The file is written as `<name>.part` and renamed once all of it is there. If the upload breaks
+  off, the `.part` is removed.
+- Answers:
+  - 200 `{"kind", "name", "bytes", "through_ftpsrv"}`
+  - 400 for a name that is not allowed, or a body that broke off or differs from its
+    `Content-Length`
+  - 409 when the file is already there or is being uploaded; delete it first or use another name
+  - 507 when the storage is full
+- Measured: a 3 GB file from a PC over wired gigabit in 36.5 s (82 MB/s).
+
+```sh
+curl -T myModel.safetensors http://<console>:7860/ps5sd/v1/app/uploads/models/myModel.safetensors
+curl -T my-model.txt http://<console>:7860/ps5sd/v1/app/uploads/presets/my-model.txt
+```
+
 ## Jobs: queue and cancel
 
 | Route | |
