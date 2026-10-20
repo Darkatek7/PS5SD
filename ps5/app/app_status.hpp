@@ -68,6 +68,7 @@ class AppStatus {
         std::shared_ptr<const Frame> preview;   // the job's newest preview, or null
         uint64_t                 preview_serial = 0;  // grows with every new preview
         std::vector<std::string> lines;         // the log's last lines, oldest first
+        bool                     tv_images = true;  // false: the screen shows no images and no prompts
     };
 
     void set_phase(std::string phase, std::string detail = {});
@@ -75,6 +76,7 @@ class AppStatus {
     void set_memory(double free_gib, double pool_gib);
     void set_result(std::string path);
     void set_model(std::string name);
+    void set_tv_images(bool shown);
     // Where a browser reaches the server. The address is whatever should be
     // shown in "http://<address>:<port>": an IPv4 string, or empty while the
     // app does not know its own (the screen then shows a placeholder).

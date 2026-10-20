@@ -442,4 +442,26 @@ std::string id_from_json(const std::string & body) {
     return {};
 }
 
+std::string settings_json(const AppSettings & settings) {
+    return nlohmann::json{ { "tv_images", settings.tv_images } }.dump();
+}
+
+bool apply_settings(const std::string & body, AppSettings & settings, std::string & error) {
+    const nlohmann::json j = nlohmann::json::parse(body, nullptr, false);
+    if (!j.is_object()) {
+        error = "the body must be a JSON object, like {\"tv_images\": false}";
+        return false;
+    }
+    AppSettings next = settings;
+    if (j.contains("tv_images")) {
+        if (!j["tv_images"].is_boolean()) {
+            error = "tv_images must be true or false";
+            return false;
+        }
+        next.tv_images = j["tv_images"].get<bool>();
+    }
+    settings = next;
+    return true;
+}
+
 }  // namespace ps5sd

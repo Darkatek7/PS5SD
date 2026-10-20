@@ -3,9 +3,10 @@
 stable-diffusion.cpp on the PS5 GPU — a native title running ggml-vulkan on RADV, with an
 OpenAI/A1111-compatible image API, a browser UI and a TV dashboard.
 
-> **Status: 0.2.0.** The title runs the server, the web UI, the model downloader and the TV dashboard
-> on the console. 0.2.0 adds LoRAs: pick one or several per model in the web UI, download or upload
-> them, at no cost per step. Downloads run at 50 to 75 MB/s from start to end and resume after a
+> **Status: 0.3.0.** The title runs the server, the web UI, the model downloader and the TV dashboard
+> on the console. 0.2.0 added LoRAs (one or several per model, at no cost per step); 0.3.0 adds several
+> images per run, your own size buttons, a sound when a run is done, and a switch that keeps images and
+> prompts off the TV. Downloads run at 50 to 75 MB/s from start to end and resume after a
 > close; the web UI uploads models from the PC at about 80 MB/s, and its Help tab shows
 > [docs/MODELS.md](docs/MODELS.md) and [docs/API.md](docs/API.md). Closing from the home screen during
 > a download used to end in a crash report about 1 time in 5; that has not happened in 8 Closes since
@@ -14,7 +15,7 @@ OpenAI/A1111-compatible image API, a browser UI and a TV dashboard.
 > Install: unpack the release's `PPSA99576.zip` into `/data/homebrew/` on the console (the zip holds
 > the `PPSA99576` folder) and let ShadowMountPlus scan, or install it from the homebrew store.
 >
-> What comes next (batch, hires fix and upscaling, ControlNet): [ROADMAP.md](ROADMAP.md).
+> What comes next (hires fix and upscaling, ControlNet): [ROADMAP.md](ROADMAP.md).
 
 ## Milestone: the first image made on a PS5
 

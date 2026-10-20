@@ -364,13 +364,19 @@ void Dashboard::update(const AppStatus::Snapshot & s, float dt) {
     }
     dt    = std::clamp(dt, 0.0f, 0.1f);
     snap_ = s;
+    if (!s.tv_images) {
+        // The switch in the web UI: no pictures on the TV. Nothing is decoded
+        // either, and what was shown is let go.
+        snap_.preview.reset();
+        snap_.recent.clear();
+    }
     clock_ += dt;
     age_ += dt;
 
     accent_.target(state_color(s.state));
     accent_.update(dt, 6.0f);
-    sync_preview(s);
-    sync_pictures(s);
+    sync_preview(snap_);
+    sync_pictures(snap_);
 
     std::string key = "none";
     if (s.state == State::generating && preview_.id != 0) {
@@ -462,7 +468,7 @@ void Dashboard::sync_components(float dt) {
     spinner_.update(dt);
 
     // The empty picture area.
-    switch (s.state) {
+    switch (s.tv_images ? s.state : State::stopped) {
         case State::starting:
         case State::loading:
             empty_.title = "Getting ready";
@@ -477,6 +483,11 @@ void Dashboard::sync_components(float dt) {
             empty_.body  = "The log below and /data/PS5SD/app.log say what.";
             break;
         case State::stopped:
+            if (!s.tv_images) {
+                empty_.title = "Images are hidden";
+                empty_.body  = "This screen shows no images and no prompts. The web UI's Settings show them again.";
+                break;
+            }
             empty_.title = "Server stopped";
             empty_.body.clear();
             break;
@@ -643,7 +654,9 @@ void Dashboard::draw_activity(DrawList & list, const Rect & r) const {
 
     // The prompt of this job, the last one, or what went wrong.
     std::string label, body;
-    if (generating && !s.prompt.empty()) {
+    if (!s.tv_images && s.state != State::error) {
+        // hidden with the images
+    } else if (generating && !s.prompt.empty()) {
         label = "Prompt";
         body  = s.prompt;
     } else if (s.state == State::error && !s.detail.empty()) {
@@ -765,7 +778,8 @@ void Dashboard::draw_recent(DrawList & list, const Rect & r) const {
         const Rect well{ r.x + kPad, r.y + 58, r.w - 2 * kPad, size };
         list.rounded_rect(well, 16, with_a(kWell, 0.45f));
         list.bordered_rect(well, 16, kClear, 1.5f, with_a(kInk, 0.06f));
-        hui::ui::text(list, fonts_.regular, "Finished images collect here", well.cx(), well.cy() + 8, 24,
+        hui::ui::text(list, fonts_.regular, s.tv_images ? "Finished images collect here" : "Hidden on this screen",
+                      well.cx(), well.cy() + 8, 24,
                       with_a(kInk, kFaint), Align::center);
         return;
     }

@@ -132,6 +132,11 @@ void AppStatus::set_model(std::string name) {
     s_.model = std::move(name);
 }
 
+void AppStatus::set_tv_images(bool shown) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    s_.tv_images = shown;
+}
+
 void AppStatus::set_address(std::string address) {
     std::lock_guard<std::mutex> lock(mutex_);
     s_.address = std::move(address);

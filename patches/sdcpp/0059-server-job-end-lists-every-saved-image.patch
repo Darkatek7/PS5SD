@@ -1,0 +1,98 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: ps5sd <ps5sd@localhost>
+Date: Tue, 20 Oct 2026 23:30:00 +0200
+Subject: [PATCH] server: sd_activity_job_end gets every saved image of a batch
+
+The job-end hook named only the first image saved to --output-dir, so for a
+batch (batch_count, batch_size, n) the application saw one image of several.
+It now gets all of them, one path a line, in the order of the results.
+
+---
+ examples/server/async_jobs.cpp   | 2 +-
+ examples/server/gallery.cpp      | 11 +++++++++++
+ examples/server/gallery.h        | 4 ++++
+ examples/server/routes_openai.cpp | 2 +-
+ examples/server/routes_sdapi.cpp | 2 +-
+ examples/server/server_hooks.h   | 5 +++--
+ 6 files changed, 22 insertions(+), 5 deletions(-)
+
+--- a/examples/server/async_jobs.cpp
++++ b/examples/server/async_jobs.cpp
+@@ -256,7 +256,7 @@
+ 
+     const int num_results = results.count();
+     const std::vector<std::string> saved = save_output_images(*runtime.svr_params, results);
+-    activity.finish(num_results > 0, saved.empty() ? "" : saved[0]);
++    activity.finish(num_results > 0, saved_paths(saved));
+     if (num_results <= 0) {
+         error_message = "generate_image returned no results";
+         return false;
+--- a/examples/server/routes_openai.cpp
++++ b/examples/server/routes_openai.cpp
+@@ -246,7 +246,7 @@
+         results.adopt(raw_results, num_results);
+     }
+     const std::vector<std::string> saved = save_output_images(*runtime.svr_params, results);
+-    activity.finish(!results.empty(), saved.empty() ? "" : saved[0]);
++    activity.finish(!results.empty(), saved_paths(saved));
+ 
+     if (results.empty()) {
+         error_message = "generate_image returned no results";
+--- a/examples/server/routes_sdapi.cpp
++++ b/examples/server/routes_sdapi.cpp
+@@ -424,7 +424,7 @@
+                 results.adopt(raw_results, num_results);
+             }
+             const std::vector<std::string> saved = save_output_images(*runtime->svr_params, results);
+-            activity.finish(!results.empty(), saved.empty() ? "" : saved[0]);
++            activity.finish(!results.empty(), saved_paths(saved));
+ 
+             if (results.empty()) {
+                 res.status = 500;
+--- a/examples/server/gallery.h
++++ b/examples/server/gallery.h
+@@ -12,6 +12,10 @@
+ // Does nothing, and returns an empty list, when --output-dir is not set.
+ std::vector<std::string> save_output_images(const SDSvrParams& svr_params, SDImageVec& images);
+ 
++// PS5SD: the saved paths one a line, in the order of the results, for
++// sd_activity_job_end ("" when nothing was saved).
++std::string saved_paths(const std::vector<std::string>& saved);
++
+ // PS5SD: asks the application (sd_app_request) for "compat/<name>", so it can
+ // answer a route of the A1111 or OpenAI API itself (its model library, model
+ // switches). True when it did; false leaves the route to its own handler.
+--- a/examples/server/gallery.cpp
++++ b/examples/server/gallery.cpp
+@@ -93,6 +93,17 @@
+     return saved;
+ }
+ 
++std::string saved_paths(const std::vector<std::string>& saved) {
++    std::string out;
++    for (const std::string& path : saved) {
++        if (!out.empty()) {
++            out += '\n';
++        }
++        out += path;
++    }
++    return out;
++}
++
+ namespace {
+ 
+ struct GalleryEntry {
+--- a/examples/server/server_hooks.h
++++ b/examples/server/server_hooks.h
+@@ -31,8 +31,9 @@
+ // Only called when the request asked for previews (the web UI does).
+ void sd_activity_preview(const uint8_t* rgb, int w, int h);
+ 
+-// The job ended. ok is 0 or 1. output_path is the first image saved to
+-// --output-dir ("" when there is no --output-dir or nothing was saved; never NULL).
++// The job ended. ok is 0 or 1. output_path lists the images saved to
++// --output-dir, one full path a line in the order of the results (several for
++// a batch; "" when there is no --output-dir or nothing was saved; never NULL).
+ void sd_activity_job_end(int ok, const char* output_path);
+ 
+ // The application's own routes: GET, POST and DELETE on /ps5sd/v1/app/<path>

@@ -8,15 +8,17 @@ go into [issues](https://github.com/Darkatek7/PS5SD/issues); this file says what
 - **0.1.0**: the title with server, web UI, model downloader (through ftpsrv, at full speed to the
   end), uploads from the PC, gallery, Help tab, TV dashboard.
 - **0.2.0**: LoRAs, several per model, each with its own strength; download, upload, list and delete.
+- **0.3.0**: web UI options from [#3](https://github.com/Darkatek7/PS5SD/issues/3), below.
 
-## 0.3.0: web UI options ([#3](https://github.com/Darkatek7/PS5SD/issues/3))
+## 0.3.0: web UI options ([#3](https://github.com/Darkatek7/PS5SD/issues/3)), done
 
 Small changes, all in the web UI and the dashboard; nothing new for the console's memory.
 
-- [ ] **Batch**: several images per run (sd-server's `batch_count`), all shown and saved in the gallery.
-- [ ] **Own size presets**: save the sizes you use and pick them with one click.
-- [ ] **No image on the TV**: a switch that hides the image on the PS5 screen (dashboard).
-- [ ] **Done signal**: a sound and a browser notification when a run ends.
+- [x] **Batch**: several images per run (sd-server's `batch_count`, up to 8), all shown and saved in the gallery.
+- [x] **Own size presets**: save the sizes you use and pick them with one click.
+- [x] **No image on the TV**: a switch that hides the images and prompts on the PS5 screen (dashboard).
+- [x] **Done signal**: a sound and a mark in the tab's title when a run ends; a browser notification
+  where the browser allows one (only on HTTPS or localhost, so not on the console's plain HTTP page).
 
 ## 0.4.0: high resolution and upscaling (#3)
 

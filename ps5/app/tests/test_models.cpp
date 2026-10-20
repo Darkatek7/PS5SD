@@ -83,6 +83,18 @@ int main() {
     check(ps5sd::id_from_json(R"({"id":"sdxl"})") == "sdxl", "id from json");
     check(ps5sd::id_from_json("not json").empty() && ps5sd::id_from_json(R"({"id":3})").empty(), "bad bodies");
 
+    // The app's settings.
+    {
+        ps5sd::AppSettings settings;
+        check(nlohmann::json::parse(ps5sd::settings_json(settings))["tv_images"] == true, "settings default");
+        check(ps5sd::apply_settings(R"({"tv_images": false})", settings, error) && !settings.tv_images, "tv off");
+        check(ps5sd::apply_settings("{}", settings, error) && !settings.tv_images, "a missing field keeps its value");
+        check(!ps5sd::apply_settings(R"({"tv_images": "no"})", settings, error) && !settings.tv_images, "wrong type");
+        check(!ps5sd::apply_settings("[]", settings, error) && !ps5sd::apply_settings("", settings, error), "not an object");
+        check(ps5sd::apply_settings(ps5sd::settings_json(ps5sd::AppSettings{}), settings, error) && settings.tv_images,
+              "round trip");
+    }
+
     // The A1111 and OpenAI model lists, and sd_model_checkpoint back to an id.
     {
         const auto sd = nlohmann::json::parse(ps5sd::sd_models_json(lib));

@@ -116,4 +116,18 @@ std::string error_json(const std::string & message);
 // The "id" of a POST body {"id": "..."}; empty when there is none.
 std::string id_from_json(const std::string & body);
 
+// The app's own settings: GET and POST /ps5sd/v1/app/settings, kept in
+// /data/PS5SD/settings.json.
+struct AppSettings {
+    bool tv_images = true;  // the TV shows the images and the prompts
+};
+
+// {"tv_images": true}.
+std::string settings_json(const AppSettings & settings);
+
+// Applies what a body (or the settings file) sets to settings; a field it
+// leaves out keeps its value. False, with error, when the body is not a JSON
+// object or a field has the wrong type (settings is then unchanged).
+bool apply_settings(const std::string & body, AppSettings & settings, std::string & error);
+
 }  // namespace ps5sd

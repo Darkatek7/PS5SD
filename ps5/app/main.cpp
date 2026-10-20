@@ -137,6 +137,7 @@ constexpr const char * kServerArgs = "/data/PS5SD/server-args.txt";
 constexpr const char * kModel   = "/data/PS5SD/model.txt";
 constexpr const char * kEnv     = "/data/PS5SD/env.txt";  // driver and ggml switches, for measuring
 constexpr const char * kQuit    = "/data/PS5SD/quit";
+constexpr const char * kSettings = "/data/PS5SD/settings.json";  // GET/POST settings (AppSettings)
 constexpr const char * kDocs    = "/app0/docs";  // the Help tab's docs (scripts/build-app.sh)
 constexpr const char * kOutputs = "/data/PS5SD/outputs";
 constexpr const char * kLoras   = "/data/PS5SD/loras";
@@ -153,6 +154,8 @@ constexpr int          kStopWaitSeconds = 120;  // how long a quit waits for the
 AppStatus g_status;
 
 const ModelLibrary g_library{ kModels, kPresets };
+std::mutex         g_settings_mutex;  // the HTTP threads read and change g_settings
+AppSettings        g_settings;
 
 // The server's life, for the quit request and the "ready" announcement:
 // started just before sd_server() is called, done once it has returned (its
@@ -854,6 +857,32 @@ extern "C" void sd_activity_preview(const uint8_t * rgb, int w, int h) {
 #endif
 }
 
+// The settings file, read once at the start; a missing or broken file leaves
+// the defaults.
+void load_settings() {
+    std::ifstream      in(kSettings, std::ios::binary);
+    std::ostringstream text;
+    text << in.rdbuf();
+    std::string error;
+    if (!text.str().empty() && !apply_settings(text.str(), g_settings, error)) {
+        std::printf("ps5sd: %s: %s; using the defaults\n", kSettings, error.c_str());
+    }
+    g_status.set_tv_images(g_settings.tv_images);
+}
+
+// Writes the settings to a temporary file and renames it over the old one.
+bool save_settings(const AppSettings & settings) {
+    const std::string tmp = std::string(kSettings) + ".tmp";
+    {
+        std::ofstream out(tmp, std::ios::binary | std::ios::trunc);
+        out << settings_json(settings) << "\n";
+        if (!out.good()) {
+            return false;
+        }
+    }
+    return std::rename(tmp.c_str(), kSettings) == 0;
+}
+
 // The app's routes under /ps5sd/v1/app/ (patches/sdcpp/0054), on the
 // server's HTTP threads:
 //   GET  models         the library, the active model and the loaded one
@@ -870,6 +899,7 @@ extern "C" void sd_activity_preview(const uint8_t * rgb, int w, int h) {
 //   catalog, downloads, downloads/<id>, hf/search: the model downloader
 //                       (downloader.hpp), which runs on its own threads and
 //                       keeps going while the server restarts.
+//   settings (GET, POST) the app's settings (AppSettings): {"tv_images": bool}.
 // GET docs/<name>: docs/MODELS.md or docs/API.md, which the title carries,
 // for the web UI's Help tab.
 int doc_request(const std::string & name, char ** out_body, size_t * out_len, const char ** content_type) {
@@ -989,6 +1019,26 @@ extern "C" int sd_app_request(const char * method, const char * path, const char
                 status = 200;
             }
         }
+    } else if (m == "GET" && p == "settings") {
+        std::lock_guard<std::mutex> lock(g_settings_mutex);
+        out    = settings_json(g_settings);
+        status = 200;
+    } else if (m == "POST" && p == "settings") {
+        std::lock_guard<std::mutex> lock(g_settings_mutex);
+        AppSettings next = g_settings;
+        std::string error;
+        if (!apply_settings(body != nullptr ? std::string(body, body_len) : std::string(), next, error)) {
+            out    = error_json(error);
+            status = 400;
+        } else if (!save_settings(next)) {
+            out    = error_json(std::string("could not write ") + kSettings + ": " + std::strerror(errno));
+            status = 500;
+        } else {
+            g_settings = next;
+            g_status.set_tv_images(next.tv_images);
+            out    = settings_json(next);
+            status = 200;
+        }
     } else if (m == "GET" && p == "loras") {
         out    = loras_json(kLoras);
         status = 200;
@@ -1075,14 +1125,22 @@ extern "C" void sd_activity_job_end(int ok, const char * output_path) {
         set_phase("Generation failed", "See /data/PS5SD/app.log");
         return;
     }
-    if (*output_path != '\0') {
-        g_status.set_result(output_path);
+    // One path a line: every image of a batch, in order (patches/sdcpp/0059).
+    std::string        first;
+    std::istringstream paths(output_path);
+    for (std::string path; std::getline(paths, path);) {
+        if (!path.empty()) {
+            g_status.set_result(path);
+            if (first.empty()) {
+                first = path;
+            }
+        }
     }
     // A stop asked for during the job goes on once it ends; not ready then.
     if (g_quit_requested || g_restart) {
         return;
     }
-    set_phase("Ready", *output_path != '\0' ? std::string("saved ") + output_path : "image sent");
+    set_phase("Ready", first.empty() ? "image sent" : std::string("saved ") + first);
 }
 
 int main(int, char **) {
@@ -1098,6 +1156,7 @@ int main(int, char **) {
         setvbuf(stderr, nullptr, _IONBF, 0);
     }
     std::printf("ps5sd: version " PS5SD_VERSION ", stable-diffusion.cpp %s (%s)\n", sd_version(), sd_commit());
+    load_settings();
     // One device-local heap over the whole pool (RADV splits an APU's 2/3 to
     // 1/3), and a HOME, which a title lacks and libraries look up.
     setenv("radv_enable_unified_heap_on_apu", "true", 1);

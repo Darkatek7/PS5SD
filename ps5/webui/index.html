@@ -25,6 +25,7 @@
     GET  /ps5sd/v1/app/docs/<MODELS.md|API.md>                          (the Help tab)
     DELETE /ps5sd/v1/app/gallery/<name>                                 (the image viewer's Delete)
     GET  /ps5sd/v1/app/loras, DELETE /ps5sd/v1/app/loras/<path>         (the LoRA picker and list)
+    GET/POST /ps5sd/v1/app/settings                                    (the "on the TV" switch; a 404 hides it)
     GET  /ps5sd/v1/app/catalog, GET/POST /ps5sd/v1/app/downloads,      (downloads; a 404 hides that part)
          DELETE .../downloads/<id>, POST .../app/hf/search
   SPDX-License-Identifier: MIT
@@ -111,6 +112,12 @@
   .seed button { flex: none; }
   .hint { color: var(--faint); font-size: 0.8125rem; margin: 0.5rem 0 0; }
   .hint button { min-height: 2.5rem; margin-left: 0.5rem; font-size: 0.85rem; padding: 0 0.9rem; }
+  label.opt { display: flex; align-items: center; color: var(--text); font-size: 1rem; margin: 0.3rem 0; min-height: 2.75rem; cursor: pointer; }
+  label.opt input { width: 1.4rem; height: 1.4rem; margin: 0 0.75rem 0 0; padding: 0; flex: none; accent-color: var(--accent); }
+  .presets button.mine { padding-right: 0.3rem; }
+  .presets button .x { display: inline-block; margin-left: 0.4rem; padding: 0 0.55rem; border-radius: 8px; color: var(--muted); }
+  .presets button .x:hover { color: var(--text); background: rgba(255, 255, 255, 0.12); }
+  .presets button.save { background: transparent; border-style: dashed; color: var(--muted); }
 
   .state { display: flex; align-items: baseline; }
   #status { color: var(--text); font-size: 1.3rem; font-weight: 500; flex: 1; min-width: 0; min-height: 1.9rem; }
@@ -124,6 +131,11 @@
     border: 1px solid var(--border); border-radius: 12px; padding: 0.5rem; text-align: center; }
   .stage img { display: block; max-width: 100%; max-height: 78vh; width: auto; height: auto; border-radius: 6px; }
   .stage .empty { color: var(--faint); padding: 3rem 1rem; font-size: 1.05rem; }
+  .strip { display: flex; flex-wrap: wrap; margin: 0.6rem -0.25rem 0; }
+  .strip button { position: relative; width: 4.5rem; height: 4.5rem; min-height: 0; margin: 0.25rem; padding: 0; overflow: hidden;
+    background: var(--field); border: 2px solid var(--border); border-radius: 10px; }
+  .strip button.on { border-color: var(--accent-hi); }
+  .strip img { position: absolute; left: 0; top: 0; width: 100%; height: 100%; object-fit: cover; }
   .actions { margin-top: 1rem; min-height: 3.25rem; display: flex; flex-wrap: wrap; }
   .actions a, .actions button { display: block; margin: 0 0.6rem 0.6rem 0; padding: 0 1.3rem; min-height: 3.25rem; line-height: 3.25rem;
     background: var(--raised); border: 1px solid var(--border); border-radius: 10px; color: var(--text); font-size: 1rem; }
@@ -360,10 +372,27 @@
       <select id="lora-add" aria-label="Add a LoRA"><option value="">Add a LoRA…</option></select>
       <p class="hint" id="lora-hint"></p>
 
-      <label for="seed">Seed</label>
-      <div class="seed"><input id="seed" type="number" step="1" value="-1"><button type="button" id="rnd">Random</button></div>
-      <p class="hint">-1 picks a random seed. One image per run.</p>
+      <div class="row">
+        <div>
+          <label for="seed">Seed</label>
+          <div class="seed"><input id="seed" type="number" step="1" value="-1"><button type="button" id="rnd">Random</button></div>
+        </div>
+        <div>
+          <div class="lbl">Images per run</div>
+          <div class="step"><button type="button" id="batch-">&minus;</button><input id="batch" type="number" min="1" max="8" step="1" value="1" aria-label="Images per run"><button type="button" id="batch+">+</button></div>
+        </div>
+      </div>
+      <p class="hint">-1 picks a random seed. Several images take the seeds one after the other (seed, seed + 1, …).</p>
       <p class="hint"><span id="presetnote"></span><button type="button" id="resetpreset">Use preset</button></p>
+
+      <div class="lbl">When an image is done</div>
+      <label class="opt"><input type="checkbox" id="opt-sound"> Play a sound</label>
+      <label class="opt" id="opt-notify-row" style="display:none"><input type="checkbox" id="opt-notify"> Show a notification</label>
+      <p class="hint">The tab's title shows a mark too, while you are in another tab.</p>
+      <div id="opt-tv-box" style="display:none">
+        <div class="lbl">PS5 screen</div>
+        <label class="opt"><input type="checkbox" id="opt-tv"> Show images and prompts on the TV</label>
+      </div>
     </div>
   </section>
 
@@ -375,6 +404,7 @@
     <div id="sub"></div>
     <div class="bar" id="bar"><div id="fill"></div></div>
     <div class="stage" id="stage"><div class="empty">Your image appears here.</div></div>
+    <div class="strip" id="strip" style="display:none"></div>
     <div class="actions" id="actions"></div>
   </section>
 </div>
@@ -529,7 +559,13 @@
     dlActive: 0,         // downloads that are queued or running
     view: 'create',
     preset: null,
-    last: null,          // settings of the last finished image
+    last: null,          // settings of the last run
+    maxBatch: 8,         // images per run the server allows (capabilities' limits.max_batch_count)
+    results: null,       // the last run's images: [{src, seed, url, name}]
+    pick: 0,             // which of them is shown
+    sizes: null,         // the size buttons: built-in and own
+    audio: null,         // AudioContext for the done sound (made on a click)
+    title: '',           // the page title without the done mark
     known: null,         // gallery names before the current run
     lb: -1
   };
@@ -707,6 +743,7 @@
 
   function persist() {
     save('prompt', $('prompt').value);
+    save('batch', batchCount());
     save('neg', $('neg').value);
     save('set.' + (st.mkey || '_'), JSON.stringify(getForm()));
     summary();
@@ -718,7 +755,8 @@
     text($('summary'), parseInt($('w').value, 10) + '×' + parseInt($('h').value, 10) + ' · ' + steps +
       (steps === 1 ? ' step' : ' steps') + ' · CFG ' + num('cfg', 7, 0, 30) +
       ' · seed ' + (isNaN(seed) || seed < 0 ? 'random' : seed) +
-      (loraSel.length ? ' · ' + loraSel.length + (loraSel.length === 1 ? ' LoRA' : ' LoRAs') : ''));
+      (loraSel.length ? ' · ' + loraSel.length + (loraSel.length === 1 ? ' LoRA' : ' LoRAs') : '') +
+      (batchCount() > 1 ? ' · ' + batchCount() + ' images' : ''));
   }
 
   // The form follows the loaded model. After the user pressed Use (st.announce) it gets the
@@ -962,8 +1000,10 @@
     box.appendChild(link(href, 'Download', name, false));
     if (openHref) box.appendChild(link(openHref, 'Open full size', null, true));
     if (withParams && st.last) {
-      box.appendChild(actionButton('Use seed ' + st.last.seed, function () {
-        $('seed').value = st.last.seed; persist(); toast('Seed ' + st.last.seed + ' is set. Open Settings to see it.');
+      var r = st.results && st.results[st.pick];
+      var seed = r ? r.seed : st.last.seed;
+      box.appendChild(actionButton('Use seed ' + seed, function () {
+        $('seed').value = seed; persist(); toast('Seed ' + seed + ' is set. Open Settings to see it.');
       }));
       box.appendChild(actionButton('Run again', function () {
         setForm(st.last); $('prompt').value = st.last.prompt; $('neg').value = st.last.negative; generate();
@@ -1016,29 +1056,173 @@
     status(message, true);
     end();
     text($('sub'), '');
+    signal(false, message);
   }
 
-  function succeed(b64, seed) {
-    var seconds = (new Date().getTime() - st.t0) / 1000;
-    var src = dataUrl(b64);
-    showImage(src, 'generated image');
-    end();
-    progress(1);
-    status('Done in ' + clock(seconds));
-    var l = st.last;
-    text($('sub'), l ? l.w + '×' + l.h + ' · ' + l.steps + (l.steps === 1 ? ' step' : ' steps') + ' · CFG ' + l.cfg + ' · seed ' + seed : 'seed ' + seed);
-    showActions(src, 'sd_' + seed + '.png', null, true);
-    // the server saved it (with --output-dir): download that file instead of a huge data URL
-    var known = st.known;
-    loadGallery(function (list) {
-      if (!known || !list) return;
-      for (var i = 0; i < list.length; i++) {
-        if (!known[list[i].name]) {
-          if (!st.busy) showActions(list[i].url, list[i].name, list[i].url, true);
-          return;
+  // ---------- done signal ----------
+  // A sound (Web Audio; the context is made on the Generate click, as browsers ask), a mark in the
+  // tab's title while the page is hidden, and a notification where the browser allows one (only
+  // on HTTPS or localhost; the console serves plain HTTP, so usually not).
+  function canNotify() {
+    return !!(window.isSecureContext && window.Notification);
+  }
+
+  function wakeAudio() {
+    if (load('sound') === '0') return;
+    try {
+      var Ctx = window.AudioContext || window.webkitAudioContext;
+      if (!Ctx) return;
+      if (!st.audio) st.audio = new Ctx();
+      if (st.audio.state === 'suspended') st.audio.resume();
+    } catch (e) {}
+  }
+
+  function tone(ctx, freq, at, len) {
+    var o = ctx.createOscillator(), g = ctx.createGain();
+    o.type = 'sine';
+    o.frequency.value = freq;
+    g.gain.setValueAtTime(0.0001, at);
+    g.gain.exponentialRampToValueAtTime(0.25, at + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001, at + len);
+    o.connect(g);
+    g.connect(ctx.destination);
+    o.start(at);
+    o.stop(at + len + 0.05);
+  }
+
+  function signal(ok, message) {
+    if (load('sound') !== '0' && st.audio) {
+      try {
+        var t = st.audio.currentTime + 0.05;
+        if (ok) { tone(st.audio, 660, t, 0.18); tone(st.audio, 880, t + 0.16, 0.3); }
+        else { tone(st.audio, 330, t, 0.22); tone(st.audio, 247, t + 0.2, 0.35); }
+      } catch (e) {}
+    }
+    if (document.hidden) {
+      document.title = (ok ? '✓ ' : '✗ ') + st.title;
+      if (load('notify') === '1' && canNotify() && Notification.permission === 'granted') {
+        try { new Notification('PS5SD', { body: message, tag: 'ps5sd' }); } catch (e) {}
+      }
+    }
+  }
+
+  function initSignal() {
+    st.title = document.title;
+    $('opt-sound').checked = load('sound') !== '0';
+    $('opt-sound').onchange = function () {
+      save('sound', this.checked ? '1' : '0');
+      if (this.checked) { wakeAudio(); signal(true, ''); }
+    };
+    if (canNotify()) {
+      show('opt-notify-row', true, 'flex');
+      $('opt-notify').checked = load('notify') === '1' && Notification.permission === 'granted';
+      $('opt-notify').onchange = function () {
+        var box = this;
+        save('notify', box.checked ? '1' : '0');
+        if (box.checked && Notification.permission !== 'granted') {
+          Notification.requestPermission(function (p) {
+            if (p !== 'granted') { box.checked = false; save('notify', '0'); toast('The browser does not allow notifications for this page.'); }
+          });
         }
+      };
+    }
+    var back = function () { if (!document.hidden) document.title = st.title; };
+    if (document.addEventListener) {
+      document.addEventListener('visibilitychange', back);
+      window.addEventListener('focus', back);
+    }
+  }
+
+  // The app's switch for the PS5 screen (GET/POST /ps5sd/v1/app/settings); hidden on servers without it.
+  function loadTvOption() {
+    req('GET', APP + '/settings', null, function (code, data) {
+      if (code !== 200 || !data || typeof data.tv_images !== 'boolean') return;
+      $('opt-tv').checked = data.tv_images;
+      show('opt-tv-box', true);
+    });
+  }
+
+  function setTvOption() {
+    var box = $('opt-tv');
+    var want = box.checked;
+    box.disabled = true;
+    req('POST', APP + '/settings', { tv_images: want }, function (code, data) {
+      box.disabled = false;
+      if (code === 200 && data && typeof data.tv_images === 'boolean') {
+        box.checked = data.tv_images;
+        toast(data.tv_images ? 'The TV shows images and prompts again.' : 'The TV shows no images and no prompts now.');
+      } else {
+        box.checked = !want;
+        toast('Could not change it' + (data && data.error ? ': ' + data.error : '.'), 6000);
       }
     });
+  }
+
+  // images: base64 PNGs, in the order of their seeds (seed, seed + 1, …).
+  function succeed(images, seed) {
+    var seconds = (new Date().getTime() - st.t0) / 1000;
+    var results = [];
+    var first = parseInt(seed, 10);
+    for (var i = 0; i < images.length; i++) {
+      var sd = isNaN(first) ? seed : first + i;
+      results.push({ src: dataUrl(images[i]), seed: sd, url: null, name: 'sd_' + sd + '.png' });
+    }
+    st.results = results;
+    end();
+    progress(1);
+    var n = results.length;
+    status((n > 1 ? n + ' images done in ' : 'Done in ') + clock(seconds));
+    drawStrip();
+    pickResult(0);
+    signal(true, (n > 1 ? n + ' images' : 'The image') + ' done in ' + clock(seconds) + '.');
+    // the server saved them (with --output-dir): download those files instead of huge data URLs
+    var known = st.known;
+    loadGallery(function (list) {
+      if (!known || !list || st.results !== results) return;
+      var fresh = [];
+      for (var i = 0; i < list.length; i++) if (!known[list[i].name]) fresh.push(list[i]);
+      if (fresh.length !== results.length) return;
+      fresh.reverse();  // the list is newest first; the server saved them in order
+      for (var j = 0; j < fresh.length; j++) { results[j].url = fresh[j].url; results[j].name = fresh[j].name; }
+      if (!st.busy) pickResult(st.pick);
+    });
+  }
+
+  function drawStrip() {
+    var box = $('strip');
+    clear(box);
+    var r = st.results;
+    show('strip', !!(r && r.length > 1), 'flex');
+    if (!r || r.length < 2) return;
+    for (var i = 0; i < r.length; i++) {
+      (function (idx) {
+        var b = document.createElement('button');
+        b.type = 'button';
+        b.id = 'pick' + idx;
+        b.title = 'Seed ' + r[idx].seed;
+        var img = document.createElement('img');
+        img.src = r[idx].src;
+        img.alt = 'image ' + (idx + 1);
+        b.appendChild(img);
+        b.onclick = function () { if (!st.busy) pickResult(idx); };
+        box.appendChild(b);
+      })(i);
+    }
+  }
+
+  function pickResult(i) {
+    var r = st.results && st.results[i];
+    if (!r) return;
+    st.pick = i;
+    for (var k = 0; k < st.results.length; k++) {
+      var b = $('pick' + k);
+      if (b) b.className = k === i ? 'on' : '';
+    }
+    showImage(r.src, 'generated image');
+    var l = st.last;
+    var nth = st.results.length > 1 ? 'image ' + (i + 1) + ' of ' + st.results.length + ' · ' : '';
+    text($('sub'), nth + (l ? l.w + '×' + l.h + ' · ' + l.steps + (l.steps === 1 ? ' step' : ' steps') + ' · CFG ' + l.cfg + ' · ' : '') + 'seed ' + r.seed);
+    showActions(r.url || r.src, r.name, r.url, true);
   }
 
   // ---------- generation ----------
@@ -1047,7 +1231,15 @@
     if (isNaN(f.seed) || f.seed < 0) f.seed = Math.floor(Math.random() * 2147483647);
     f.prompt = $('prompt').value;
     f.negative = $('neg').value;
+    f.batch = batchCount();
     return f;
+  }
+
+  // Images per run: for every model, kept apart from the per-model settings.
+  function batchCount() {
+    var n = Math.round(num('batch', 1, 1, st.maxBatch));
+    $('batch').value = n;
+    return n;
   }
 
   function generate() {
@@ -1061,8 +1253,13 @@
       return;
     }
     persist();
+    wakeAudio();
+    document.title = st.title;
     st.seed = p.seed;
     st.last = p;
+    st.results = null;
+    st.pick = 0;
+    drawStrip();
     st.t0 = new Date().getTime();
     st.known = null;
     if (galleryLoaded) {
@@ -1085,7 +1282,7 @@
       width: p.w,
       height: p.h,
       seed: p.seed,
-      batch_count: 1,
+      batch_count: p.batch,
       sample_params: { sample_steps: p.steps, guidance: { txt_cfg: p.cfg } },
       preview: 'proj',
       preview_interval: 1,
@@ -1138,7 +1335,9 @@
 
       if (data.status === 'completed') {
         var images = data.result && data.result.images;
-        if (images && images.length) succeed(images[0].b64_json, st.seed);
+        var list = [];
+        for (var i = 0; images && i < images.length; i++) if (images[i] && images[i].b64_json) list.push(images[i].b64_json);
+        if (list.length) succeed(list, st.seed);
         else fail('The job finished without an image.');
         return;
       }
@@ -1153,9 +1352,13 @@
         text($('cancel'), st.canCancelGen ? 'Cancel' : 'Stop waiting');
         var pv = data.preview;
         if (pv && pv.total_steps > 0) {
-          status('Step ' + pv.step + ' of ' + pv.total_steps);
-          progress(pv.step / pv.total_steps);
-          st.sub = eta(pv.step, pv.total_steps);
+          // pass counts the images of a batch (one sampling pass each)
+          var n = (st.last && st.last.batch) || 1;
+          var at = Math.min(n, Math.max(1, pv.pass || 1)) - 1;
+          var frac = (at + pv.step / pv.total_steps) / n;
+          status((n > 1 ? 'Image ' + (at + 1) + ' of ' + n + ' · step ' : 'Step ') + pv.step + ' of ' + pv.total_steps);
+          progress(frac);
+          st.sub = eta(frac);
           if (pv.b64_json) showImage(dataUrl(pv.b64_json), 'preview');
         } else {
           status('Generating…');
@@ -1166,11 +1369,12 @@
     });
   }
 
-  function eta(step, steps) {
-    if (step < 1 || step >= steps) return '';
+  // frac: how much of the run is done, 0..1
+  function eta(frac) {
+    if (frac <= 0 || frac >= 1) return '';
     var elapsed = (new Date().getTime() - st.t0) / 1000;
     // the clock started before the first step (model warm-up), so this reads long early on
-    return 'about ' + clock(elapsed / step * (steps - step)) + ' left';
+    return 'about ' + clock(elapsed / frac * (1 - frac)) + ' left';
   }
 
   // Synchronous (older servers): one long POST, progress from /sdapi/v1/progress.
@@ -1185,7 +1389,7 @@
       steps: p.steps,
       cfg_scale: p.cfg,
       seed: p.seed,
-      batch_size: 1
+      batch_size: p.batch
     };
     if (p.sampler !== 'default') body.sampler_name = p.sampler;
     if (p.scheduler !== 'default') body.scheduler = p.scheduler;
@@ -1196,7 +1400,7 @@
     req('POST', '/sdapi/v1/txt2img', body, function (code, data) {
       if (token !== st.token) return;
       if (code === 200 && data && data.images && data.images.length) {
-        succeed(data.images[0], st.seed);
+        succeed(data.images, st.seed);
       } else {
         setOnline(code !== 0);
         fail(code === 0 ? 'Lost the connection to the server.' :
@@ -1212,9 +1416,11 @@
       if (token !== st.token) return;
       var state = data && data.state;
       if (state && state.sampling_steps > 0) {
-        status('Step ' + state.sampling_step + ' of ' + state.sampling_steps);
+        var n = state.job_count > 1 ? state.job_count : 1;
+        var at = Math.min(n - 1, Math.max(0, state.job_no || 0));
+        status((n > 1 ? 'Image ' + (at + 1) + ' of ' + n + ' · step ' : 'Step ') + state.sampling_step + ' of ' + state.sampling_steps);
         progress(data.progress || 0);
-        st.sub = eta(state.sampling_step, state.sampling_steps);
+        st.sub = eta(data.progress || 0);
         if (data.current_image) showImage(dataUrl(data.current_image), 'preview');
       }
       setTimeout(function () { pollProgress(token, task); }, 1000);
@@ -1265,26 +1471,97 @@
   }
 
   // ---------- controls ----------
+  // Size buttons: the built-in sizes, then the user's own (saved in this browser, for every model).
+  function okSize(v) { return typeof v === 'number' && v >= 64 && v <= 2048 && v % 8 === 0; }
+
+  function hasSize(list, w, h) {
+    for (var i = 0; i < list.length; i++) if (list[i][0] === w && list[i][1] === h) return true;
+    return false;
+  }
+
+  function ownSizes() {
+    var out = [];
+    try {
+      var list = JSON.parse(load('sizes') || '[]');
+      for (var i = 0; i < list.length; i++) {
+        var w = list[i] && list[i][0], h = list[i] && list[i][1];
+        if (okSize(w) && okSize(h) && !hasSize(PRESETS, w, h) && !hasSize(out, w, h)) out.push([w, h]);
+      }
+    } catch (e) {}
+    return out;
+  }
+
   function buildPresets() {
     var box = $('presets');
-    for (var i = 0; i < PRESETS.length; i++) {
-      (function (w, h) {
+    clear(box);
+    var mine = ownSizes();
+    st.sizes = PRESETS.concat(mine);
+    for (var i = 0; i < st.sizes.length; i++) {
+      (function (w, h, own) {
         var b = document.createElement('button');
         b.type = 'button';
         b.id = 'p' + w + 'x' + h;
         text(b, w + '×' + h);
         b.onclick = function () { $('w').value = w; $('h').value = h; markPreset(); persist(); };
+        if (own) {
+          b.className = 'mine';
+          b.title = 'Your size';
+          var x = document.createElement('span');
+          x.className = 'x';
+          x.title = 'Remove this size';
+          x.setAttribute('aria-label', 'Remove ' + w + '×' + h);
+          text(x, '×');
+          x.onclick = function (e) {
+            e = e || window.event;
+            if (e.stopPropagation) e.stopPropagation();
+            removeSize(w, h);
+            return false;
+          };
+          b.appendChild(x);
+        }
         box.appendChild(b);
-      })(PRESETS[i][0], PRESETS[i][1]);
+      })(st.sizes[i][0], st.sizes[i][1], i >= PRESETS.length);
     }
+    var add = document.createElement('button');
+    add.type = 'button';
+    add.id = 'psave';
+    add.className = 'save';
+    add.title = 'Keep the width and height below as a size button';
+    text(add, '+ Save size');
+    add.onclick = saveSize;
+    box.appendChild(add);
+    markPreset();
+  }
+
+  function saveSize() {
+    var w = size8('w', 512), h = size8('h', 512);
+    var mine = ownSizes();
+    if (hasSize(PRESETS, w, h) || hasSize(mine, w, h)) { toast(w + '×' + h + ' is already a size button.'); return; }
+    mine.push([w, h]);
+    save('sizes', JSON.stringify(mine));
+    buildPresets();
+    persist();
+    toast(w + '×' + h + ' saved. The × on it removes it again.');
+  }
+
+  function removeSize(w, h) {
+    var mine = ownSizes(), keep = [];
+    for (var i = 0; i < mine.length; i++) if (mine[i][0] !== w || mine[i][1] !== h) keep.push(mine[i]);
+    save('sizes', JSON.stringify(keep));
+    buildPresets();
   }
 
   function markPreset() {
     var w = parseInt($('w').value, 10), h = parseInt($('h').value, 10);
-    for (var i = 0; i < PRESETS.length; i++) {
-      var b = $('p' + PRESETS[i][0] + 'x' + PRESETS[i][1]);
-      b.className = (PRESETS[i][0] === w && PRESETS[i][1] === h) ? 'on' : '';
+    var sizes = st.sizes || PRESETS;
+    var known = false;
+    for (var i = 0; i < sizes.length; i++) {
+      var b = $('p' + sizes[i][0] + 'x' + sizes[i][1]);
+      var on = sizes[i][0] === w && sizes[i][1] === h;
+      if (on) known = true;
+      if (b) b.className = (i >= PRESETS.length ? 'mine' : '') + (on ? ' on' : '');
     }
+    if ($('psave')) $('psave').disabled = known || !okSize(w) || !okSize(h);
   }
 
   function stepper(id, delta, min, max, digits) {
@@ -2479,6 +2756,13 @@
             var modes = caps.supported_modes || [];
             for (var i = 0; i < modes.length; i++) if (modes[i] === 'img_gen') st.useJobs = true;
             st.canCancelGen = !!(caps.features && caps.features.cancel_generating);
+            var mb = caps.limits && caps.limits.max_batch_count;
+            if (typeof mb === 'number' && mb >= 1) {
+              st.maxBatch = Math.floor(mb);
+              $('batch').max = st.maxBatch;
+              batchCount();
+              summary();
+            }
           }
           fill($('sampler'), names(samplers));
           fill($('scheduler'), names(schedulers));
@@ -2554,6 +2838,14 @@
   function init() {
     loadVersion();
     buildPresets();
+    initSignal();
+    loadTvOption();
+    $('opt-tv').onchange = setTvOption;
+    var b = parseInt(load('batch'), 10);
+    $('batch').value = b >= 1 ? b : 1;
+    $('batch').onchange = $('batch').oninput = persist;
+    $('batch-').onclick = function () { stepper('batch', -1, 1, st.maxBatch, 0); };
+    $('batch+').onclick = function () { stepper('batch', 1, 1, st.maxBatch, 0); };
     var v = load('prompt'); if (v !== null) $('prompt').value = v;
     v = load('neg'); if (v !== null) $('neg').value = v;
     applyModel('', null);

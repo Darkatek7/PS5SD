@@ -56,7 +56,7 @@ loads a model and ends standby.
 
 | Route | |
 |---|---|
-| `GET /ps5sd/v1/app/info` | `{"name": "PS5SD", "version": "0.2.0", "sd_cpp": {"version", "commit"}}` |
+| `GET /ps5sd/v1/app/info` | `{"name": "PS5SD", "version": "0.3.0", "sd_cpp": {"version", "commit"}}` |
 | `GET /ps5sd/v1/app/docs/<name>` | `MODELS.md` or `API.md` as the title carries them (`text/markdown`), for the web UI's Help tab; any other name is a 404 |
 | `GET /ps5sd/v1/app/models` | the library; see below |
 | `POST /ps5sd/v1/app/models/active` | `{"id": "<id>"}`: switch to that entry; the responses are below |
@@ -214,6 +214,12 @@ The `model` field of a generation request does not switch the model; the loaded 
 | `POST /sdcpp/v1/jobs/<id>/cancel` | cancel it; see "Jobs" above |
 | `POST /sdcpp/v1/upscale` | upscale an image with an upscaler model |
 
+Several images in one job: `"batch_count": n` on `img_gen` (`"batch_size"` on `/sdapi/v1/txt2img`,
+`"n"` on `/v1/images/generations`), up to `limits.max_batch_count` of the capabilities (8). The images
+are made one after the other with the seeds `seed`, `seed + 1`, ...; while the job runs,
+`preview.pass` says which of them is being sampled (1 for the first). Every image is saved to the
+gallery.
+
 ## Gallery
 
 Every generated image is also saved as a PNG in `/data/PS5SD/outputs`.
@@ -223,3 +229,16 @@ Every generated image is also saved as a PNG in `/data/PS5SD/outputs`.
 | `GET /ps5sd/v1/gallery?limit=n` | the newest images first, with name, time and size |
 | `GET /ps5sd/v1/gallery/<name>` | one image as PNG |
 | `DELETE /ps5sd/v1/app/gallery/<name>` | delete one image: `{"deleted": "<name>"}`; 400 for a name the gallery does not list (folders, other files), 404 when it is gone already |
+
+## App settings
+
+Kept in `/data/PS5SD/settings.json` on the console, so they hold for every browser and survive a
+restart.
+
+| Route | |
+|---|---|
+| `GET /ps5sd/v1/app/settings` | `{"tv_images": true}` |
+| `POST /ps5sd/v1/app/settings` | change what the body sets, like `{"tv_images": false}`; the answer is the settings as `GET` gives them, 400 for a field of the wrong type |
+
+`tv_images` false: the dashboard on the TV shows no images (no live preview, no last image, no
+thumbnails) and no prompts. The web UI's switch is in Settings, "Show images and prompts on the TV".
