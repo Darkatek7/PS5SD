@@ -440,10 +440,14 @@ fi
 # icon0.dds (BC7, 512x512, one mip) is what the home screen draws; icon0.png
 # is the package's. Both are committed; after a new icon0.png, make the .dds
 # again on Windows: texconv -f BC7_UNORM -m 1 -y -o ps5/app/sce_sys ps5/app/sce_sys/icon0.png
-[ ! "$sce_sys/icon0.png" -nt "$sce_sys/icon0.dds" ] || {
+# Only for an icon0.png that differs from the committed one: a fresh checkout
+# (CI) gives both files checkout times, in either order.
+if git -C "$root" diff --quiet HEAD -- "$sce_sys/icon0.png" 2> /dev/null; then
+    :
+elif [ "$sce_sys/icon0.png" -nt "$sce_sys/icon0.dds" ]; then
     echo "build-app: sce_sys/icon0.dds is older than icon0.png; make it again (texconv, see above)" >&2
     exit 2
-}
+fi
 cp "$sce_sys/icon0.png" "$sce_sys/icon0.dds" "$assets/pic0.dds" "$assets/pic1.dds" "$app/sce_sys/"
 cp "$vk/runtime/libc.prx" "$app/sce_module/libc.prx"
 # The dashboard's fonts (ps5-homebrew-ui's Inter, Montserrat and DejaVu Sans Mono), with their
