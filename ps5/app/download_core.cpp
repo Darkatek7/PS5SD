@@ -527,6 +527,19 @@ bool upload_target(const std::string & path, std::string & kind, std::string & n
     return true;
 }
 
+bool gallery_name_ok(const std::string & name) {
+    if (name.size() <= 4 || name.size() > 200 || name[0] == '.' || lower(name).compare(name.size() - 4, 4, ".png") != 0) {
+        return false;
+    }
+    for (const char c : name) {
+        if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' || c == '-' ||
+              c == '.')) {
+            return false;
+        }
+    }
+    return true;
+}
+
 std::string pieces_in_order(const std::string & pieces, uint64_t piece, uint64_t total, uint64_t file_size) {
     std::string out(pieces.size(), '0');
     for (size_t i = 0; i < pieces.size() && pieces[i] == '1' && piece > 0; i++) {

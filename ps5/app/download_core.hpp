@@ -55,6 +55,11 @@ bool valid_dest(const std::string & dest, std::string & error);
 // ending in .txt. False with a message otherwise.
 bool upload_target(const std::string & path, std::string & kind, std::string & name, std::string & error);
 
+// A gallery image's name (DELETE /ps5sd/v1/app/gallery/<name>): a .png file
+// name of letters, digits, '_', '-' and '.', as the gallery lists them, not
+// starting with '.' and without folders.
+bool gallery_name_ok(const std::string & name);
+
 // A stable id for a destination (16 hex digits): the same file is one entry.
 std::string download_id(const std::string & dest);
 

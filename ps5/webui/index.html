@@ -23,6 +23,7 @@
     GET  /ps5sd/v1/app/models, POST .../app/models/active              (the Models tab: library and switching)
     PUT  /ps5sd/v1/app/uploads/<models|loras|embeddings|presets>/<name> (the Models tab: upload a file)
     GET  /ps5sd/v1/app/docs/<MODELS.md|API.md>                          (the Help tab)
+    DELETE /ps5sd/v1/app/gallery/<name>                                 (the image viewer's Delete)
     GET  /ps5sd/v1/app/catalog, GET/POST /ps5sd/v1/app/downloads,      (downloads; a 404 hides that part)
          DELETE .../downloads/<id>, POST .../app/hf/search
   SPDX-License-Identifier: MIT
@@ -172,6 +173,7 @@
   .lb-bar a, .lb-bar button { flex: none; margin-left: 0.6rem; min-height: 3.25rem; line-height: 3.25rem; padding: 0 1.3rem; background: var(--raised);
     border: 1px solid var(--border); border-radius: 10px; color: var(--text); }
   .lb-bar button { line-height: normal; }
+  .lb-bar button.danger { color: var(--bad); }
   .lb-body { flex: 1; min-height: 0; display: flex; align-items: center; padding: 0 1rem 1rem; }
   .lb-body .nav { flex: none; width: 4.5rem; height: 6rem; font-size: 2.4rem; padding: 0; border-radius: 14px; }
   .lb-img { flex: 1; min-width: 0; text-align: center; }
@@ -443,6 +445,7 @@
     <span class="lb-title" id="lb-title"></span>
     <a id="lb-dl" href="#">Download</a>
     <a id="lb-open" href="#" target="_blank">Open full size</a>
+    <button type="button" class="danger" id="lb-del">Delete</button>
     <button type="button" id="lb-close">Close</button>
   </div>
   <div class="lb-body">
@@ -1398,6 +1401,40 @@
     if (lbFrom) { try { lbFrom.focus(); } catch (e) {} }
   }
 
+  // Delete in the viewer: the confirm box, then the next older image (or the
+  // newer one at the end, or the gallery when it was the last).
+  function askDeleteImage() {
+    var it = galleryList[st.lb];
+    if (!it) return;
+    dlgFor = { image: it };
+    dlgFrom = $('lb-del');
+    text($('dlg-title'), 'Delete ' + it.name + '?');
+    text($('dlg-body'), 'The image is deleted from the console. Download it first to keep a copy.');
+    $('dlg-ok').disabled = false;
+    $('dlg-cancel').disabled = false;
+    text($('dlg-ok'), 'Delete');
+    show('dlg', true, 'flex');
+    $('dlg-cancel').focus();
+  }
+
+  function deleteImage(it) {
+    req('DELETE', '/ps5sd/v1/app/gallery/' + encodeURIComponent(it.name), null, function (code, data) {
+      closeDlg();
+      if (code === 200 || code === 404) {
+        for (var i = 0; i < galleryList.length; i++) {
+          if (galleryList[i].name === it.name) { galleryList.splice(i, 1); break; }
+        }
+        drawGallery();
+        if (st.lb >= 0) {
+          if (galleryList.length) showLb(st.lb); else closeLb();
+        }
+        toast('Deleted ' + it.name + '.');
+      } else {
+        toast(errText(code, data, 'Could not delete ' + it.name), 5000);
+      }
+    }, 30000);
+  }
+
   function lbStep(d) {
     showLb(st.lb + d);
     var b = d < 0 ? $('lb-prev') : $('lb-next');
@@ -1420,9 +1457,10 @@
       if (k === 27) { closeLb(); return false; }
       if (k === 37) { lbStep(-1); return false; }
       if (k === 39) { lbStep(1); return false; }
+      if (k === 46) { askDeleteImage(); return false; }
       if (k === 9) {
         // keep Tab inside the viewer
-        var ring = [$('lb-prev'), $('lb-dl'), $('lb-open'), $('lb-close'), $('lb-next')];
+        var ring = [$('lb-prev'), $('lb-dl'), $('lb-open'), $('lb-del'), $('lb-close'), $('lb-next')];
         var live = [];
         for (var i = 0; i < ring.length; i++) if (!ring[i].disabled) live.push(ring[i]);
         var at = -1;
@@ -1642,6 +1680,7 @@
     $('dlg-ok').disabled = true;
     $('dlg-cancel').disabled = true;
     text($('dlg-ok'), 'Deleting…');
+    if (m.image) { deleteImage(m.image); return; }
     st.delErr = null;
     req('DELETE', APP + '/models/' + encodeURIComponent(m.id), null, function (code, data) {
       closeDlg();
@@ -2378,6 +2417,7 @@
     $('dlg-cancel').onclick = closeDlg;
     $('dlg-ok').onclick = confirmDelete;
     $('lb-close').onclick = closeLb;
+    $('lb-del').onclick = askDeleteImage;
     $('lb-prev').onclick = function () { lbStep(-1); };
     $('lb-next').onclick = function () { lbStep(1); };
     document.onkeydown = onKey;

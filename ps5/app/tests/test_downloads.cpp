@@ -249,6 +249,11 @@ int main() {
     check(pieces_within("0001", 10, 35, 35) && !pieces_within("0001", 10, 35, 34), "the short last piece");
     check(!pieces_within("1", 0, 35, 35), "no piece size");
     check(pieces_in_order("1101", 10, 35, 35) == "1100", "in order: a done piece after a gap is fetched again");
+    check(gallery_name_ok("sd_20261020_185438_001.png") && gallery_name_ok("my-image.PNG"), "gallery: image names");
+    check(!gallery_name_ok("../model.txt") && !gallery_name_ok("../x.png") && !gallery_name_ok("a/b.png") &&
+              !gallery_name_ok(".png") && !gallery_name_ok(".hidden.png") && !gallery_name_ok("x.txt") &&
+              !gallery_name_ok("a b.png") && !gallery_name_ok(""),
+          "gallery: no paths, hidden files or other files");
     {
         std::string kind, name, e;
         check(upload_target("models/vae/my vae.safetensors", kind, name, e) && kind == "models" &&

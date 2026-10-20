@@ -50,11 +50,12 @@
 #include <cstring>
 #include <ctime>
 #include <exception>
+#include <cerrno>
 #include <fstream>
-#include <sstream>
 #include <functional>
 #include <initializer_list>
 #include <mutex>
+#include <sstream>
 #include <string>
 #include <thread>
 #include <vector>
@@ -64,6 +65,7 @@
 #include "app_status.hpp"
 #include "gen_args.hpp"
 #include "ggml-backend.h"
+#include "download_core.hpp"
 #include "downloader.hpp"
 #include "upload.hpp"
 #include "models.hpp"
@@ -986,6 +988,23 @@ extern "C" int sd_app_request(const char * method, const char * path, const char
                 out    = "{}";
                 status = 200;
             }
+        }
+    } else if (m == "DELETE" && p.rfind("gallery/", 0) == 0) {
+        // One image of the gallery (the PNGs in outputs); the gallery lists
+        // that folder on each request, so the file is all there is.
+        const std::string name = p.substr(8);
+        if (!gallery_name_ok(name)) {
+            out    = error_json("not a gallery image: " + name);
+            status = 400;
+        } else if (::unlink((std::string(kOutputs) + "/" + name).c_str()) == 0) {
+            out    = "{\"deleted\": \"" + name + "\"}";
+            status = 200;
+        } else if (errno == ENOENT) {
+            out    = error_json("no image " + name);
+            status = 404;
+        } else {
+            out    = error_json("could not delete " + name + ": " + std::strerror(errno));
+            status = 500;
         }
     } else if (m == "DELETE" && p.rfind("models/", 0) == 0) {
         // Never the model that is active or loaded, nor a file it uses (a

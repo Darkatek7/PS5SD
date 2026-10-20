@@ -216,3 +216,4 @@ Every generated image is also saved as a PNG in `/data/PS5SD/outputs`.
 |---|---|
 | `GET /ps5sd/v1/gallery?limit=n` | the newest images first, with name, time and size |
 | `GET /ps5sd/v1/gallery/<name>` | one image as PNG |
+| `DELETE /ps5sd/v1/app/gallery/<name>` | delete one image: `{"deleted": "<name>"}`; 400 for a name the gallery does not list (folders, other files), 404 when it is gone already |
