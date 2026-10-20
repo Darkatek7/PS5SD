@@ -3,9 +3,10 @@
 stable-diffusion.cpp on the PS5 GPU — a native title running ggml-vulkan on RADV, with an
 OpenAI/A1111-compatible image API, a browser UI and a TV dashboard.
 
-> **Status: 0.1.0, the first release.** The title runs the server, the web UI, the model downloader
-> and the TV dashboard on the console. Downloads run at 50 to 75 MB/s from start to end and resume
-> after a close; the web UI uploads models from the PC at about 80 MB/s, and its Help tab shows
+> **Status: 0.2.0.** The title runs the server, the web UI, the model downloader and the TV dashboard
+> on the console. 0.2.0 adds LoRAs: pick one or several per model in the web UI, download or upload
+> them, at no cost per step. Downloads run at 50 to 75 MB/s from start to end and resume after a
+> close; the web UI uploads models from the PC at about 80 MB/s, and its Help tab shows
 > [docs/MODELS.md](docs/MODELS.md) and [docs/API.md](docs/API.md). Closing from the home screen during
 > a download used to end in a crash report about 1 time in 5; that has not happened in 8 Closes since
 > the download fix. The measurements are in [docs/CONSOLE.md](docs/CONSOLE.md).
@@ -44,6 +45,9 @@ Hugging Face or Civitai file URL, with progress, cancel and resume. Downloads ke
 images are generated. A gated or private Hugging Face repository needs a token in
 `/data/PS5SD/hf-token.txt`, a Civitai model that asks for a login one in
 `/data/PS5SD/civitai-token.txt` (one line each).
+
+LoRAs go the same ways (as LoRA in the upload or download form; a Civitai LoRA is recognised by
+itself) and are picked on the Create tab, several at once, each with a strength.
 
 A model from anywhere else (your own merge or training, another site, a file already on the PC) goes
 onto the console with the web UI's upload button or by FTP; [docs/MODELS.md](docs/MODELS.md) has the
