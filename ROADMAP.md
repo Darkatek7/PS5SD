@@ -9,6 +9,8 @@ go into [issues](https://github.com/Darkatek7/PS5SD/issues); this file says what
   end), uploads from the PC, gallery, Help tab, TV dashboard.
 - **0.2.0**: LoRAs, several per model, each with its own strength; download, upload, list and delete.
 - **0.3.0**: web UI options from [#3](https://github.com/Darkatek7/PS5SD/issues/3), below.
+- **0.7.0**: ControlNet with SDXL (a guide image on the Create tab, Canny on the console, SDXL + Canny in
+  the catalog), and the CausVid LoRA: a 2-second video in 3 minutes 40 s instead of about 14.5 minutes.
 - **0.6.0**: video with Wan 2.1 T2V 1.3B (WebM, played in the page and the gallery; in the catalog),
   and DMD2 and SDXL-Lightning one click away on the LoRAs panel.
 - **0.5.2**: the TV shows the console's own address (it showed `<console ip>` before) and a QR code that
