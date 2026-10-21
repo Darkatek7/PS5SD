@@ -9,6 +9,9 @@ go into [issues](https://github.com/Darkatek7/PS5SD/issues); this file says what
   end), uploads from the PC, gallery, Help tab, TV dashboard.
 - **0.2.0**: LoRAs, several per model, each with its own strength; download, upload, list and delete.
 - **0.3.0**: web UI options from [#3](https://github.com/Darkatek7/PS5SD/issues/3), below.
+- **0.5.0**: image to image and inpainting: a start image (a file, a gallery image, the last result), a
+  mask painted in the page, only the masked area made at the model's size and put back with a soft edge;
+  SDXL and SD 1.5 inpainting models in the catalog.
 - **0.4.0**: the hires fix (a second pass at a larger size, on the Create tab and in presets) and the
   Upscale button (ESRGAN, the result saved to the gallery); upscaler models in `/data/PS5SD/upscalers`,
   two of them one click away on the Models tab.
@@ -45,19 +48,17 @@ sd-server takes an init image and a mask already (`init_images` and `mask` on `/
 `init_image` and `mask_image` on `/sdcpp/v1/img_gen`), and sd.cpp loads the inpainting checkpoints of
 SD 1.x, SD 2.x and SDXL. What is missing is the web UI.
 
-- [ ] **Image to image**: start from an image (upload, an image of the gallery, or the last result) with a
-  denoising strength. Less than 1 runs only that share of the steps, so a light change is fast.
-- [ ] **Inpainting**: paint a mask over the image (brush size, eraser, invert) in a canvas that works with a
-  mouse, a finger and the DualSense cursor; only the masked part changes. An "Inpaint" button in the
-  image viewer.
-- [ ] **Only the masked area**: crop a box around the mask, generate it at the model's size (512 or
-  1024), and paste it back with a soft edge. For a small fix in a large image this is much cheaper than
-  the whole image, and it gives the masked part the full resolution (A1111's "inpaint only masked").
-  Done in the page, so the server needs nothing new.
-- [ ] Inpainting checkpoints (for example `sd-v1-5-inpainting`, an SDXL inpainting model) in the catalog,
-  and a note on which models work how: a normal model inpaints too, an inpainting model blends the edges
-  better.
-- [ ] **Measure**: time of a masked 512x512 fix in a 1024x1024 SDXL image, against the whole image.
+- [x] **Image to image**: start from an image (a file, an image of the gallery with Edit, or the last
+  result) with a strength. Less than 1 runs only that share of the steps, so a light change is fast.
+- [x] **Inpainting**: paint a mask over the image (brush size, eraser, invert, clear) in a canvas that takes
+  a mouse, a finger and the DualSense cursor; only the masked part changes, and the rest stays pixel for
+  pixel (the result is blended back in the page).
+- [x] **Only the masked area**: a box around the mask, made at the model's size and put back with a soft
+  edge (A1111's "inpaint only masked"). The finished image goes to the gallery
+  (`POST /ps5sd/v1/app/gallery`) in place of the raw one.
+- [x] SDXL Inpainting 0.1 and SD 1.5 Inpainting (Q8_0 GGUF) in the catalog.
+- [ ] **Measure on the console**: a masked fix in a 1024x1024 SDXL image against the whole image, and
+  the inpainting models (only tested on a PC with a normal model so far).
 
 Image input is what ControlNet (0.6.0) needs as well.
 

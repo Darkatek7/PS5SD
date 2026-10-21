@@ -4,6 +4,8 @@
 #include <algorithm>
 #include <cctype>
 #include <cstring>
+#include <ctime>
+#include <cstdio>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -708,6 +710,70 @@ bool valid_api_key(const std::string & key) {
 
 std::string auth_json(const std::string & key) {
     return nlohmann::json{ { "enabled", !key.empty() }, { "key", key } }.dump();
+}
+
+bool png_from_json(const std::string & body, std::string & png, std::string & error) {
+    const nlohmann::json j = nlohmann::json::parse(body, nullptr, false);
+    if (!j.is_object() || !j.contains("image") || !j["image"].is_string()) {
+        error = "the body must be {\"image\": \"<base64 PNG>\"}";
+        return false;
+    }
+    std::string in = j["image"].get<std::string>();
+    if (in.rfind("data:", 0) == 0) {
+        const size_t comma = in.find(',');
+        in                 = comma == std::string::npos ? std::string() : in.substr(comma + 1);
+    }
+    png.clear();
+    png.reserve(in.size() / 4 * 3);
+    unsigned buffer = 0;
+    int      bits   = 0;
+    for (char c : in) {
+        int v;
+        if (c >= 'A' && c <= 'Z') {
+            v = c - 'A';
+        } else if (c >= 'a' && c <= 'z') {
+            v = c - 'a' + 26;
+        } else if (c >= '0' && c <= '9') {
+            v = c - '0' + 52;
+        } else if (c == '+') {
+            v = 62;
+        } else if (c == '/') {
+            v = 63;
+        } else if (c == '=' || c == '\n' || c == '\r') {
+            continue;
+        } else {
+            error = "the image is not base64";
+            return false;
+        }
+        buffer = (buffer << 6) | static_cast<unsigned>(v);
+        bits += 6;
+        if (bits >= 8) {
+            bits -= 8;
+            png.push_back(static_cast<char>((buffer >> bits) & 0xff));
+        }
+    }
+    static const char kSignature[] = "\x89PNG\r\n\x1a\n";
+    if (png.size() < 8 || png.compare(0, 8, kSignature, 8) != 0) {
+        error = "the image is not a PNG";
+        return false;
+    }
+    return true;
+}
+
+std::string edited_image_name(const std::string & dir, long long t) {
+    const std::time_t tt = static_cast<std::time_t>(t);
+    std::tm           tm = {};
+    localtime_r(&tt, &tm);
+    char stem[64];
+    std::snprintf(stem, sizeof(stem), "sd_%04d%02d%02d_%02d%02d%02d_edit", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday,
+                  tm.tm_hour, tm.tm_min, tm.tm_sec);
+    for (int n = 1;; n++) {
+        const std::string name = std::string(stem) + (n == 1 ? "" : std::to_string(n)) + ".png";
+        std::error_code   ec;
+        if (!fs::exists(fs::u8path(dir) / fs::u8path(name), ec) || n > 999) {
+            return name;
+        }
+    }
 }
 
 std::string error_json(const std::string & message) {

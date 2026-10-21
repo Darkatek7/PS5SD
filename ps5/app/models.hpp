@@ -153,6 +153,15 @@ bool valid_api_key(const std::string & key);
 // GET /ps5sd/v1/app/auth: {"enabled": bool, "key": "..." or ""}.
 std::string auth_json(const std::string & key);
 
+// POST /ps5sd/v1/app/gallery: {"image": "<base64 PNG, or a data URL>"}.
+// The PNG's bytes, or false with a message (not JSON, no image, not base64,
+// not a PNG).
+bool png_from_json(const std::string & body, std::string & png, std::string & error);
+
+// A free gallery file name in dir for an image the web UI made at time t:
+// sd_YYYYMMDD_HHMMSS_edit.png, then _edit2, _edit3, ...
+std::string edited_image_name(const std::string & dir, long long t);
+
 // {"error": message}.
 std::string error_json(const std::string & message);
 

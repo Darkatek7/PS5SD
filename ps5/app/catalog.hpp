@@ -1,5 +1,6 @@
 // The starter catalog: models a user can install with one click. Every URL
-// and size was checked from a PC with `curl -I -L` (2026-10-19); the files
+// and size was checked from a PC with `curl -I -L` (2026-10-19; the
+// inpainting entries 2026-10-21); the files
 // are public, none needs a token. Installing an entry downloads its files
 // into /data/PS5SD/models (dest) and then writes its preset,
 // /data/PS5SD/presets/<id>.txt, so it shows in GET /ps5sd/v1/app/models.
@@ -160,6 +161,44 @@ inline std::vector<CatalogEntry> entries() {
             "--vae-tiling\n"
             "--vae-tile-size\n"
             "512\n",
+            false,
+            "",
+        },
+        {
+            "sdxl-inpainting",
+            "SDXL Inpainting 0.1 (Q8_0)",
+            "For inpainting: blends a painted-over part into SDXL images better than a normal model. 5.2 GB.",
+            {
+                { "https://huggingface.co/gpustack/stable-diffusion-xl-inpainting-1.0-GGUF/resolve/main/"
+                  "stable-diffusion-xl-inpainting-1.0-Q8_0.gguf",
+                  "stable-diffusion-xl-inpainting-1.0-Q8_0.gguf", 4873718560ull, 0 },
+                PS5SD_SDXL_VAE,
+            },
+            "# name: SDXL Inpainting 0.1 (Q8_0)\n"
+            "# defaults: steps=25 cfg=6 width=1024 height=1024 sampler=euler_a\n"
+            "-m\n"
+            "stable-diffusion-xl-inpainting-1.0-Q8_0.gguf\n"
+            "--vae\n"
+            "vae/sdxl_vae_fp16_fix.safetensors\n"
+            "--vae-tiling\n"
+            "--vae-tile-size\n"
+            "512\n",
+            false,
+            "",
+        },
+        {
+            "sd15-inpainting",
+            "SD 1.5 Inpainting (Q8_0)",
+            "For inpainting at 512x512: Stable Diffusion 1.5's inpainting model. 1.9 GB.",
+            {
+                { "https://huggingface.co/gpustack/stable-diffusion-v1-5-inpainting-GGUF/resolve/main/"
+                  "stable-diffusion-v1-5-inpainting-Q8_0.gguf",
+                  "stable-diffusion-v1-5-inpainting-Q8_0.gguf", 1881270304ull, 0 },
+            },
+            "# name: SD 1.5 Inpainting (Q8_0)\n"
+            "# defaults: steps=25 cfg=7 width=512 height=512 sampler=euler_a\n"
+            "-m\n"
+            "stable-diffusion-v1-5-inpainting-Q8_0.gguf\n",
             false,
             "",
         },

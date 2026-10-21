@@ -163,7 +163,7 @@ loads a model and ends standby.
 
 | Route | |
 |---|---|
-| `GET /ps5sd/v1/app/info` | `{"name": "PS5SD", "version": "0.4.0", "sd_cpp": {"version", "commit"}}` |
+| `GET /ps5sd/v1/app/info` | `{"name": "PS5SD", "version": "0.5.0", "sd_cpp": {"version", "commit"}}` |
 | `GET /ps5sd/v1/app/docs/<name>` | `MODELS.md` or `API.md` as the title carries them (`text/markdown`), for the web UI's Help tab; any other name is a 404 |
 | `GET /ps5sd/v1/app/models` | the library; see below |
 | `POST /ps5sd/v1/app/models/active` | `{"id": "<id>"}`: switch to that entry; the responses are below |
@@ -384,6 +384,34 @@ curl -H "Content-Type: application/json" http://<console>:7860/sdcpp/v1/upscale 
 
 Send JSON bodies with `Content-Type: application/json`: curl's `-d` otherwise sends a form, which the
 server reads only up to 8 KB.
+
+## Image to image and inpainting
+
+`POST /sdcpp/v1/img_gen` takes a start image and a mask (base64 or data URLs):
+
+```json
+{"prompt": "...", "init_image": "data:image/png;base64,...", "mask_image": "data:image/png;base64,...",
+ "strength": 0.6, "width": 1024, "height": 1024}
+```
+
+- `strength` is how much changes: below 1 only that share of the steps runs, so a light change is quick.
+- In the mask, white is painted over and black stays; grays blend. Without `mask_image` the whole image
+  changes.
+- The start image is cropped to the aspect of `width` x `height` and scaled to it.
+- `/sdapi/v1/img2img` takes A1111's `init_images`, `mask`, `denoising_strength` and
+  `inpainting_mask_invert` (A1111's hires fix there is for text to image only, and the web UI turns it
+  off with a start image).
+- An inpainting model (the catalog's SD 1.5 and SDXL inpainting) blends the edges of the mask better;
+  any other model inpaints too.
+
+The web UI does more in the page: with "only the masked area" it sends a box around the mask, made at
+the model's size, and puts the result back into the start image with a soft edge; a masked result is
+always blended over the start image, so the rest of it stays exactly as it was. That finished image goes
+to the gallery through:
+
+| Route | |
+|---|---|
+| `POST /ps5sd/v1/app/gallery` | `{"image": "<base64 PNG or data URL>"}`: saved to `/data/PS5SD/outputs` as `sd_<date>_<time>_edit.png`; `201 {"saved": "<name>"}`, `400` for anything that is not a PNG |
 
 ## Gallery
 

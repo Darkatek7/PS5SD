@@ -254,6 +254,25 @@ int main() {
               "tv_api_key setting");
         check(!ps5sd::apply_settings(R"({"tv_api_key": 1})", settings, error), "tv_api_key wrong type");
     }
+    // A PNG from the web UI for the gallery.
+    {
+        std::string png;
+        // "\x89PNG\r\n\x1a\n" + "ab" in base64
+        check(ps5sd::png_from_json(R"({"image": "iVBORw0KGgphYg=="})", png, error) && png.size() == 10 && png.substr(8) == "ab",
+              "a base64 PNG");
+        check(ps5sd::png_from_json(R"({"image": "data:image/png;base64,iVBORw0KGgphYg=="})", png, error) && png.size() == 10,
+              "a data URL");
+        check(!ps5sd::png_from_json(R"({"image": "aGVsbG8gd29ybGQ="})", png, error), "not a PNG");
+        check(!ps5sd::png_from_json(R"({"image": "iVBOR w0KGgo"})", png, error), "not base64");
+        check(!ps5sd::png_from_json(R"({"img": "x"})", png, error) && !ps5sd::png_from_json("[]", png, error), "no image");
+        const fs::path out = root / "outputs";
+        fs::create_directories(out);
+        const std::string a = ps5sd::edited_image_name(out.u8string(), 1792570000);
+        check(a.rfind("sd_", 0) == 0 && a.size() > 13 && a.compare(a.size() - 9, 9, "_edit.png") == 0, "an edit's name");
+        std::ofstream(out / a) << "x";
+        const std::string b = ps5sd::edited_image_name(out.u8string(), 1792570000);
+        check(b != a && b.compare(b.size() - 10, 10, "_edit2.png") == 0, "the next free name");
+    }
     const auto r = nlohmann::json::parse(ps5sd::removed_json(lib, { "a" }, { "b" }, "x", "y"));
     check(r["deleted"][0] == "a" && r["kept"][0] == "b" && r["active"] == "x", "removed json");
     {

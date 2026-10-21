@@ -993,6 +993,8 @@ bool set_api_key(bool on, std::string & error) {
 //   catalog, downloads, downloads/<id>, hf/search: the model downloader
 //                       (downloader.hpp), which runs on its own threads and
 //                       keeps going while the server restarts.
+//   gallery (POST)      {"image": "<base64 PNG>"}: an image the web UI made,
+//                       saved to outputs (201 {"saved": "<name>"}).
 //   upscalers (GET), upscalers/<file> (DELETE): the upscaler models in
 //                       /data/PS5SD/upscalers.
 //   settings (GET, POST) the app's settings (AppSettings): {"tv_images": bool,
@@ -1270,6 +1272,29 @@ extern "C" int sd_app_request(const char * method, const char * path, const char
         } else {
             out    = error_json("could not delete " + name + ": " + std::strerror(errno));
             status = 500;
+        }
+    } else if (m == "POST" && p == "gallery") {
+        // An image the web UI made (an inpainting put back together in the
+        // page): written to outputs like a generated one.
+        std::string png, error;
+        if (!png_from_json(body != nullptr ? std::string(body, body_len) : std::string(), png, error)) {
+            out    = error_json(error);
+            status = 400;
+        } else {
+            const std::string name = edited_image_name(kOutputs, static_cast<long long>(std::time(nullptr)));
+            const std::string path = std::string(kOutputs) + "/" + name;
+            std::ofstream     file(path, std::ios::binary | std::ios::trunc);
+            file.write(png.data(), static_cast<std::streamsize>(png.size()));
+            file.close();
+            if (!file) {
+                ::unlink(path.c_str());
+                out    = error_json("could not write " + path);
+                status = 500;
+            } else {
+                g_status.set_result(path);
+                out    = nlohmann::json{ { "saved", name } }.dump();
+                status = 201;
+            }
         }
     } else if (m == "DELETE" && p.rfind("gallery/", 0) == 0) {
         // One image of the gallery (the PNGs in outputs); the gallery lists

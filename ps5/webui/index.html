@@ -31,6 +31,8 @@
     POST /ps5sd/v1/app/presets, GET/POST/DELETE .../app/presets/<id>   (the Presets tab)
     POST /sdcpp/v1/upscale                                             (the Upscale button; the result is saved to the gallery)
     GET  /ps5sd/v1/app/upscalers, DELETE .../app/upscalers/<file>      (the Models tab's upscalers)
+    init_image, mask_image, strength on /sdcpp/v1/img_gen              (image to image and inpainting)
+    POST /ps5sd/v1/app/gallery                                         (an inpainting put back together here)
     GET  /ps5sd/v1/app/catalog, GET/POST /ps5sd/v1/app/downloads,      (downloads; a 404 hides that part)
          DELETE .../downloads/<id>, POST .../app/hf/search
   SPDX-License-Identifier: MIT
@@ -283,6 +285,18 @@
     border: 1px solid var(--border); border-radius: 10px; font-family: ui-monospace, Menlo, Consolas, monospace;
     font-size: 1.05rem; word-break: break-all; -webkit-user-select: all; user-select: all; }
   #hr-hint { min-height: 1.2rem; }
+  .initbar { display: flex; align-items: center; flex-wrap: wrap; margin-top: 0.8rem; }
+  .initbar button { flex: none; min-height: 2.75rem; margin-right: 0.8rem; }
+  .initbar .hint { margin: 0; }
+  .initrow { display: flex; align-items: center; }
+  #init-thumb { flex: none; width: 7rem; height: 7rem; object-fit: contain; background: var(--field); border: 1px solid var(--border);
+    border-radius: 10px; margin-right: 1rem; }
+  .initmain { flex: 1; min-width: 0; }
+  .initbtns { display: flex; flex-wrap: wrap; margin: 0.4rem -0.25rem 0; }
+  .initbtns button { margin: 0.25rem; min-height: 2.75rem; }
+  .me-body { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; padding: 0 1rem 1rem; }
+  #me-canvas { touch-action: none; cursor: crosshair; border-radius: 6px; }
+  .me-size { flex: none; color: var(--muted); margin: 0 0.4rem 0 0.6rem; min-width: 5.5rem; text-align: center; }
   .authbtns { display: flex; flex-wrap: wrap; margin: 0 -0.25rem; }
   .authbtns button { margin: 0.25rem; min-height: 2.75rem; }
   #savepreset { margin-left: 0.5rem; }
@@ -347,6 +361,33 @@
 
     <label for="prompt">Prompt</label>
     <textarea id="prompt" class="big" rows="5" placeholder="What should it draw?"></textarea>
+
+    <div class="initbar" id="init-bar">
+      <button type="button" id="init-pick">Start from an image</button>
+      <span class="hint">or Edit on any image of the gallery</span>
+    </div>
+    <input id="init-file" type="file" accept="image/*" style="display:none">
+    <div id="init-box" style="display:none">
+      <div class="lbl">Start image</div>
+      <div class="initrow">
+        <img id="init-thumb" alt="start image">
+        <div class="initmain">
+          <div class="mmeta" id="init-meta"></div>
+          <div class="initbtns">
+            <button type="button" id="init-mask">Paint a mask</button>
+            <button type="button" id="init-drop">Remove</button>
+          </div>
+        </div>
+      </div>
+      <div class="row">
+        <div>
+          <div class="lbl">Strength (how much changes)</div>
+          <div class="step"><button type="button" id="init-str-">&minus;</button><input id="init-str" type="number" min="0.05" max="1" step="0.05" value="0.6" aria-label="Strength"><button type="button" id="init-str+">+</button></div>
+        </div>
+      </div>
+      <label class="opt" id="init-crop-row" style="display:none"><input type="checkbox" id="init-crop" checked> Only the masked area, at full resolution</label>
+      <p class="hint" id="init-hint"></p>
+    </div>
 
     <div class="gorow">
       <button type="button" class="go" id="go">Generate</button>
@@ -574,6 +615,7 @@
     <a id="lb-dl" href="#">Download</a>
     <a id="lb-open" href="#" target="_blank">Open full size</a>
     <button type="button" id="lb-up" style="display:none">Upscale</button>
+    <button type="button" id="lb-edit" title="Use as the start image on the Create tab">Edit</button>
     <button type="button" class="danger" id="lb-del">Delete</button>
     <button type="button" id="lb-close">Close</button>
   </div>
@@ -592,6 +634,19 @@
       <button type="button" class="danger" id="dlg-ok">Delete</button>
     </div>
   </div>
+</div>
+<div class="lb" id="me" style="display:none" role="dialog" aria-modal="true" aria-label="Mask">
+  <div class="lb-bar">
+    <span class="lb-title" id="me-title">Paint over what should change</span>
+    <button type="button" id="me-size-" aria-label="Smaller brush">&minus;</button>
+    <span class="me-size" id="me-size"></span>
+    <button type="button" id="me-size+" aria-label="Larger brush">+</button>
+    <button type="button" id="me-mode">Erase</button>
+    <button type="button" id="me-invert">Invert</button>
+    <button type="button" id="me-clear">Clear</button>
+    <button type="button" class="on" id="me-done">Done</button>
+  </div>
+  <div class="me-body" id="me-body"><canvas id="me-canvas"></canvas></div>
 </div>
 <div class="dlg" id="pe" style="display:none" role="dialog" aria-modal="true" aria-labelledby="pe-title">
   <div class="dlg-box wide">
@@ -1035,7 +1090,7 @@
       ' · seed ' + (isNaN(seed) || seed < 0 ? 'random' : seed) +
       (loraSel.length ? ' · ' + loraSel.length + (loraSel.length === 1 ? ' LoRA' : ' LoRAs') : '') +
       (batchCount() > 1 ? ' · ' + batchCount() + ' images' : '') +
-      ($('hr-on').checked ? ' · hires ×' + num('hr-scale', 1.5, 1.25, 4) : ''));
+      (st.init ? (st.init.mask ? ' · inpainting' : ' · from an image') : ($('hr-on').checked ? ' · hires ×' + num('hr-scale', 1.5, 1.25, 4) : '')));
     drawHires();
     if (st.view === 'presets') drawSaveBox();
   }
@@ -1293,6 +1348,7 @@
         var ub = actionButton('Upscale', function () { upscale(r && r.url ? r.url : href, ub); });
         box.appendChild(ub);
       }
+      box.appendChild(actionButton('Edit', function () { setInit(r && r.url ? r.url : href, r ? r.name : ''); }));
     }
   }
 
@@ -1460,8 +1516,15 @@
     });
   }
 
-  // images: base64 PNGs, in the order of their seeds (seed, seed + 1, …).
-  function succeed(images, seed) {
+  // images: base64 PNGs, in the order of their seeds (seed, seed + 1, …). A masked run is put back
+  // together over the start image first (putBack), then saved to the gallery in place of the raw results.
+  function succeed(images, seed, edited) {
+    var rq = st.last && st.last.req;
+    if (rq && rq.soft && !edited) {
+      status('Putting the image together…');
+      putBack(rq, images, function (out) { succeed(out, seed, true); });
+      return;
+    }
     var seconds = (new Date().getTime() - st.t0) / 1000;
     var results = [];
     var first = parseInt(seed, 10);
@@ -1483,6 +1546,7 @@
       if (!known || !list || st.results !== results) return;
       var fresh = [];
       for (var i = 0; i < list.length; i++) if (!known[list[i].name]) fresh.push(list[i]);
+      if (edited) { saveEdits(results, fresh); return; }
       if (fresh.length !== results.length) return;
       fresh.reverse();  // the list is newest first; the server saved them in order
       for (var j = 0; j < fresh.length; j++) { results[j].url = fresh[j].url; results[j].name = fresh[j].name; }
@@ -1524,7 +1588,8 @@
     var l = st.last;
     var nth = st.results.length > 1 ? 'image ' + (i + 1) + ' of ' + st.results.length + ' · ' : '';
     var size = l ? l.w + '×' + l.h : '';
-    if (l && l.hr && l.hr.on) size += ' → ' + Math.round(l.w * l.hr.scale / 8) * 8 + '×' + Math.round(l.h * l.hr.scale / 8) * 8 + ' (hires)';
+    if (l && l.req) size = (l.req.crop ? 'masked area, made at ' : '') + l.req.w + '×' + l.req.h + (l.req.mask ? ' · inpainted' : ' · from an image');
+    else if (l && l.hr && l.hr.on) size += ' → ' + Math.round(l.w * l.hr.scale / 8) * 8 + '×' + Math.round(l.h * l.hr.scale / 8) * 8 + ' (hires)';
     text($('sub'), nth + (l ? size + ' · ' + l.steps + (l.steps === 1 ? ' step' : ' steps') + ' · CFG ' + l.cfg + ' · ' : '') + 'seed ' + r.seed);
     showActions(r.url || r.src, r.name, r.url, true);
   }
@@ -1536,6 +1601,11 @@
     f.prompt = $('prompt').value;
     f.negative = $('neg').value;
     f.batch = batchCount();
+    f.req = null;
+    if (st.init) {
+      f.strength = num('init-str', 0.6, 0.05, 1);
+      f.req = initRequest(f);
+    }
     return f;
   }
 
@@ -1595,7 +1665,13 @@
     if (p.sampler !== 'default') body.sample_params.sample_method = p.sampler;
     if (p.scheduler !== 'default') body.sample_params.scheduler = p.scheduler;
     if (loraBody(p).length) body.lora = loraBody(p);
-    if (p.hr.on) {
+    if (p.req) {
+      body.init_image = p.req.init;
+      if (p.req.mask) body.mask_image = p.req.mask;
+      body.strength = p.strength;
+      body.width = p.req.w;
+      body.height = p.req.h;
+    } else if (p.hr.on) {
       body.hires = { enabled: true, upscaler: p.hr.up, scale: p.hr.scale, steps: p.hr.steps, denoising_strength: p.hr.den };
     }
     begin(null);
@@ -1662,7 +1738,7 @@
           // pass counts the sampling passes: the images of a batch, then (hires fix) the second
           // pass of each, in the same order
           var n = (st.last && st.last.batch) || 1;
-          var hr = !!(st.last && st.last.hr && st.last.hr.on);
+          var hr = !!(st.last && st.last.hr && st.last.hr.on && !st.last.req);
           var passes = hr ? 2 * n : n;
           var pass = Math.min(passes, Math.max(1, pv.pass || 1)) - 1;
           var second = pass >= n;
@@ -1707,7 +1783,15 @@
     if (p.sampler !== 'default') body.sampler_name = p.sampler;
     if (p.scheduler !== 'default') body.scheduler = p.scheduler;
     if (loraBody(p).length) body.lora = loraBody(p);
-    if (p.hr.on) {
+    var route = '/sdapi/v1/txt2img';
+    if (p.req) {
+      route = '/sdapi/v1/img2img';
+      body.init_images = [p.req.init];
+      if (p.req.mask) body.mask = p.req.mask;
+      body.denoising_strength = p.strength;
+      body.width = p.req.w;
+      body.height = p.req.h;
+    } else if (p.hr.on) {
       body.enable_hr = true;
       body.hr_upscaler = p.hr.up;
       body.hr_scale = p.hr.scale;
@@ -1717,7 +1801,7 @@
     begin(null);
     var token = st.token;
     status('Generating…');
-    req('POST', '/sdapi/v1/txt2img', body, function (code, data) {
+    req('POST', route, body, function (code, data) {
       if (token !== st.token) return;
       if (code === 200 && data && data.images && data.images.length) {
         succeed(data.images, st.seed);
@@ -2237,6 +2321,10 @@
       if (k === 27) { closeEdit(); return false; }
       return true;
     }
+    if ($('me').style.display !== 'none') {
+      if (k === 27) { maskDone(); return false; }
+      return true;
+    }
     if (dlgFor) {
       var cb = $('dlg-cancel'), ok = $('dlg-ok');
       if (cb.disabled) return false;
@@ -2253,7 +2341,7 @@
       if (k === 46) { askDeleteImage(); return false; }
       if (k === 9) {
         // keep Tab inside the viewer
-        var ring = [$('lb-prev'), $('lb-dl'), $('lb-open'), $('lb-up'), $('lb-del'), $('lb-close'), $('lb-next')];
+        var ring = [$('lb-prev'), $('lb-dl'), $('lb-open'), $('lb-up'), $('lb-edit'), $('lb-del'), $('lb-close'), $('lb-next')];
         var live = [];
         for (var i = 0; i < ring.length; i++) if (!ring[i].disabled && ring[i].style.display !== 'none') live.push(ring[i]);
         var at = -1;
@@ -3303,6 +3391,363 @@
     return row;
   }
 
+  // ---------- image to image and inpainting ----------
+  // st.init: the start image {canvas (at most 4096 px a side), name, mask, painted}. mask is a canvas of
+  // the same size, red where painted and clear elsewhere (null: no mask); painted is its painted share.
+  // With a mask and "only the masked area", a box around the mask is generated at the model's size and
+  // put back into the image here, in the page; otherwise the whole image (cropped to the form's aspect)
+  // is the start. A masked result is always blended back over the start image with a soft edge, so the
+  // rest of the image stays exactly as it was, and saved to the gallery in place of the raw result.
+  var INIT_MAX = 4096;
+  var me = { brush: 48, erase: false, down: false, last: null, scale: 1 };
+
+  function canvasOf(w, h) {
+    var c = document.createElement('canvas');
+    c.width = w;
+    c.height = h;
+    return c;
+  }
+
+  // w x h with the aspect of the source and about `area` pixels, in steps of 64.
+  function fitArea(w, h, area) {
+    var k = Math.sqrt(area / (w * h));
+    return { w: Math.max(64, Math.round(w * k / 64) * 64), h: Math.max(64, Math.round(h * k / 64) * 64) };
+  }
+
+  function setInit(src, name) {
+    var img = new Image();
+    img.onload = function () {
+      var w = img.naturalWidth || img.width, h = img.naturalHeight || img.height;
+      var k = Math.min(1, INIT_MAX / Math.max(w, h));
+      var c = canvasOf(Math.max(1, Math.round(w * k)), Math.max(1, Math.round(h * k)));
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      st.init = { canvas: c, name: name || 'image', mask: null, painted: 0 };
+      // the size follows the image: its aspect, at the model's usual number of pixels
+      var f = fitArea(c.width, c.height, st.preset ? st.preset.w * st.preset.h : 512 * 512);
+      $('w').value = f.w;
+      $('h').value = f.h;
+      markPreset();
+      persist();
+      setView('create');
+      drawInit();
+      toast('Start image set; the size is ' + f.w + '×' + f.h + ' now. Paint a mask to change only a part of it.', 6000);
+    };
+    img.onerror = function () { toast('Could not read that image.', 6000); };
+    img.src = src;
+  }
+
+  function dropInit() {
+    st.init = null;
+    drawInit();
+  }
+
+  function initFile() {
+    var input = $('init-file');
+    var f = input.files && input.files[0];
+    input.value = '';
+    if (!f) return;
+    var r = new FileReader();
+    r.onload = function () { setInit(r.result, f.name); };
+    r.onerror = function () { toast('Could not read ' + f.name + '.', 6000); };
+    r.readAsDataURL(f);
+  }
+
+  function drawInit() {
+    var i = st.init;
+    show('init-box', !!i);
+    show('init-bar', !i, 'flex');
+    if (i) {
+      var k = Math.min(1, 240 / Math.max(i.canvas.width, i.canvas.height));
+      var t = canvasOf(Math.max(1, Math.round(i.canvas.width * k)), Math.max(1, Math.round(i.canvas.height * k)));
+      var g = t.getContext('2d');
+      g.drawImage(i.canvas, 0, 0, t.width, t.height);
+      if (i.mask) {
+        g.globalAlpha = 0.55;
+        g.drawImage(i.mask, 0, 0, t.width, t.height);
+        g.globalAlpha = 1;
+      }
+      $('init-thumb').src = t.toDataURL('image/png');
+      text($('init-meta'), i.canvas.width + '×' + i.canvas.height + ' · ' + (i.mask
+        ? Math.max(1, Math.round(i.painted * 100)) + '% masked: only that part changes'
+        : 'no mask: the whole image changes'));
+      text($('init-mask'), i.mask ? 'Edit the mask' : 'Paint a mask');
+      show('init-crop-row', !!i.mask, 'flex');
+      text($('init-hint'), i.mask && $('init-crop').checked
+        ? 'A box around the mask is made with as many pixels as Width × Height, then put back into the image: small fixes in large images are quick and sharp.'
+        : 'Strength 0.3 to 0.5 keeps the picture and changes details; 0.7 and up changes much more.' +
+          ($('hr-on').checked ? ' The hires fix is not used with a start image.' : ''));
+    }
+    summary();
+  }
+
+  // ---- the mask editor
+  function openMask() {
+    var i = st.init;
+    if (!i) return;
+    if (!i.mask) i.mask = canvasOf(i.canvas.width, i.canvas.height);
+    me.erase = false;
+    text($('me-mode'), 'Erase');
+    show('me', true, 'flex');
+    sizeMask();
+  }
+
+  function sizeMask() {
+    var i = st.init, cv = $('me-canvas'), body = $('me-body');
+    if (!i || $('me').style.display === 'none') return;
+    var bw = Math.max(100, body.clientWidth - 32), bh = Math.max(100, body.clientHeight - 16);
+    var k = Math.min(bw / i.canvas.width, bh / i.canvas.height);
+    cv.width = Math.max(1, Math.round(i.canvas.width * k));
+    cv.height = Math.max(1, Math.round(i.canvas.height * k));
+    me.scale = k;
+    text($('me-size'), 'Brush ' + me.brush);
+    drawMask();
+  }
+
+  function drawMask() {
+    var i = st.init, cv = $('me-canvas'), g = cv.getContext('2d');
+    g.clearRect(0, 0, cv.width, cv.height);
+    g.drawImage(i.canvas, 0, 0, cv.width, cv.height);
+    g.globalAlpha = 0.55;
+    g.drawImage(i.mask, 0, 0, cv.width, cv.height);
+    g.globalAlpha = 1;
+  }
+
+  function maskPoint(e) {
+    var r = $('me-canvas').getBoundingClientRect();
+    var t = e.touches && e.touches.length ? e.touches[0] : e;
+    return { x: (t.clientX - r.left) / me.scale, y: (t.clientY - r.top) / me.scale };
+  }
+
+  function strokeTo(pt) {
+    var g = st.init.mask.getContext('2d'), a = me.last || pt;
+    g.globalCompositeOperation = me.erase ? 'destination-out' : 'source-over';
+    g.strokeStyle = 'rgb(255,48,48)';
+    g.lineWidth = me.brush / me.scale;
+    g.lineCap = 'round';
+    g.lineJoin = 'round';
+    g.beginPath();
+    g.moveTo(a.x, a.y);
+    g.lineTo(pt.x + 0.01, pt.y);
+    g.stroke();
+    g.globalCompositeOperation = 'source-over';
+    me.last = pt;
+    drawMask();
+  }
+
+  function maskDown(e) {
+    e = e || window.event;
+    me.down = true;
+    me.last = null;
+    strokeTo(maskPoint(e));
+    if (e.preventDefault) e.preventDefault();
+    return false;
+  }
+
+  function maskMove(e) {
+    e = e || window.event;
+    if (!me.down) return true;
+    strokeTo(maskPoint(e));
+    if (e.preventDefault) e.preventDefault();
+    return false;
+  }
+
+  function maskUp() { me.down = false; me.last = null; }
+
+  function invertMask() {
+    var m = st.init.mask, g = m.getContext('2d'), d = g.getImageData(0, 0, m.width, m.height), a = d.data;
+    for (var i = 0; i < a.length; i += 4) {
+      a[i] = 255; a[i + 1] = 48; a[i + 2] = 48; a[i + 3] = 255 - a[i + 3];
+    }
+    g.putImageData(d, 0, 0);
+    drawMask();
+  }
+
+  function clearMask() {
+    var m = st.init.mask;
+    m.getContext('2d').clearRect(0, 0, m.width, m.height);
+    drawMask();
+  }
+
+  function maskDone() {
+    var i = st.init, m = i.mask;
+    var a = m.getContext('2d').getImageData(0, 0, m.width, m.height).data, n = 0, on = 0;
+    for (var k = 3; k < a.length; k += 64) { n++; if (a[k] > 127) on++; }
+    i.painted = n ? on / n : 0;
+    if (!on) i.mask = null;
+    show('me', false);
+    drawInit();
+  }
+
+  // ---- the request and putting the result back
+  // The box around the painted part of the mask, or null.
+  function maskBounds(m) {
+    var w = m.width, h = m.height, a = m.getContext('2d').getImageData(0, 0, w, h).data;
+    var x0 = w, y0 = h, x1 = -1, y1 = -1;
+    for (var y = 0; y < h; y++) {
+      for (var x = 0, k = y * w * 4 + 3; x < w; x++, k += 4) {
+        if (a[k] > 0) {
+          if (x < x0) x0 = x;
+          if (x > x1) x1 = x;
+          if (y < y0) y0 = y;
+          if (y > y1) y1 = y;
+        }
+      }
+    }
+    return x1 < 0 ? null : { x: x0, y: y0, w: x1 - x0 + 1, h: y1 - y0 + 1 };
+  }
+
+  // b grown to the aspect `ratio` around its middle, and kept inside W x H.
+  function growBox(b, ratio, W, H) {
+    var w = b.w, h = b.h;
+    if (w / h < ratio) w = Math.min(W, Math.round(h * ratio)); else h = Math.min(H, Math.round(w / ratio));
+    var x = Math.round(b.x + b.w / 2 - w / 2), y = Math.round(b.y + b.h / 2 - h / 2);
+    x = Math.max(0, Math.min(W - w, x));
+    y = Math.max(0, Math.min(H - h, y));
+    return { x: x, y: y, w: w, h: h };
+  }
+
+  // A two-pass box blur of a w x h array in place (radius r), for the mask's soft edge.
+  function blur(a, w, h, r) {
+    var tmp = new Float32Array(Math.max(w, h)), x, y, sum, n = 2 * r + 1;
+    for (y = 0; y < h; y++) {
+      for (x = 0; x < w; x++) tmp[x] = a[y * w + x];
+      sum = 0;
+      for (x = -r; x <= r; x++) sum += tmp[Math.min(w - 1, Math.max(0, x))];
+      for (x = 0; x < w; x++) {
+        a[y * w + x] = sum / n;
+        sum += tmp[Math.min(w - 1, x + r + 1)] - tmp[Math.max(0, x - r)];
+      }
+    }
+    for (x = 0; x < w; x++) {
+      for (y = 0; y < h; y++) tmp[y] = a[y * w + x];
+      sum = 0;
+      for (y = -r; y <= r; y++) sum += tmp[Math.min(h - 1, Math.max(0, y))];
+      for (y = 0; y < h; y++) {
+        a[y * w + x] = sum / n;
+        sum += tmp[Math.min(h - 1, y + r + 1)] - tmp[Math.max(0, y - r)];
+      }
+    }
+  }
+
+  // The mask's box (in start-image pixels) as a gray w x h canvas with a soft edge: white changes.
+  function softMask(m, box, w, h) {
+    var c = canvasOf(w, h), g = c.getContext('2d');
+    g.drawImage(m, box.x, box.y, box.w, box.h, 0, 0, w, h);
+    var d = g.getImageData(0, 0, w, h), px = d.data, al = new Float32Array(w * h), i;
+    for (i = 0; i < w * h; i++) al[i] = px[i * 4 + 3];
+    blur(al, w, h, Math.max(2, Math.round(Math.min(w, h) / 96)));
+    for (i = 0; i < w * h; i++) {
+      var v = Math.round(al[i]);
+      px[i * 4] = px[i * 4 + 1] = px[i * 4 + 2] = v;
+      px[i * 4 + 3] = 255;
+    }
+    g.putImageData(d, 0, 0);
+    return c;
+  }
+
+  // What a request sends for the start image: {init, mask (data URLs), w, h (the size made), box (the part
+  // of the start image it stands for), crop, soft (the soft mask canvas), source (the start image)}.
+  function initRequest(f) {
+    var i = st.init, W = i.canvas.width, H = i.canvas.height, gw = f.w, gh = f.h, box;
+    var crop = !!(i.mask && $('init-crop').checked);
+    var b = crop ? maskBounds(i.mask) : null;
+    if (b) {
+      var pad = Math.max(32, Math.round(Math.max(W, H) / 32));
+      var x0 = Math.max(0, b.x - pad), y0 = Math.max(0, b.y - pad);
+      var x1 = Math.min(W, b.x + b.w + pad), y1 = Math.min(H, b.y + b.h + pad);
+      box = { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
+      var g0 = fitArea(box.w, box.h, f.w * f.h);
+      box = growBox(box, g0.w / g0.h, W, H);
+      var g1 = fitArea(box.w, box.h, f.w * f.h);
+      gw = g1.w;
+      gh = g1.h;
+    } else {
+      crop = false;
+      // the largest centred part of the start image with the form's aspect
+      box = W / H > gw / gh ? { x: Math.round((W - H * gw / gh) / 2), y: 0, w: Math.round(H * gw / gh), h: H }
+        : { x: 0, y: Math.round((H - W * gh / gw) / 2), w: W, h: Math.round(W * gh / gw) };
+    }
+    var ic = canvasOf(gw, gh);
+    ic.getContext('2d').drawImage(i.canvas, box.x, box.y, box.w, box.h, 0, 0, gw, gh);
+    var out = { init: ic.toDataURL('image/png'), mask: null, soft: null, w: gw, h: gh, box: box, crop: crop, source: i.canvas };
+    if (i.mask) {
+      out.soft = softMask(i.mask, box, gw, gh);
+      out.mask = out.soft.toDataURL('image/png');
+    }
+    return out;
+  }
+
+  // A result blended over the start image where the mask is: the whole start image for "only the
+  // masked area", else the part that was made. cb(base64 PNG).
+  function putBackOne(rq, b64, cb) {
+    var img = new Image();
+    img.onload = function () {
+      var tw = rq.crop ? rq.box.w : rq.w, th = rq.crop ? rq.box.h : rq.h;
+      var base = canvasOf(tw, th), bg = base.getContext('2d');
+      bg.drawImage(rq.source, rq.box.x, rq.box.y, rq.box.w, rq.box.h, 0, 0, tw, th);
+      var res = canvasOf(tw, th), rg = res.getContext('2d');
+      rg.drawImage(img, 0, 0, tw, th);
+      var mk = canvasOf(tw, th), mg = mk.getContext('2d');
+      mg.drawImage(rq.soft, 0, 0, tw, th);
+      var bd = bg.getImageData(0, 0, tw, th), rd = rg.getImageData(0, 0, tw, th).data, md = mg.getImageData(0, 0, tw, th).data;
+      var px = bd.data;
+      for (var k = 0; k < px.length; k += 4) {
+        var a = md[k] / 255;
+        px[k] = px[k] * (1 - a) + rd[k] * a;
+        px[k + 1] = px[k + 1] * (1 - a) + rd[k + 1] * a;
+        px[k + 2] = px[k + 2] * (1 - a) + rd[k + 2] * a;
+      }
+      bg.putImageData(bd, 0, 0);
+      var outc = base;
+      if (rq.crop) {
+        outc = canvasOf(rq.source.width, rq.source.height);
+        var og = outc.getContext('2d');
+        og.drawImage(rq.source, 0, 0);
+        og.drawImage(base, rq.box.x, rq.box.y);
+      }
+      var url = outc.toDataURL('image/png');
+      cb(url.substring(url.indexOf(',') + 1));
+    };
+    img.onerror = function () { cb(b64); };
+    img.src = dataUrl(b64);
+  }
+
+  function putBack(rq, images, cb) {
+    var out = [];
+    (function next(k) {
+      if (k >= images.length) { cb(out); return; }
+      putBackOne(rq, images[k], function (b) { out.push(b); next(k + 1); });
+    })(0);
+  }
+
+  // The gallery gets the put-together images in place of the raw results the server saved.
+  function saveEdits(results, raw) {
+    var k = 0;
+    (function next() {
+      if (k >= results.length) {
+        if (raw.length === results.length) {
+          for (var j = 0; j < raw.length; j++) req('DELETE', APP + '/gallery/' + encodeURIComponent(raw[j].name), null, function () {});
+        }
+        setTimeout(function () { loadGallery(null); }, 300);
+        if (!st.busy && st.results === results) pickResult(st.pick);
+        return;
+      }
+      var r = results[k];
+      req('POST', APP + '/gallery', { image: r.src.substring(r.src.indexOf(',') + 1) }, function (code, data) {
+        if (code === 201 && data && data.saved) {
+          r.name = data.saved;
+          r.url = '/ps5sd/v1/gallery/' + encodeURIComponent(data.saved);
+          k++;
+          next();
+        } else {
+          // an app without the route: the raw results stay in the gallery
+          if (raw.length === results.length) for (var j = 0; j < raw.length; j++) { results[j].url = raw[j].url; results[j].name = raw[j].name; }
+          if (!st.busy && st.results === results) pickResult(st.pick);
+        }
+      }, 120000);
+    })();
+  }
+
   // ---------- upscalers ----------
   // The ESRGAN models in /data/PS5SD/upscalers: for the hires fix and the Upscale button. Two
   // well-known ones can be fetched with one click (the Hugging Face copies are byte for byte
@@ -3590,6 +4035,31 @@
     $('hr-den-').onclick = function () { stepper('hr-den', -0.05, 0.05, 1, 2); };
     $('hr-den+').onclick = function () { stepper('hr-den', 0.05, 0.05, 1, 2); };
     $('opt-up').onchange = function () { save('upscaler', this.value); };
+    $('init-pick').onclick = function () { $('init-file').click(); };
+    $('init-file').onchange = initFile;
+    $('init-drop').onclick = dropInit;
+    $('init-mask').onclick = openMask;
+    $('init-crop').onchange = drawInit;
+    $('init-str').onchange = persist;
+    $('init-str-').onclick = function () { stepper('init-str', -0.05, 0.05, 1, 2); };
+    $('init-str+').onclick = function () { stepper('init-str', 0.05, 0.05, 1, 2); };
+    $('me-size-').onclick = function () { me.brush = Math.max(8, me.brush - 8); text($('me-size'), 'Brush ' + me.brush); };
+    $('me-size+').onclick = function () { me.brush = Math.min(240, me.brush + 8); text($('me-size'), 'Brush ' + me.brush); };
+    $('me-mode').onclick = function () { me.erase = !me.erase; text($('me-mode'), me.erase ? 'Paint' : 'Erase'); };
+    $('me-invert').onclick = invertMask;
+    $('me-clear').onclick = clearMask;
+    $('me-done').onclick = maskDone;
+    var mc = $('me-canvas');
+    mc.onmousedown = maskDown;
+    mc.onmousemove = maskMove;
+    if (mc.addEventListener) {
+      mc.addEventListener('touchstart', maskDown, { passive: false });
+      mc.addEventListener('touchmove', maskMove, { passive: false });
+      mc.addEventListener('touchend', maskUp);
+      document.addEventListener('mouseup', maskUp);
+      window.addEventListener('resize', sizeMask);
+    }
+    $('lb-edit').onclick = function () { var it = galleryList[st.lb]; if (it) { closeLb(); setInit(it.url, it.name); } };
     $('lb-up').onclick = function () { var it = galleryList[st.lb]; if (it) upscale(it.url, $('lb-up')); };
     $('auth-on').onclick = newKey;
     $('auth-new').onclick = newKey;

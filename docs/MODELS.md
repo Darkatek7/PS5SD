@@ -224,6 +224,21 @@ ESRGAN or MoSR architecture): a Hugging Face or Civitai link as **Upscaler** und
 `.pth` file as **Upscaler** under **Upload**, or by FTP into `/data/PS5SD/upscalers` (no subfolders).
 Most make an image 4 times as wide and high; an Upscale of a 1024x1024 image is 4096x4096.
 
+## Inpainting
+
+Inpainting changes only a part of an image: on the Create tab, **Start from an image** (or **Edit** on any
+image in the gallery), **Paint a mask** over what should change, and Generate. Any model can do it.
+An inpainting model, made for it, blends the new part into the rest better. The catalog has two, from
+gpustack's GGUF conversions:
+
+| | Size | For |
+|---|---|---|
+| SDXL Inpainting 0.1 (Q8_0) | 5.2 GB with the SDXL VAE | SDXL images, 1024x1024 |
+| SD 1.5 Inpainting (Q8_0) | 1.9 GB | 512x512 |
+
+An inpainting checkpoint from elsewhere (a Civitai model whose name ends in "inpainting") works too; sd.cpp
+recognises it by its weights.
+
 ## How big a model can be
 
 The console gives the title about 11.4 GiB of GPU memory. The model, its text encoders and the VAE
