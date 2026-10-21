@@ -26,7 +26,7 @@
     DELETE /ps5sd/v1/app/gallery/<name>                                 (the image viewer's Delete)
     GET  /ps5sd/v1/app/loras, DELETE /ps5sd/v1/app/loras/<path>         (the LoRA picker and list)
     GET/POST /ps5sd/v1/app/settings                                    (the "on the TV" switches; a 404 hides them)
-    GET /ps5sd/v1/auth, POST .../auth/login, .../auth/logout           (the API key: login cookie)
+    GET /ps5sd/v1/auth, POST .../auth/login, .../auth/logout           (the API key: login cookie; "#key=" in the address signs in)
     GET /ps5sd/v1/app/auth, POST .../app/auth/enable, .../auth/disable (the API key in Settings; a 404 hides it)
     POST /ps5sd/v1/app/presets, GET/POST/DELETE .../app/presets/<id>   (the Presets tab)
     POST /sdcpp/v1/upscale                                             (the Upscale button; the result is saved to the gallery)
@@ -4009,11 +4009,23 @@
     });
   }
 
+  // A "#key=<key>" in the address (the TV's QR code, when the TV shows the key): sign in with it,
+  // and take it out of the address first, so it stays out of the history and bookmarks.
+  function keyFromAddress(then) {
+    var m = /(^#|&)key=([a-z2-7]+)/i.exec(window.location.hash || '');
+    if (!m) { then(); return; }
+    try {
+      if (window.history && window.history.replaceState) window.history.replaceState(null, '', window.location.pathname + window.location.search);
+      else window.location.hash = '';
+    } catch (e) {}
+    req('POST', '/ps5sd/v1/auth/login', { key: m[2].toLowerCase() }, function () { then(); }, 15000);
+  }
+
   // The login first (when the server wants a key), then the page.
   function init() {
     $('login-go').onclick = login;
     $('login-key').onkeydown = function (e) { e = e || window.event; if (e.keyCode === 13) { login(); return false; } return true; };
-    checkAuth(start);
+    keyFromAddress(function () { checkAuth(start); });
   }
 
   function start() {

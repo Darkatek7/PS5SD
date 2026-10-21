@@ -296,6 +296,11 @@ restart).
   `sceNetPoolCreate` (64 KiB), and a `sceNetResolverCreate`/`sceNetResolverStartNtoa`/`Destroy` per
   lookup (the prototypes of the SDK fork's own `libc/netdb.c`), cached for five minutes. On the PC
   it uses `getaddrinfo`.
+- **The console's own address** (the TV's `http://<address>:<port>` and its QR code): `lan_address()`
+  in `main.cpp` connects a UDP socket to 8.8.8.8 (nothing is sent) and reads the local end with
+  `getsockname`, so it needs a default route; `PS5SD_ADDRESS` in `env.txt` sets it by hand. It looks
+  every 5 s until it has one, then once a minute. No `getifaddrs`: a title that imports a function the
+  console does not resolve does not start, and the socket calls are imported already.
 - **mbedTLS** (`scripts/build-mbedtls.sh`, run by `build-app.sh` and `setup-deps.sh`, skipped when the
   stamp matches): 3.6.7, sha256-checked, built with the title's compilers (`toolchain.cmake`) into
   `.deps/mbedtls-ps5`, with `MBEDTLS_THREADING_C` and `MBEDTLS_THREADING_PTHREAD` (16 handshakes at

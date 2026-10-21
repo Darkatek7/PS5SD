@@ -85,6 +85,10 @@ See [docs/BUILDING.md](docs/BUILDING.md).
   [ggml](https://github.com/ggml-org/ggml).
 - [PS5_Vulkan](https://github.com/mihawk-99/PS5_Vulkan) and
   [PS5_Mesa](https://github.com/mihawk-99/PS5_Mesa) by mihawk-99 — the Vulkan driver stack.
+- [Machete PS5SD](https://github.com/VenezuelanBiggie24/Machete-PS5SD-IMG-and-VID) by VenezuelanBiggie24 — the
+  console address and QR code on the TV come from its version.
+- [QR Code generator library](https://github.com/nayuki/QR-Code-generator) by Project Nayuki (MIT),
+  `ps5/app/qrcodegen.{hpp,cpp}`, unchanged from commit 3c6d0b3.
 - ps5-homebrew-ui by blackbearreloaded (GPL-3.0). The original repository is gone; the submodule uses the copy at [Phononenom/ps5-homebrew-ui](https://github.com/Phononenom/ps5-homebrew-ui), pinned at the same commit.
 
 ## License

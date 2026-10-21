@@ -92,6 +92,9 @@ class Dashboard {
     void draw(hui::gfx::DrawList & list, const char * version) const;
     void draw_header(hui::gfx::DrawList & list, const char * version) const;
     void draw_server(hui::gfx::DrawList & list, const hui::gfx::Rect & r) const;
+    void sync_qr();
+    // The QR code of the web UI's address, its right edge at right, centred on cy; its width.
+    float draw_qr(hui::gfx::DrawList & list, float right, float cy) const;
     void draw_activity(hui::gfx::DrawList & list, const hui::gfx::Rect & r) const;
     void draw_image(hui::gfx::DrawList & list, const hui::gfx::Rect & r) const;
     void draw_recent(hui::gfx::DrawList & list, const hui::gfx::Rect & r) const;
@@ -137,6 +140,11 @@ class Dashboard {
     std::vector<uint8_t>   scratch_;  // RGBA of a preview frame
     std::vector<Picture>   pictures_;  // newest first, the snapshot's recent list
     std::string            shown_key_;  // what the large image area shows, to fade on a change
+
+    // The address as a QR code (qrcodegen), made again only when the text changes.
+    std::string            qr_text_;
+    int                    qr_size_ = 0;  // modules a side, 0 for none
+    std::vector<uint8_t>   qr_;           // qr_size_ * qr_size_, 1 for dark
 };
 
 }  // namespace ps5sd

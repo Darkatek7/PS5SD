@@ -797,6 +797,58 @@ void announce_when_listening() {
     notify_outcome(("PS5SD: ready, API and web UI on port " + port).c_str());
 }
 
+// The console's address on the local network, for the dashboard's
+// "http://<address>:<port>" and its QR code. Connecting a UDP socket sends
+// nothing; the kernel only picks the interface a packet to that address would
+// leave by, and getsockname() names it. Needs a default route; without one,
+// PS5SD_ADDRESS in env.txt sets the address by hand. The approach comes from
+// Machete PS5SD (github.com/VenezuelanBiggie24/Machete-PS5SD-IMG-and-VID).
+std::string lan_address() {
+    if (const char * v = std::getenv("PS5SD_ADDRESS"); v != nullptr && *v != '\0') {
+        return v;
+    }
+    const int s = socket(AF_INET, SOCK_DGRAM, 0);
+    if (s < 0) {
+        return {};
+    }
+    sockaddr_in to     = {};
+    to.sin_family      = AF_INET;
+    to.sin_port        = htons(53);
+    to.sin_addr.s_addr = htonl(0x08080808);  // 8.8.8.8; any address off the local network does
+    sockaddr_in local  = {};
+    socklen_t   len    = sizeof(local);
+    std::string out;
+    if (connect(s, reinterpret_cast<const sockaddr *>(&to), sizeof(to)) == 0 &&
+        getsockname(s, reinterpret_cast<sockaddr *>(&local), &len) == 0) {
+        const uint32_t a = ntohl(local.sin_addr.s_addr);
+        if (a != 0 && (a >> 24) != 127) {
+            char text[16];
+            std::snprintf(text, sizeof(text), "%u.%u.%u.%u", a >> 24, (a >> 16) & 255u, (a >> 8) & 255u, a & 255u);
+            out = text;
+        }
+    }
+    close(s);
+    return out;
+}
+
+// From the main loop: looks every 5 s while the address is not known, then
+// once a minute (a new DHCP lease).
+void watch_address() {
+    static std::chrono::steady_clock::time_point next;
+    static std::string                           known;
+    const auto now = std::chrono::steady_clock::now();
+    if (now < next) {
+        return;
+    }
+    const std::string address = lan_address();
+    next = now + (address.empty() ? std::chrono::seconds(5) : std::chrono::seconds(60));
+    if (address != known) {
+        known = address;
+        g_status.set_address(address);
+        std::printf("ps5sd: address %s\n", address.empty() ? "not known" : address.c_str());
+    }
+}
+
 // A thread with a 16 MiB stack, as PS5LM gives llama-server: the console's
 // default is small, and a deep frame overflowed one before (PS5SX2 30814bd).
 void start_thread(std::function<void()> & fn) {
@@ -1461,14 +1513,14 @@ int main(int, char **) {
     const bool         ui_ok = renderer.init() && view.load(renderer, kFont);
     std::printf("ps5sd: screen %s\n", ui_ok ? "ready" : "failed");
     // The model and the port the server will use, for the screen before the
-    // server has started (the same files server_args() reads). The console's
-    // own address is not known yet: g_status.set_address("a.b.c.d") fills the
-    // dashboard's "http://<address>:<port>" once something finds it.
+    // server has started (the same files server_args() reads), and the
+    // console's address (watch_address() keeps it current).
     {
         const ServerConfig config = read_server_config(kModel, kServerArgs, kPort);
         g_status.set_model(config.model);
         g_status.set_port(config.port);
     }
+    watch_address();
     auto last_frame = std::chrono::steady_clock::now();
     const auto render = [&] {
         const auto now = std::chrono::steady_clock::now();
@@ -1539,6 +1591,7 @@ int main(int, char **) {
             sceKernelUsleep(16 * 1000);  // no vsync to wait on
         }
         if (n % 60 == 0) {
+            watch_address();
             announce_when_listening();
             switch_if_asked();
             quit_if_asked();
@@ -1549,6 +1602,7 @@ int main(int, char **) {
     // return from main or exit.
     for (;;) {
         sceKernelUsleep(500 * 1000);
+        watch_address();
         announce_when_listening();
         switch_if_asked();
         quit_if_asked();

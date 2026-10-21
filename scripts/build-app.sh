@@ -233,7 +233,7 @@ cxx -std=c++17 "${eh[@]}" -I "$mbedtls/include" -I "$out" -c "$app_src/https_cli
 cxx -std=c++17 "${eh[@]}" -c "$app_src/ftp_writer.cpp" -o "$obj/ftp_writer.o"
 cxx -std=c++17 "${eh[@]}" -I "$sd/thirdparty" -c "$app_src/upload.cpp" -o "$obj/upload.o"
 if [ "$display" = 1 ]; then
-    for src in display dashboard; do
+    for src in display dashboard qrcodegen; do
         cxx "${eh[@]}" "${kitinc[@]}" -I "$app_src" -c "$app_src/$src.cpp" -o "$obj/$src.o"
     done
     # The dashboard decodes the finished PNGs with sd.cpp's stb_image (private to this object).
@@ -249,7 +249,7 @@ cxx -fno-exceptions -fno-rtti -c "$vk/tooling/native/app_crt.cpp" -o "$obj/app_c
 cxx -fexceptions -fcxx-exceptions -c "$app_src/cpp_runtime.cpp" -o "$obj/app_cpp_runtime.o"
 app_objects=("$obj/app_crt.o" "$obj/app_cpp_runtime.o" "$obj/main.o" "$obj/gen_args.o" "$obj/app_status.o"
     "$obj/models.o" "$obj/download_core.o" "$obj/downloader.o" "$obj/https_client.o" "$obj/ftp_writer.o" "$obj/upload.o")
-[ "$display" = 1 ] && app_objects+=("$obj/display.o" "$obj/dashboard.o" "$obj/image_file.o")
+[ "$display" = 1 ] && app_objects+=("$obj/display.o" "$obj/dashboard.o" "$obj/qrcodegen.o" "$obj/image_file.o")
 
 # ---- the screen (display builds only) --------------------------------------------
 gl=

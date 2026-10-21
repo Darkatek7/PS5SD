@@ -4,6 +4,7 @@
 #include "core/save_file.hpp"
 #include "gfx/renderer.hpp"
 #include "image_file.hpp"
+#include "qrcodegen.hpp"
 #include "ui/components/component.hpp"
 
 #include <GL/glcorearb.h>
@@ -377,6 +378,7 @@ void Dashboard::update(const AppStatus::Snapshot & s, float dt) {
     accent_.update(dt, 6.0f);
     sync_preview(snap_);
     sync_pictures(snap_);
+    sync_qr();
 
     std::string key = "none";
     if (s.state == State::generating && preview_.id != 0) {
@@ -589,16 +591,95 @@ void Dashboard::draw_server(DrawList & list, const Rect & r) const {
     x += hui::ui::text(list, fonts_.display, ":", x, r.y + 106, 58, with_a(kInk, 0.42f));
     hui::ui::text(list, fonts_.display, std::to_string(snap_.port), x, r.y + 106, 58, kCyan);
 
+    // The QR code on the right: a phone's camera opens the web UI from it.
+    const float qr   = draw_qr(list, r.x + r.w - 14, r.y + r.h * 0.5f);
+    const float room = r.w - 2 * kPad - (qr > 0 ? qr + 24 : 0);
+
     if (!snap_.api_key.empty()) {
         // The key the web UI and API clients need, in groups of four to read off.
-        const float w = caps(list, "API key", r.x + kPad, r.y + 140, 15, with_a(kInk, 0.5f));
-        hui::ui::text(list, fonts_.mono, fonts_.mono.font->fit(snap_.api_key, 24, r.w - 2 * kPad - w - 18),
-                      r.x + kPad + w + 18, r.y + 140, 24, kCyan);
+        // Smaller rather than cut off: the whole key is needed.
+        const float w    = caps(list, "API key", r.x + kPad, r.y + 140, 15, with_a(kInk, 0.5f));
+        const float full = fonts_.mono.font->measure(snap_.api_key, 24);
+        const float size = full > room - w - 18 ? std::max(16.0f, 24 * (room - w - 18) / full) : 24.0f;
+        hui::ui::text(list, fonts_.mono, fonts_.mono.font->fit(snap_.api_key, size, room - w - 18),
+                      r.x + kPad + w + 18, r.y + 140, size, kCyan);
         return;
     }
-    const std::string hint = "From a phone or a PC on your network. The web UI and the OpenAI and A1111 APIs share it.";
-    hui::ui::text(list, fonts_.regular, fonts_.regular.font->fit(hint, 22, r.w - 2 * kPad), r.x + kPad, r.y + 140, 22,
+    const std::string hint = qr > 0 ? "From a phone or a PC on your network; a phone can scan the code."
+                                    : "From a phone or a PC on your network. The web UI and the OpenAI and A1111 APIs share it.";
+    hui::ui::text(list, fonts_.regular, fonts_.regular.font->fit(hint, 22, room), r.x + kPad, r.y + 140, 22,
                   with_a(kInk, kMuted));
+}
+
+// The web UI's address, with the API key when the TV shows it anyway (the
+// page signs in with a "#key=" in its address). After Machete PS5SD's QR code
+// (github.com/VenezuelanBiggie24/Machete-PS5SD-IMG-and-VID).
+void Dashboard::sync_qr() {
+    std::string text;
+    if (!snap_.address.empty()) {
+        text = "http://" + snap_.address + ":" + std::to_string(snap_.port) + "/";
+        std::string key;
+        for (const char c : snap_.api_key) {
+            if (c != ' ') {
+                key += c;  // the TV shows it in groups of four
+            }
+        }
+        if (!key.empty()) {
+            text += "#key=" + key;
+        }
+    }
+    if (text == qr_text_) {
+        return;
+    }
+    qr_text_ = text;
+    qr_size_ = 0;
+    qr_.clear();
+    if (text.empty()) {
+        return;
+    }
+    try {
+        const qrcodegen::QrCode code = qrcodegen::QrCode::encodeText(text.c_str(), qrcodegen::QrCode::Ecc::LOW);
+        qr_size_ = code.getSize();
+        qr_.resize((std::size_t) qr_size_ * (std::size_t) qr_size_);
+        for (int y = 0; y < qr_size_; y++) {
+            for (int x = 0; x < qr_size_; x++) {
+                qr_[(std::size_t) y * (std::size_t) qr_size_ + (std::size_t) x] = code.getModule(x, y) ? 1 : 0;
+            }
+        }
+    } catch (const std::exception &) {
+        qr_size_ = 0;
+        qr_.clear();
+    }
+}
+
+float Dashboard::draw_qr(DrawList & list, float right, float cy) const {
+    if (qr_size_ <= 0) {
+        return 0;
+    }
+    // Whole pixels a module, with a quiet zone of two modules on white.
+    const int   quiet = 2;
+    const int   cells = qr_size_ + 2 * quiet;
+    const float cell  = std::max(2.0f, std::floor(132.0f / (float) cells));
+    const float side  = cell * (float) cells;
+    const float x0    = std::floor(right - side);
+    const float y0    = std::floor(cy - side * 0.5f);
+    list.rounded_rect({ x0, y0, side, side }, 8, Color::rgb(0xffffff));
+    const Color dark = Color::rgb(0x0a0f1d);
+    for (int y = 0; y < qr_size_; y++) {
+        int run = -1;  // runs of dark modules along a row, one rectangle each
+        for (int x = 0; x <= qr_size_; x++) {
+            const bool on = x < qr_size_ && qr_[(std::size_t) y * (std::size_t) qr_size_ + (std::size_t) x] != 0;
+            if (on && run < 0) {
+                run = x;
+            } else if (!on && run >= 0) {
+                list.rounded_rect({ x0 + (float) (quiet + run) * cell, y0 + (float) (quiet + y) * cell,
+                                    (float) (x - run) * cell, cell },
+                                  0, dark);
+                run = -1;
+            }
+        }
+    }
+    return side;
 }
 
 void Dashboard::draw_stat(DrawList & list, const char * name, const std::string & value, float x,

@@ -27,7 +27,9 @@ address, in groups of four.
 
 Turn it on in the web UI: Create, Settings, **API key**, **Turn on**. The same place shows the key, makes
 a new one (the old one stops working at once), turns it off and signs the browser out. A browser signs in
-with the key once; it keeps a cookie for a year. Lost the key and cannot see the TV? Delete
+with the key once; it keeps a cookie for a year. While the TV shows the key, its QR code carries it too
+(`http://<console>:7860/#key=<key>`): a phone that scans it is signed in, and the page takes the key
+out of its address. Lost the key and cannot see the TV? Delete
 `/data/PS5SD/api-key.txt` over FTP and start the title again: the key is off.
 
 A client sends the key in one of these:

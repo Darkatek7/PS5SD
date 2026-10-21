@@ -76,7 +76,7 @@ ninja_edge AR "$archive" bash -c 'rm -f "$1" && shift && "$@"' _ "$archive" "$ar
 
 # The dashboard's own files, warnings on.
 app_objects=()
-for source in "$app/dashboard.cpp" "$app/app_status.cpp" "$app/image_file.cpp" "$app/preview/preview_main.cpp"; do
+for source in "$app/dashboard.cpp" "$app/qrcodegen.cpp" "$app/app_status.cpp" "$app/image_file.cpp" "$app/preview/preview_main.cpp"; do
     object="$build/app/$(basename "$source").o"
     ninja_inputs=("$source" "$cxx")
     ninja_edge CXX "$object" "${compiler_cache[@]}" "$cxx" -std=c++20 -O2 -Wall -Wextra -DGL_GLEXT_PROTOTYPES=1 \
