@@ -9,6 +9,8 @@ go into [issues](https://github.com/Darkatek7/PS5SD/issues); this file says what
   end), uploads from the PC, gallery, Help tab, TV dashboard.
 - **0.2.0**: LoRAs, several per model, each with its own strength; download, upload, list and delete.
 - **0.3.0**: web UI options from [#3](https://github.com/Darkatek7/PS5SD/issues/3), below.
+- **0.6.0**: video with Wan 2.1 T2V 1.3B (WebM, played in the page and the gallery; in the catalog),
+  and DMD2 and SDXL-Lightning one click away on the LoRAs panel.
 - **0.5.2**: the TV shows the console's own address (it showed `<console ip>` before) and a QR code that
   opens the web UI, with the API key in it while the TV shows the key; after
   [Machete PS5SD](https://github.com/VenezuelanBiggie24/Machete-PS5SD-IMG-and-VID) by VenezuelanBiggie24.
@@ -69,7 +71,7 @@ SD 1.x, SD 2.x and SDXL. What is missing is the web UI.
 
 Image input is what ControlNet (0.7.0) needs as well.
 
-## 0.6.0: video
+## 0.6.0: video, done
 
 sd.cpp makes videos with Wan (`vid_gen`, `POST /sdcpp/v1/vid_gen`); sd-server has the route.
 [Machete PS5SD](https://github.com/VenezuelanBiggie24/Machete-PS5SD-IMG-and-VID) showed the idea; its
