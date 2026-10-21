@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "models.hpp"
 
+#include <algorithm>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
@@ -297,6 +298,84 @@ int main() {
         const auto u = nlohmann::json::parse(ps5sd::upscalers_json(ups.u8string()))["upscalers"];
         check(u.size() == 2 && u[0]["file"] == "4x.safetensors" && u[1]["name"] == "RealESRGAN_x4plus" && u[1]["bytes"] == 3,
               "upscalers json: the top of the folder, upscaler files only");
+    }
+
+    // A preset is settings on a model: its defaults become the server's, it never counts as a model of its
+    // own, and deleting it never deletes a model file.
+    {
+        using Defaults = std::vector<std::pair<std::string, std::string>>;
+        using Args     = std::vector<std::string>;
+        check(ps5sd::defaults_to_args(Defaults{ { "steps", "10" },
+                                                { "cfg", "6" },
+                                                { "sampler", "dpm++2m" },
+                                                { "scheduler", "ays" },
+                                                { "width", "832" },
+                                                { "height", "1216" },
+                                                { "loras", "a.safetensors:1" },
+                                                { "hires_scale", "1.5" } }) ==
+                  Args{ "--steps", "10", "--cfg-scale", "6", "--sampling-method", "dpm++2m", "--scheduler", "ays",
+                        "--width", "832", "--height", "1216" },
+              "defaults become sd-server options; loras and hires stay with the web UI");
+        check(ps5sd::defaults_to_args(Defaults{ { "steps", "0" },
+                                                { "steps", "151" },
+                                                { "cfg", "31" },
+                                                { "cfg", "." },
+                                                { "sampler", "Euler A" },
+                                                { "scheduler", "default" },
+                                                { "width", "100" },
+                                                { "height", "70000" } })
+                  .empty(),
+              "values that cannot be options are left out");
+        check(ps5sd::defaults_to_args(Defaults{ { "steps", "10 --listen-ip" }, { "sampler", "x;y" }, { "cfg", "-1" } }).empty(),
+              "no extra arguments through a value");
+        check(ps5sd::defaults_to_args(Defaults{ { "steps", "abc" }, { "steps", "20" }, { "cfg", "7.5" }, { "cfg", "7.5.1" } }) ==
+                  Args{ "--steps", "20", "--cfg-scale", "7.5" },
+              "the last valid value wins; an invalid one does not replace it");
+        check(ps5sd::defaults_to_args({}).empty(), "no defaults, no options");
+
+        const Args global = { "--type",   "q8_0", "--sampling-method", "euler_a", "--steps", "10",
+                              "-W",       "512",  "--cfg-scale",       "5",       "-H",      "768",
+                              "--eager-load" };
+        Args dropped;
+        check(ps5sd::without_options(global, { "--steps", "20", "--width", "832", "--height", "1216" }, dropped) ==
+                      Args{ "--type", "q8_0", "--sampling-method", "euler_a", "--cfg-scale", "5", "--eager-load" } &&
+                  dropped == Args{ "--steps", "-W", "-H" },
+              "the preset's options replace server-args.txt's, -W is --width");
+        dropped.clear();
+        check(ps5sd::without_options(global, {}, dropped) == global && dropped.empty(), "nothing set, nothing left out");
+        check(ps5sd::without_options({ "--steps" }, { "--steps", "5" }, dropped).empty(), "an option without a value at the end");
+
+        // A saved preset (# base:) is deleted alone, even when it is the only one of its model.
+        const fs::path m2 = root / "m2", p2 = root / "p2";
+        write(m2 / "base.gguf", "x");
+        write(p2 / "fast.txt", "# name: Fast\n# base: base.gguf\n# defaults: steps=10\n-m\nbase.gguf\n");
+        ps5sd::ModelLibrary      l2{ m2.u8string(), p2.u8string() };
+        std::vector<std::string> del, kep;
+        check(l2.remove("fast", {}, del, kep, error) && del.size() == 1 && kep.empty() && !fs::exists(p2 / "fast.txt") &&
+                  fs::exists(m2 / "base.gguf"),
+              "deleting a saved preset leaves the model file");
+
+        // The model lists of the APIs: models only.
+        const fs::path m3 = root / "m3", p3 = root / "p3";
+        write(m3 / "plain.gguf", "x");
+        write(m3 / "covered.gguf", "x");
+        write(p3 / "plain-fast.txt", "# base: plain.gguf\n-m\nplain.gguf\n");
+        write(p3 / "cover.txt", "-m\ncovered.gguf\n--vae-tiling\n");
+        ps5sd::ModelLibrary l3{ m3.u8string(), p3.u8string() };
+        const auto          sd3 = nlohmann::json::parse(ps5sd::sd_models_json(l3));
+        const auto          oa3 = nlohmann::json::parse(ps5sd::openai_models_json(l3))["data"];
+        std::vector<std::string> sd_titles, oa_ids;
+        for (const auto & m : sd3) {
+            sd_titles.push_back(m["title"]);
+        }
+        for (const auto & m : oa3) {
+            oa_ids.push_back(m["id"]);
+        }
+        std::sort(sd_titles.begin(), sd_titles.end());
+        std::sort(oa_ids.begin(), oa_ids.end());
+        check(sd_titles == Args{ "cover", "plain.gguf" } && oa_ids == sd_titles,
+              "the model lists leave out a saved preset and a checkpoint a preset stands for");
+        check(ps5sd::checkpoint_id(l3, "plain-fast") == "plain-fast", "a saved preset can still be asked for by name");
     }
 
     fs::remove_all(root);

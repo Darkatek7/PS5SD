@@ -1,0 +1,43 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: ps5sd <ps5sd@localhost>
+Date: Wed, 21 Oct 2026 14:34:11 +0200
+Subject: [PATCH] server: txt2img without a size takes the server's default
+ size (-W/-H), not 512x512
+
+---
+ examples/server/routes_sdapi.cpp | 12 ++++++++----
+ 1 file changed, 8 insertions(+), 4 deletions(-)
+
+diff --git a/examples/server/routes_sdapi.cpp b/examples/server/routes_sdapi.cpp
+index ce00a5d..3667772 100644
+--- a/examples/server/routes_sdapi.cpp
++++ b/examples/server/routes_sdapi.cpp
+@@ -89,8 +89,12 @@ static bool build_sdapi_img_gen_request(const json& j,
+                                         std::string& error_message) {
+     std::string prompt          = j.value("prompt", "");
+     std::string negative_prompt = j.value("negative_prompt", "");
+-    int width                   = j.value("width", 512);
+-    int height                  = j.value("height", 512);
++    // The server's default size (-W/-H, a preset's settings) when the request names none;
++    // img2img keeps the size of its image then.
++    const int default_width     = img2img ? 512 : runtime.default_gen_params->get_resolved_width();
++    const int default_height    = img2img ? 512 : runtime.default_gen_params->get_resolved_height();
++    int width                   = j.value("width", default_width);
++    int height                  = j.value("height", default_height);
+     int steps                   = j.value("steps", runtime.default_gen_params->sample_params.sample_steps);
+     float cfg_scale             = j.value("cfg_scale", runtime.default_gen_params->sample_params.guidance.txt_cfg);
+     int64_t seed                = j.value("seed", -1);
+@@ -117,8 +121,8 @@ static bool build_sdapi_img_gen_request(const json& j,
+     request.gen_params.sample_params.sample_steps     = steps;
+     request.gen_params.batch_count                    = batch_size;
+     request.gen_params.sample_params.guidance.txt_cfg = cfg_scale;
+-    request.gen_params.width                          = j.value("width", -1);
+-    request.gen_params.height                         = j.value("height", -1);
++    request.gen_params.width                          = j.value("width", img2img ? -1 : default_width);
++    request.gen_params.height                         = j.value("height", img2img ? -1 : default_height);
+ 
+     if (!img2img && j.value("enable_hr", false)) {
+         request.gen_params.hires_enabled = true;
+-- 
+2.43.0
+

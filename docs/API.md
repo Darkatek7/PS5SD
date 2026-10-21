@@ -186,14 +186,19 @@ loads a model and ends standby.
 - `loaded` is the entry the server has ready. It is `""` while a model loads and in standby.
 - `missing` lists the entry's files that are not on the console. An entry with missing files cannot be
   loaded.
-- `defaults` are the settings that suit the model. The web UI applies them when you press **Use**.
+- `defaults` are the settings that suit the model. The web UI applies them when you press **Use**. With
+  the entry loaded, `steps`, `cfg`, `sampler`, `scheduler`, `width` and `height` are also **the server's
+  defaults**: a request that names none of them gets these values, and a request that names one overrides
+  it (`steps`, `cfg_scale`, `sampler_name`, `scheduler`, `width` and `height` on the A1111 routes). They win
+  over the same options in `server-args.txt`, which stay the defaults of a model without settings. A value
+  that cannot be an option (not a number, a size that is not a multiple of 8, ...) is left out.
 
 `POST /ps5sd/v1/app/models/active` answers:
 
 | Status | Meaning |
 |---|---|
 | `202` | the switch has started; poll `GET models` until `loaded` is the new id |
-| `200` | that entry is loaded already, or it loads with the same arguments as the loaded one (a saved preset of it): the switch is done, without a restart |
+| `200` | that entry is loaded already, or it loads with the same arguments and the same settings as the loaded one (a saved preset of it): the switch is done, without a restart. Other settings restart the server, since they are its defaults |
 | `400` | the body is not `{"id": "..."}` |
 | `404` | there is no such entry |
 | `409` | a switch is already running, or the title is stopping |
@@ -201,8 +206,9 @@ loads a model and ends standby.
 
 `DELETE /ps5sd/v1/app/models/<id>` deletes an entry:
 
-- **A preset:** its file is deleted together with the model files it names. A file stays when another
-  preset or the loaded model uses it, for example a shared VAE.
+- **A saved preset** (it has a `base`): only its own file. A model file is never deleted with it.
+- **A preset that is a model** (no `base`): its file is deleted together with the model files it names. A
+  file stays when another preset or the loaded model uses it, for example a shared VAE.
 - **A checkpoint:** the file is deleted. A checkpoint that a preset names cannot be deleted; delete the
   preset instead.
 
@@ -292,14 +298,17 @@ answers with an error.
 | Route | |
 |---|---|
 | `POST /sdapi/v1/txt2img`, `POST /sdapi/v1/img2img` | generate; the answer has `images` as base64 PNG |
-| `GET /sdapi/v1/sd-models` | the library entries that can be loaded; `title` is the entry id |
+| `GET /sdapi/v1/sd-models` | the models that can be loaded; `title` is the entry id. A saved preset is settings on a model, not a model, so it is not listed; `sd_model_checkpoint` still takes its id |
 | `GET /sdapi/v1/options` | `{"sd_model_checkpoint": "<id>"}`: the loaded model, or the one a switch is loading |
 | `POST /sdapi/v1/options` | `{"sd_model_checkpoint": "<id or name>"}` switches the model; the other options are ignored |
 | `GET /sdapi/v1/samplers`, `/schedulers`, `/loras`, `/upscalers`, `/latent-upscale-modes` | lists |
 | `GET /sdapi/v1/progress` | an A1111-shaped progress answer |
 
-There are two differences from A1111:
+These differ from A1111:
 
+- `txt2img` without `width` and `height` makes the server's default size (the loaded preset's, or
+  `-W`/`-H` of `server-args.txt`), 512x512 only when there is none. A request that names one takes the
+  other from the default too. `img2img` without a size keeps the size of its image.
 - `POST /sdapi/v1/options` answers at once, while A1111 answers once the model has loaded. Until then,
   generate requests fail or wait. Poll `GET /ps5sd/v1/app/models` (or `GET /sdapi/v1/options`) for the
   switch to end.
@@ -318,7 +327,7 @@ curl http://<console>:7860/sdapi/v1/txt2img -d '{"prompt": "a lighthouse at dusk
 
 | Route | |
 |---|---|
-| `GET /v1/models` | the library entries that can be loaded, as `{"object": "list", "data": [{"id": "<id>"}]}` |
+| `GET /v1/models` | the models that can be loaded (not the saved presets), as `{"object": "list", "data": [{"id": "<id>"}]}` |
 | `POST /v1/images/generations` | generate; `b64_json` in the answer |
 | `POST /v1/images/edits` | image to image |
 

@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstdlib>
 #include <cstring>
 #include <ctime>
 #include <cstdio>
@@ -115,6 +116,114 @@ bool is_model_path_option(const std::string & o) {
         }
     }
     return false;
+}
+
+namespace {
+
+// The long name of an option a preset default can set; "" for any other.
+std::string default_option(const std::string & o) {
+    if (o == "-W" || o == "--width") {
+        return "--width";
+    }
+    if (o == "-H" || o == "--height") {
+        return "--height";
+    }
+    for (const char * k : { "--steps", "--cfg-scale", "--sampling-method", "--scheduler" }) {
+        if (o == k) {
+            return o;
+        }
+    }
+    return {};
+}
+
+bool whole_int(const std::string & v, long lo, long hi, long & out) {
+    if (v.empty() || v.size() > 6 || v.find_first_not_of("0123456789") != std::string::npos) {
+        return false;
+    }
+    out = std::strtol(v.c_str(), nullptr, 10);
+    return out >= lo && out <= hi;
+}
+
+// "7", "7.5": digits with at most one point, 0 to 30.
+bool valid_cfg(const std::string & v) {
+    if (v.empty() || v.size() > 6 || v.find_first_not_of("0123456789.") != std::string::npos ||
+        std::count(v.begin(), v.end(), '.') > 1 || v == "." || v.front() == '.' || v.back() == '.') {
+        return false;
+    }
+    return std::strtod(v.c_str(), nullptr) <= 30.0;
+}
+
+// A sampler or scheduler name: sd-server knows which exist and refuses to start
+// on one it does not, so only the shape is checked here.
+bool valid_name(const std::string & v) {
+    if (v.empty() || v.size() > 24 || v == "default") {
+        return false;
+    }
+    for (unsigned char c : v) {
+        if (!(std::islower(c) || std::isdigit(c) || c == '_' || c == '+' || c == '.')) {
+            return false;
+        }
+    }
+    return true;
+}
+
+}  // namespace
+
+std::vector<std::string> defaults_to_args(const std::vector<std::pair<std::string, std::string>> & defaults) {
+    std::string steps, cfg, sampler, scheduler, width, height;  // the last valid value of each
+    for (const auto & kv : defaults) {
+        long n = 0;
+        if (kv.first == "steps" && whole_int(kv.second, 1, 150, n)) {
+            steps = kv.second;
+        } else if (kv.first == "cfg" && valid_cfg(kv.second)) {
+            cfg = kv.second;
+        } else if (kv.first == "sampler" && valid_name(kv.second)) {
+            sampler = kv.second;
+        } else if (kv.first == "scheduler" && valid_name(kv.second)) {
+            scheduler = kv.second;
+        } else if (kv.first == "width" && whole_int(kv.second, 64, 4096, n) && n % 8 == 0) {
+            width = kv.second;
+        } else if (kv.first == "height" && whole_int(kv.second, 64, 4096, n) && n % 8 == 0) {
+            height = kv.second;
+        }
+    }
+    std::vector<std::string> out;
+    const auto               add = [&](const char * option, const std::string & value) {
+        if (!value.empty()) {
+            out.push_back(option);
+            out.push_back(value);
+        }
+    };
+    add("--steps", steps);
+    add("--cfg-scale", cfg);
+    add("--sampling-method", sampler);
+    add("--scheduler", scheduler);
+    add("--width", width);
+    add("--height", height);
+    return out;
+}
+
+std::vector<std::string> without_options(const std::vector<std::string> & lines,
+                                         const std::vector<std::string> & preset_args,
+                                         std::vector<std::string> &       dropped) {
+    std::vector<std::string> set;  // the long names the preset sets
+    for (const std::string & a : preset_args) {
+        const std::string name = default_option(a);
+        if (!name.empty()) {
+            set.push_back(name);
+        }
+    }
+    std::vector<std::string> out;
+    for (size_t i = 0; i < lines.size(); i++) {
+        const std::string name = default_option(lines[i]);
+        if (!name.empty() && std::find(set.begin(), set.end(), name) != set.end()) {
+            dropped.push_back(lines[i]);
+            i++;  // its value
+            continue;
+        }
+        out.push_back(lines[i]);
+    }
+    return out;
 }
 
 ModelEntry ModelLibrary::parse_preset(const std::string & id, const std::string & text) const {
@@ -283,7 +392,18 @@ bool ModelLibrary::remove(const std::string & id_in, const std::vector<std::stri
         std::ostringstream text;
         text << in.rdbuf();
         in.close();
-        files = parse_preset(id, text.str()).files;
+        const ModelEntry parsed = parse_preset(id, text.str());
+        if (!parsed.base.empty()) {
+            // A saved preset is settings on its base: the model files are the base's.
+            std::error_code ec;
+            if (!fs::remove(preset, ec) || ec) {
+                error = "could not delete " + preset.u8string() + (ec ? ": " + ec.message() : "");
+                return false;
+            }
+            deleted.push_back(preset.u8string());
+            return true;
+        }
+        files = parsed.files;
     } else {
         const std::string other = user_of(file.u8string());
         if (!other.empty()) {
@@ -593,10 +713,34 @@ std::string upscalers_json(const std::string & dir) {
     return nlohmann::json{ { "upscalers", list } }.dump(-1, ' ', false, nlohmann::json::error_handler_t::replace);
 }
 
+namespace {
+
+// Whether an entry is a model for the APIs' model lists: not a saved preset
+// (settings on a model), and not a checkpoint that a preset without a base
+// stands for. The web UI's Models tab counts the same way.
+bool counts_as_model(const ModelEntry & e, const std::vector<ModelEntry> & all) {
+    if (!e.base.empty()) {
+        return false;
+    }
+    if (e.kind != "file" || e.files.empty()) {
+        return true;
+    }
+    for (const ModelEntry & o : all) {
+        if (o.kind == "preset" && o.base.empty() &&
+            std::find(o.files.begin(), o.files.end(), e.files.front()) != o.files.end()) {
+            return false;
+        }
+    }
+    return true;
+}
+
+}  // namespace
+
 std::string sd_models_json(const ModelLibrary & library) {
-    nlohmann::json list = nlohmann::json::array();
-    for (const ModelEntry & e : library.list()) {
-        if (!e.missing.empty() || e.files.empty()) {
+    nlohmann::json                list    = nlohmann::json::array();
+    const std::vector<ModelEntry> entries = library.list();
+    for (const ModelEntry & e : entries) {
+        if (!e.missing.empty() || e.files.empty() || !counts_as_model(e, entries)) {
             continue;
         }
         // No hashes: hashing gigabytes on the console for a label is not worth it.
@@ -611,9 +755,10 @@ std::string sd_models_json(const ModelLibrary & library) {
 }
 
 std::string openai_models_json(const ModelLibrary & library) {
-    nlohmann::json list = nlohmann::json::array();
-    for (const ModelEntry & e : library.list()) {
-        if (e.missing.empty() && !e.files.empty()) {
+    nlohmann::json                list    = nlohmann::json::array();
+    const std::vector<ModelEntry> entries = library.list();
+    for (const ModelEntry & e : entries) {
+        if (e.missing.empty() && !e.files.empty() && counts_as_model(e, entries)) {
             list.push_back({ { "id", e.id }, { "object", "model" }, { "owned_by", "ps5sd" } });
         }
     }
