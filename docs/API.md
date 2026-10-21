@@ -163,7 +163,7 @@ loads a model and ends standby.
 
 | Route | |
 |---|---|
-| `GET /ps5sd/v1/app/info` | `{"name": "PS5SD", "version": "0.3.1", "sd_cpp": {"version", "commit"}}` |
+| `GET /ps5sd/v1/app/info` | `{"name": "PS5SD", "version": "0.4.0", "sd_cpp": {"version", "commit"}}` |
 | `GET /ps5sd/v1/app/docs/<name>` | `MODELS.md` or `API.md` as the title carries them (`text/markdown`), for the web UI's Help tab; any other name is a 404 |
 | `GET /ps5sd/v1/app/models` | the library; see below |
 | `POST /ps5sd/v1/app/models/active` | `{"id": "<id>"}`: switch to that entry; the responses are below |
@@ -217,7 +217,7 @@ A saved preset is a model with other settings: a preset file with `# base: <id>`
 
 | Route | |
 |---|---|
-| `POST /ps5sd/v1/app/presets` | `{"name": "Portrait fast", "base": "<model id>", "defaults": {"width": "832", "height": "1216", "steps": "10", "cfg": "6", "sampler": "dpm++2m", "scheduler": "ays", "loras": "detail.safetensors:0.8"}}`: `201`, the library plus `"id"` of the new preset. It takes the model's arguments from `base` (the loaded model when it is left out; the base's own base when that is a saved preset too). The id comes from the name. `400` for a name of more than one line or 100 characters, a key that is not one of these, or a value with a space |
+| `POST /ps5sd/v1/app/presets` | `{"name": "Portrait fast", "base": "<model id>", "defaults": {"width": "832", "height": "1216", "steps": "10", "cfg": "6", "sampler": "dpm++2m", "scheduler": "ays", "loras": "detail.safetensors:0.8", "hires_scale": "1.5", "hires_steps": "0", "hires_denoise": "0.5", "hires_upscaler": "Latent"}}`: `201`, the library plus `"id"` of the new preset. It takes the model's arguments from `base` (the loaded model when it is left out; the base's own base when that is a saved preset too). The id comes from the name. `400` for a name of more than one line or 100 characters, a key that is not one of these, or a value with a space |
 | `GET /ps5sd/v1/app/presets/<id>` | `{"id", "text"}`: the preset file as it is |
 | `POST /ps5sd/v1/app/presets/<id>` | `{"text": "..."}`: replaces the file (at most 64 KB, it must name a model); the answer is the library. Changed options count from the next load of that preset |
 | `DELETE /ps5sd/v1/app/presets/<id>` | deletes a saved preset's file, never a model file. `409` when it is in use, or when the preset is a model itself (no `base`; delete it with `DELETE models/<id>`) |
@@ -334,13 +334,56 @@ The `model` field of a generation request does not switch the model; the loaded 
 | `POST /sdcpp/v1/vid_gen` | queue a video job (video models only) |
 | `GET /sdcpp/v1/jobs/<id>` | the job: `status` is `queued`, `generating`, `completed`, `failed` or `cancelled`; the images are in `result` |
 | `POST /sdcpp/v1/jobs/<id>/cancel` | cancel it; see "Jobs" above |
-| `POST /sdcpp/v1/upscale` | upscale an image with an upscaler model |
+| `POST /sdcpp/v1/upscale` | upscale an image with an upscaler model; see "Hires fix and upscaling" |
 
 Several images in one job: `"batch_count": n` on `img_gen` (`"batch_size"` on `/sdapi/v1/txt2img`,
 `"n"` on `/v1/images/generations`), up to `limits.max_batch_count` of the capabilities (8). The images
 are made one after the other with the seeds `seed`, `seed + 1`, ...; while the job runs,
 `preview.pass` says which of them is being sampled (1 for the first). Every image is saved to the
 gallery.
+
+## Hires fix and upscaling
+
+Upscaler models (ESRGAN and the like: `.pth`, `.pt`, `.safetensors`, `.gguf`) live in
+`/data/PS5SD/upscalers`, directly in the folder; the title passes it to sd-server as
+`--hires-upscalers-dir`.
+
+| Route | |
+|---|---|
+| `GET /ps5sd/v1/app/upscalers` | `{"upscalers": [{"name", "file", "bytes"}]}`: the files in that folder |
+| `DELETE /ps5sd/v1/app/upscalers/<file>` | delete one; the answer is the list as `GET` gives it |
+| `POST /ps5sd/v1/app/downloads` | `{"url": "...", "kind": "upscalers"}` fetches one (a Civitai model of type Upscaler goes there by itself) |
+| `PUT /ps5sd/v1/app/uploads/upscalers/<file>` | uploads one |
+
+`GET /sdcpp/v1/capabilities` lists them in `upscalers` (with the built-in `Lanczos`, `Nearest` and the
+`Latent` modes); `image_upscale: true` marks the ones `POST /sdcpp/v1/upscale` can use, and `upscale` is
+true when there is one.
+
+**Hires fix**: generate, scale up, and sample again at the larger size. On `POST /sdcpp/v1/img_gen`:
+
+```json
+"hires": {"enabled": true, "upscaler": "Latent", "scale": 1.5, "steps": 0, "denoising_strength": 0.5}
+```
+
+`steps` 0 takes the first pass's steps; the strength trims them (0.5: half of them). `/sdapi/v1/txt2img`
+takes A1111's `enable_hr`, `hr_scale`, `hr_upscaler`, `hr_steps`,
+`hr_resize_x`/`hr_resize_y` and `denoising_strength`. A batch makes all first passes, then all second
+passes: while a job runs, `preview.pass` counts them (images 1 to n, then their hires passes n + 1 to 2n).
+The largest size is 4096 on each side; on the console, sizes over 2048 are not measured yet.
+
+**Upscale an image**: `POST /sdcpp/v1/upscale` with `{"image": "<base64>", "upscaler": "<name>"}` runs the
+model over it (4x for most). PS5SD saves the result to the gallery like a generated image and says under
+which name in `"saved": ["..."]`; `"return_image": false` leaves the image out of the answer (a 4096 px PNG
+is tens of MB). It runs on the GPU between generations, never at the same time. Measured on a Mac's CPU:
+768x768 to 3072x3072 with Real-ESRGAN x4plus anime 6B in 64 s.
+
+```sh
+curl -H "Content-Type: application/json" http://<console>:7860/sdcpp/v1/upscale \
+     -d '{"image": "'"$(base64 < in.png)"'", "return_image": false}'
+```
+
+Send JSON bodies with `Content-Type: application/json`: curl's `-d` otherwise sends a form, which the
+server reads only up to 8 KB.
 
 ## Gallery
 

@@ -44,6 +44,10 @@ bool classify_url(const std::string & text, Source & out, std::string & error);
 // The model file extensions that may land in the models directory.
 bool is_model_file_name(const std::string & name);
 
+// The upscaler (ESRGAN) file extensions sd-server reads: .pth, .pt,
+// .safetensors, .gguf.
+bool is_upscaler_file_name(const std::string & name);
+
 // A destination relative to the models directory: no absolute path, no "..",
 // no empty or dot segment, no backslash or control character, a model file
 // extension. False with a message otherwise.
@@ -52,16 +56,18 @@ bool valid_dest(const std::string & dest, std::string & error);
 // An upload's target, from "<kind>/<name>" (PUT /ps5sd/v1/app/uploads/...).
 // kind "models" takes a name as valid_dest does (folders allowed); "loras"
 // and "embeddings" a model file name without folders; "presets" a file name
-// ending in .txt. False with a message otherwise.
+// ending in .txt; "upscalers" an upscaler file name (is_upscaler_file_name)
+// without folders. False with a message otherwise.
 bool upload_target(const std::string & path, std::string & kind, std::string & name, std::string & error);
 
 // Civitai's model types that are LoRAs (LORA, LoCon, DoRA): such a download
 // goes to the loras folder.
 bool is_lora_type(const std::string & civitai_type);
 
-// A download's target: kind "models" takes dest as valid_dest does, "loras" a
-// model file name without folders (as upload_target). The id of a LoRA is
-// made from "loras/<dest>", so it differs from a model of the same name.
+// A download's target: kind "models" takes dest as valid_dest does, "loras"
+// and "upscalers" a file name without folders (as upload_target). The id of
+// a LoRA or an upscaler is made from "<kind>/<dest>", so it differs from a
+// model of the same name.
 bool valid_target(const std::string & kind, const std::string & dest, std::string & error);
 std::string download_key(const std::string & kind, const std::string & dest);
 
@@ -118,7 +124,7 @@ struct DownloadRecord {
     std::string id;
     std::string url;      // as asked for (after the blob -> resolve rewrite)
     std::string dest;     // relative to the folder of kind
-    std::string kind = "models";  // "models" or "loras"
+    std::string kind = "models";  // "models", "loras" or "upscalers"
     std::string catalog;  // the catalog entry it belongs to, or ""
     std::string state;    // queued, running, done, failed, cancelled
     std::string error;
@@ -157,7 +163,7 @@ std::string pieces_in_order(const std::string & pieces, uint64_t piece, uint64_t
 
 struct DownloadRequest {
     std::string url, dest, catalog;
-    std::string kind;  // "models", "loras", or "" (models; Civitai: from the model's type)
+    std::string kind;  // "models", "loras", "upscalers", or "" (models; Civitai: from the model's type)
 };
 bool parse_download_request(const std::string & body, DownloadRequest & out, std::string & error);
 

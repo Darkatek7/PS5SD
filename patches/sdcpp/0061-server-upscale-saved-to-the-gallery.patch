@@ -1,0 +1,97 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: ps5sd <ps5sd@localhost>
+Date: Wed, 21 Oct 2026 10:09:14 +0200
+Subject: [PATCH] server: an upscale is saved to the gallery and reported to
+ the application
+
+---
+ examples/server/api.md           |  2 ++
+ examples/server/routes_sdcpp.cpp | 30 +++++++++++++++++++++++++++++-
+ 2 files changed, 31 insertions(+), 1 deletion(-)
+
+diff --git a/examples/server/api.md b/examples/server/api.md
+index cff4e84..296fab5 100644
+--- a/examples/server/api.md
++++ b/examples/server/api.md
+@@ -705,6 +705,7 @@ Request fields:
+ | `tile_size` | `integer` | Tile size, defaulting to the server's `--upscale-tile-size` |
+ | `output_format` | `string` | `png`, `jpeg`, or `webp` when built with WebP support (default `png`); unsupported formats return 400 |
+ | `output_compression` | `integer` | Range is clamped to `0..100` |
++| `return_image` | `boolean` | PS5SD: `false` leaves `images` empty (the result is saved to the gallery); default `true` |
+ 
+ Response fields:
+ 
+@@ -713,6 +714,7 @@ Response fields:
+ | `images` | `array<object>` | One image |
+ | `images[].index` | `integer` | |
+ | `images[].b64_json` | `string` | Base64-encoded image bytes |
++| `saved` | `array<string>` | PS5SD: the file names the result was saved under in `--output-dir` (the gallery); empty without it |
+ | `upscaler` | `string` | The upscaler actually used |
+ | `scale` | `integer` | The model's scale factor |
+ | `repeats` | `integer` | How many times it was run |
+diff --git a/examples/server/routes_sdcpp.cpp b/examples/server/routes_sdcpp.cpp
+index 9f490f7..8fdb80f 100644
+--- a/examples/server/routes_sdcpp.cpp
++++ b/examples/server/routes_sdcpp.cpp
+@@ -9,6 +9,8 @@
+ #include "common/common.h"
+ #include "common/media_io.h"
+ #include "common/resource_owners.hpp"
++#include "gallery.h"
++#include "server_hooks.h"
+ 
+ namespace fs = std::filesystem;
+ 
+@@ -566,6 +568,14 @@ void register_sdcpp_api_endpoints(httplib::Server& svr, ServerRuntime& rt) {
+ 
+             // One GPU: an upscale must not run while a generation is using it.
+             std::lock_guard<std::mutex> ctx_lock(*runtime->sd_ctx_mutex);
++            // PS5SD: the application sees an upscale like a generation (its screen
++            // shows it, and the saved result); failed unless done is set.
++            struct UpscaleActivity {
++                bool done = false;
++                std::string saved;
++                UpscaleActivity(int w, int h, int repeats) { sd_activity_job_begin("upscale", "", w, h, repeats); }
++                ~UpscaleActivity() { sd_activity_job_end(done ? 1 : 0, done ? saved.c_str() : ""); }
++            } activity(static_cast<int>(input.get().width), static_cast<int>(input.get().height), repeats);
+             UpscalerCtxPtr upscaler_ctx(new_upscaler_ctx(model_path.c_str(),
+                                                          runtime->ctx_params->diffusion_conv_direct,
+                                                          runtime->ctx_params->n_threads,
+@@ -620,7 +630,21 @@ void register_sdcpp_api_endpoints(httplib::Server& svr, ServerRuntime& rt) {
+                 return;
+             }
+ 
++            // PS5SD: saved to --output-dir like every generated image, so it is in the gallery.
++            json saved_names = json::array();
++            {
++                SDImageVec to_save;
++                to_save.push_back(current.release());
++                const std::vector<std::string> saved = save_output_images(*runtime->svr_params, to_save);
++                for (const std::string& path : saved) {
++                    saved_names.push_back(fs::u8path(path).filename().u8string());
++                }
++                activity.saved = saved_paths(saved);
++                activity.done  = true;
++            }
++
+             json out;
++            out["saved"]         = std::move(saved_names);
+             out["upscaler"]      = used_name;
+             out["scale"]         = factor;
+             out["repeats"]       = repeats;
+@@ -628,7 +652,11 @@ void register_sdcpp_api_endpoints(httplib::Server& svr, ServerRuntime& rt) {
+             out["height"]        = result.height;
+             out["output_format"] = format;
+             json images          = json::array();
+-            images.push_back({{"index", 0}, {"b64_json", base64_encode(image_bytes)}});
++            // PS5SD: "return_image": false leaves the image out (it is in the
++            // gallery); a 4096 px PNG is tens of MB for a console's browser.
++            if (body.value("return_image", true)) {
++                images.push_back({{"index", 0}, {"b64_json", base64_encode(image_bytes)}});
++            }
+             out["images"] = std::move(images);
+             res.set_content(out.dump(), "application/json");
+             res.status = 200;
+-- 
+2.56.0
+

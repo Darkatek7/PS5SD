@@ -29,6 +29,8 @@
     GET /ps5sd/v1/auth, POST .../auth/login, .../auth/logout           (the API key: login cookie)
     GET /ps5sd/v1/app/auth, POST .../app/auth/enable, .../auth/disable (the API key in Settings; a 404 hides it)
     POST /ps5sd/v1/app/presets, GET/POST/DELETE .../app/presets/<id>   (the Presets tab)
+    POST /sdcpp/v1/upscale                                             (the Upscale button; the result is saved to the gallery)
+    GET  /ps5sd/v1/app/upscalers, DELETE .../app/upscalers/<file>      (the Models tab's upscalers)
     GET  /ps5sd/v1/app/catalog, GET/POST /ps5sd/v1/app/downloads,      (downloads; a 404 hides that part)
          DELETE .../downloads/<id>, POST .../app/hf/search
   SPDX-License-Identifier: MIT
@@ -280,6 +282,7 @@
   code.key { display: block; margin: 0.3rem 0 0.6rem; padding: 0.7rem 0.95rem; color: var(--text); background: var(--field);
     border: 1px solid var(--border); border-radius: 10px; font-family: ui-monospace, Menlo, Consolas, monospace;
     font-size: 1.05rem; word-break: break-all; -webkit-user-select: all; user-select: all; }
+  #hr-hint { min-height: 1.2rem; }
   .authbtns { display: flex; flex-wrap: wrap; margin: 0 -0.25rem; }
   .authbtns button { margin: 0.25rem; min-height: 2.75rem; }
   #savepreset { margin-left: 0.5rem; }
@@ -386,6 +389,29 @@
       <select id="lora-add" aria-label="Add a LoRA"><option value="">Add a LoRA…</option></select>
       <p class="hint" id="lora-hint"></p>
 
+      <div class="lbl">Hires fix</div>
+      <label class="opt"><input type="checkbox" id="hr-on"> A second pass at a larger size</label>
+      <div id="hr-box" style="display:none">
+        <div class="row">
+          <div><label for="hr-up">Upscaler</label><select id="hr-up"><option value="Latent">Latent</option></select></div>
+          <div>
+            <div class="lbl">Scale</div>
+            <div class="step"><button type="button" id="hr-scale-">&minus;</button><input id="hr-scale" type="number" min="1.25" max="4" step="0.25" value="1.5" aria-label="Hires scale"><button type="button" id="hr-scale+">+</button></div>
+          </div>
+        </div>
+        <div class="row">
+          <div>
+            <div class="lbl">Steps (0: as the first pass)</div>
+            <div class="step"><button type="button" id="hr-steps-">&minus;</button><input id="hr-steps" type="number" min="0" max="150" step="1" value="0" aria-label="Hires steps"><button type="button" id="hr-steps+">+</button></div>
+          </div>
+          <div>
+            <div class="lbl">Denoising strength</div>
+            <div class="step"><button type="button" id="hr-den-">&minus;</button><input id="hr-den" type="number" min="0.05" max="1" step="0.05" value="0.5" aria-label="Hires denoising strength"><button type="button" id="hr-den+">+</button></div>
+          </div>
+        </div>
+        <p class="hint" id="hr-hint"></p>
+      </div>
+
       <div class="row">
         <div>
           <label for="seed">Seed</label>
@@ -406,6 +432,11 @@
       <div id="opt-tv-box" style="display:none">
         <div class="lbl">PS5 screen</div>
         <label class="opt"><input type="checkbox" id="opt-tv"> Show images and prompts on the TV</label>
+      </div>
+      <div id="opt-up-box" style="display:none">
+        <div class="lbl">Upscale button</div>
+        <select id="opt-up" aria-label="Upscaler of the Upscale button"></select>
+        <p class="hint">The Upscale button under an image and in the gallery runs this model over the image (4 times as wide and high for most). The result goes into the gallery.</p>
       </div>
       <div id="opt-auth-box" style="display:none">
         <div class="lbl">API key</div>
@@ -454,6 +485,12 @@
       <div id="llist"></div>
       <p class="hint">A LoRA adds a style, a character or a look to a model. It works only with models of the family it was made for (SD 1.5, SDXL, FLUX…). Pick them on the Create tab, under Settings.</p>
     </section>
+    <section class="panel" id="pnl-ups" style="display:none">
+      <div class="ph"><h2>Upscalers</h2></div>
+      <div id="ulist"></div>
+      <div id="usugg"></div>
+      <p class="hint">An upscaler (ESRGAN) makes an image larger and sharper: with the Upscale button, or in the hires fix on the Create tab. More of them: a link as Upscaler under Add by link, a .pth file as Upscaler under Upload, or Civitai's upscalers.</p>
+    </section>
     <section class="panel" id="pnl-dl" style="display:none">
       <div class="ph"><h2>Downloads</h2></div>
       <div id="dlist"></div>
@@ -470,12 +507,12 @@
     </section>
     <section class="panel" id="pnl-url" style="display:none">
       <div class="ph"><h2>Add by link</h2></div>
-      <div class="inrow"><select id="dl-kind" class="upkind" aria-label="What it is"><option value="">Model</option><option value="loras">LoRA</option></select><input id="dl-url" type="text" placeholder="Hugging Face or Civitai link to a model file" autocomplete="off" autocapitalize="off" spellcheck="false"><button type="button" id="dl-go">Download</button></div>
+      <div class="inrow"><select id="dl-kind" class="upkind" aria-label="What it is"><option value="">Model</option><option value="loras">LoRA</option><option value="upscalers">Upscaler</option></select><input id="dl-url" type="text" placeholder="Hugging Face or Civitai link to a model file" autocomplete="off" autocapitalize="off" spellcheck="false"><button type="button" id="dl-go">Download</button></div>
       <p class="hint">A link to a file on huggingface.co, or a Civitai model version (a link that ends in modelVersionId=...). The file goes into the models folder on the console, or the loras folder for a LoRA; a Civitai LoRA goes there by itself.</p>
     </section>
     <section class="panel" id="pnl-up" style="display:none">
       <div class="ph"><h2>Upload from this computer</h2></div>
-      <div class="inrow"><select id="up-kind" class="upkind" aria-label="What it is"><option value="models">Model</option><option value="loras">LoRA</option><option value="embeddings">Embedding</option><option value="presets">Preset (.txt)</option></select><button type="button" id="up-pick">Choose a file</button></div>
+      <div class="inrow"><select id="up-kind" class="upkind" aria-label="What it is"><option value="models">Model</option><option value="loras">LoRA</option><option value="embeddings">Embedding</option><option value="presets">Preset (.txt)</option><option value="upscalers">Upscaler</option></select><button type="button" id="up-pick">Choose a file</button></div>
       <input id="up-file" type="file" style="display:none">
       <div id="up-box" style="display:none">
         <div class="mname" id="up-name"></div>
@@ -536,6 +573,7 @@
     <span class="lb-title" id="lb-title"></span>
     <a id="lb-dl" href="#">Download</a>
     <a id="lb-open" href="#" target="_blank">Open full size</a>
+    <button type="button" id="lb-up" style="display:none">Upscale</button>
     <button type="button" class="danger" id="lb-del">Delete</button>
     <button type="button" id="lb-close">Close</button>
   </div>
@@ -887,6 +925,12 @@
     if (d.sampler) { p.sampler = d.sampler; any = true; }
     if (d.scheduler) { p.scheduler = d.scheduler; any = true; }
     if (d.loras) { p.loras = parseLoras(d.loras); any = true; }
+    n = parseFloat(d.hires_scale);
+    if (n >= 1) {
+      p.hr = { on: true, scale: n, up: d.hires_upscaler ? decodeURIComponent(d.hires_upscaler) : 'Latent',
+        steps: parseInt(d.hires_steps, 10) || 0, den: parseFloat(d.hires_denoise) || 0.5 };
+      any = true;
+    }
     if (any && entry.name) p.label = entry.name;
     return p;
   }
@@ -913,16 +957,47 @@
       steps: Math.round(num('steps', 20, 1, 150)), cfg: num('cfg', 7, 0, 30),
       sampler: $('sampler').value, scheduler: $('scheduler').value,
       seed: parseInt($('seed').value, 10),
-      loras: loraSel.slice()
+      loras: loraSel.slice(),
+      hr: {
+        on: $('hr-on').checked, up: $('hr-up').value || 'Latent',
+        scale: num('hr-scale', 1.5, 1.25, 4), steps: Math.round(num('hr-steps', 0, 0, 150)), den: num('hr-den', 0.5, 0.05, 1)
+      }
     };
   }
 
-  function setSelect(id, value) {
+  // The hires fix's fields; h is a form's hr ({on, up, scale, steps, den}) or nothing (off).
+  function setHires(h) {
+    h = h || {};
+    $('hr-on').checked = !!h.on;
+    if (h.up) setSelect('hr-up', h.up, 'Latent');
+    $('hr-scale').value = h.scale || 1.5;
+    $('hr-steps').value = h.steps || 0;
+    $('hr-den').value = h.den || 0.5;
+    drawHires();
+  }
+
+  function hiresSize() {
+    var f = getForm();
+    return { w: Math.round(f.w * f.hr.scale / 8) * 8, h: Math.round(f.h * f.hr.scale / 8) * 8 };
+  }
+
+  function drawHires() {
+    var on = $('hr-on').checked;
+    show('hr-box', on);
+    if (!on) return;
+    var t = hiresSize(), big = Math.max(t.w, t.h);
+    text($('hr-hint'), 'The image comes out at about ' + t.w + '×' + t.h + '. ' +
+      (big > 4096 ? 'That is larger than the server allows (4096).'
+        : big > 2048 ? 'Over 2048 px is not measured on the console yet; with SDXL it may not fit in memory.'
+          : 'A latent upscaler is quickest; a model (ESRGAN) keeps more detail. Strength 0.3 to 0.6 keeps the picture and adds detail.'));
+  }
+
+  function setSelect(id, value, fallback) {
     var sel = $(id);
     for (var i = 0; i < sel.options.length; i++) {
       if (sel.options[i].value === value) { sel.value = value; return; }
     }
-    sel.value = 'default';
+    sel.value = fallback || 'default';
   }
 
   function setForm(o) {
@@ -939,6 +1014,7 @@
       if (ls[i] && typeof ls[i].path === 'string') loraSel.push({ path: ls[i].path, m: Number(ls[i].m) || 0 });
     }
     drawLoraPicker();
+    setHires(o.hr);
     markPreset();
     summary();
   }
@@ -958,7 +1034,9 @@
       (steps === 1 ? ' step' : ' steps') + ' · CFG ' + num('cfg', 7, 0, 30) +
       ' · seed ' + (isNaN(seed) || seed < 0 ? 'random' : seed) +
       (loraSel.length ? ' · ' + loraSel.length + (loraSel.length === 1 ? ' LoRA' : ' LoRAs') : '') +
-      (batchCount() > 1 ? ' · ' + batchCount() + ' images' : ''));
+      (batchCount() > 1 ? ' · ' + batchCount() + ' images' : '') +
+      ($('hr-on').checked ? ' · hires ×' + num('hr-scale', 1.5, 1.25, 4) : ''));
+    drawHires();
     if (st.view === 'presets') drawSaveBox();
   }
 
@@ -1211,6 +1289,10 @@
       box.appendChild(actionButton('Run again', function () {
         setForm(st.last); $('prompt').value = st.last.prompt; $('neg').value = st.last.negative; generate();
       }));
+      if (upModels.length) {
+        var ub = actionButton('Upscale', function () { upscale(r && r.url ? r.url : href, ub); });
+        box.appendChild(ub);
+      }
     }
   }
 
@@ -1441,7 +1523,9 @@
     showImage(r.src, 'generated image');
     var l = st.last;
     var nth = st.results.length > 1 ? 'image ' + (i + 1) + ' of ' + st.results.length + ' · ' : '';
-    text($('sub'), nth + (l ? l.w + '×' + l.h + ' · ' + l.steps + (l.steps === 1 ? ' step' : ' steps') + ' · CFG ' + l.cfg + ' · ' : '') + 'seed ' + r.seed);
+    var size = l ? l.w + '×' + l.h : '';
+    if (l && l.hr && l.hr.on) size += ' → ' + Math.round(l.w * l.hr.scale / 8) * 8 + '×' + Math.round(l.h * l.hr.scale / 8) * 8 + ' (hires)';
+    text($('sub'), nth + (l ? size + ' · ' + l.steps + (l.steps === 1 ? ' step' : ' steps') + ' · CFG ' + l.cfg + ' · ' : '') + 'seed ' + r.seed);
     showActions(r.url || r.src, r.name, r.url, true);
   }
 
@@ -1511,6 +1595,9 @@
     if (p.sampler !== 'default') body.sample_params.sample_method = p.sampler;
     if (p.scheduler !== 'default') body.sample_params.scheduler = p.scheduler;
     if (loraBody(p).length) body.lora = loraBody(p);
+    if (p.hr.on) {
+      body.hires = { enabled: true, upscaler: p.hr.up, scale: p.hr.scale, steps: p.hr.steps, denoising_strength: p.hr.den };
+    }
     begin(null);
     var token = st.token;
     req('POST', '/sdcpp/v1/img_gen', body, function (code, data) {
@@ -1572,11 +1659,17 @@
         text($('cancel'), st.canCancelGen ? 'Cancel' : 'Stop waiting');
         var pv = data.preview;
         if (pv && pv.total_steps > 0) {
-          // pass counts the images of a batch (one sampling pass each)
+          // pass counts the sampling passes: the images of a batch, then (hires fix) the second
+          // pass of each, in the same order
           var n = (st.last && st.last.batch) || 1;
-          var at = Math.min(n, Math.max(1, pv.pass || 1)) - 1;
-          var frac = (at + pv.step / pv.total_steps) / n;
-          status((n > 1 ? 'Image ' + (at + 1) + ' of ' + n + ' · step ' : 'Step ') + pv.step + ' of ' + pv.total_steps);
+          var hr = !!(st.last && st.last.hr && st.last.hr.on);
+          var passes = hr ? 2 * n : n;
+          var pass = Math.min(passes, Math.max(1, pv.pass || 1)) - 1;
+          var second = pass >= n;
+          var at = second ? pass - n : pass;
+          var frac = (pass + pv.step / pv.total_steps) / passes;
+          status((n > 1 ? 'Image ' + (at + 1) + ' of ' + n + ' · ' : '') + (second ? 'hires step ' : (n > 1 ? 'step ' : 'Step ')) +
+            pv.step + ' of ' + pv.total_steps);
           progress(frac);
           st.sub = eta(frac);
           if (pv.b64_json) showImage(dataUrl(pv.b64_json), 'preview');
@@ -1614,6 +1707,13 @@
     if (p.sampler !== 'default') body.sampler_name = p.sampler;
     if (p.scheduler !== 'default') body.scheduler = p.scheduler;
     if (loraBody(p).length) body.lora = loraBody(p);
+    if (p.hr.on) {
+      body.enable_hr = true;
+      body.hr_upscaler = p.hr.up;
+      body.hr_scale = p.hr.scale;
+      body.hr_steps = p.hr.steps;
+      body.denoising_strength = p.hr.den;
+    }
     begin(null);
     var token = st.token;
     status('Generating…');
@@ -1789,7 +1889,7 @@
     var v = parseFloat(input.value);
     if (isNaN(v)) v = min;
     v = Math.min(max, Math.max(min, v + delta));
-    input.value = digits ? v.toFixed(digits).replace(/\.0+$/, '') : Math.round(v);
+    input.value = digits ? v.toFixed(digits).replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '') : Math.round(v);
     persist();
   }
 
@@ -2153,9 +2253,9 @@
       if (k === 46) { askDeleteImage(); return false; }
       if (k === 9) {
         // keep Tab inside the viewer
-        var ring = [$('lb-prev'), $('lb-dl'), $('lb-open'), $('lb-del'), $('lb-close'), $('lb-next')];
+        var ring = [$('lb-prev'), $('lb-dl'), $('lb-open'), $('lb-up'), $('lb-del'), $('lb-close'), $('lb-next')];
         var live = [];
-        for (var i = 0; i < ring.length; i++) if (!ring[i].disabled) live.push(ring[i]);
+        for (var i = 0; i < ring.length; i++) if (!ring[i].disabled && ring[i].style.display !== 'none') live.push(ring[i]);
         var at = -1;
         for (var j = 0; j < live.length; j++) if (live[j] === document.activeElement) at = j;
         var to = e.shiftKey ? (at <= 0 ? live.length - 1 : at - 1) : (at < 0 || at >= live.length - 1 ? 0 : at + 1);
@@ -2346,6 +2446,7 @@
     if (def) meta += ' · ' + def;
     var ls = m.defaults && m.defaults.loras ? parseLoras(m.defaults.loras) : [];
     if (ls.length) meta += ' · ' + ls.length + (ls.length === 1 ? ' LoRA' : ' LoRAs');
+    if (m.defaults && m.defaults.hires_scale) meta += ' · hires ×' + m.defaults.hires_scale;
     main.appendChild(el('div', 'mmeta', meta));
     if (st.delErr && st.delErr.id === m.id) main.appendChild(el('div', 'mmeta bad', st.delErr.msg));
     row.appendChild(main);
@@ -2376,6 +2477,16 @@
     var ls = [];
     for (var i = 0; i < f.loras.length; i++) if (f.loras[i].m !== 0) ls.push(f.loras[i].path + ':' + f.loras[i].m);
     if (ls.length) d.loras = ls.join(',');
+    if (f.hr.on) {
+      d.hires_scale = String(f.hr.scale);
+      d.hires_steps = String(f.hr.steps);
+      d.hires_denoise = String(f.hr.den);
+      // "Latent (nearest-exact)": a default is one word, so the name goes percent-encoded
+      d.hires_upscaler = f.hr.up.replace(/[^A-Za-z0-9._-]/g, function (c) {
+        var h = c.charCodeAt(0).toString(16).toUpperCase();
+        return '%' + (h.length < 2 ? '0' : '') + h;
+      });
+    }
     return d;
   }
 
@@ -2394,6 +2505,7 @@
     if (d.sampler) parts.push(d.sampler);
     if (d.scheduler) parts.push(d.scheduler);
     if (d.loras) parts.push(d.loras.split(',').length + (d.loras.split(',').length === 1 ? ' LoRA' : ' LoRAs'));
+    if (d.hires_scale) parts.push('hires ×' + d.hires_scale);
     text($('ps-what'), 'Model: ' + (root ? root.name || root.id : st.mid) + ' · ' + parts.join(' · '));
     if (!$('ps-name').value) $('ps-name').placeholder = 'Name, e.g. ' + (root ? root.name || root.id : 'My preset') + ' ' + d.width + '×' + d.height;
   }
@@ -2582,6 +2694,7 @@
     if (m.image) { deleteImage(m.image); return; }
     if (m.lora) { deleteLora(m.lora); return; }
     if (m.preset) { deletePreset(m.preset); return; }
+    if (m.upscaler) { deleteUpscaler(m.upscaler); return; }
     if (m.authOff) { authOff(); return; }
     st.delErr = null;
     req('DELETE', APP + '/models/' + encodeURIComponent(m.id), null, function (code, data) {
@@ -2742,6 +2855,7 @@
   function enterModels() {
     loadModels(null);
     loadLoras(null);
+    loadUpscalers();
     loadCatalog();
     dlPoll();
   }
@@ -2800,7 +2914,7 @@
     show('mdot', active > 0, 'inline-block');
     drawDownloads();
     updateCatalog();
-    if (refresh) { loadModels(null); loadLoras(null); loadCatalog(); }
+    if (refresh) { loadModels(null); loadLoras(null); loadCatalog(); loadUpscalers(); loadInfo(); }
   }
 
   function drawDownloads() {
@@ -2950,8 +3064,10 @@
     if (!f || upXhr) return;
     var kind = $('up-kind').value;
     var name = f.name;
-    if (kind === 'presets' ? !/\.txt$/i.test(name) : !/\.(gguf|safetensors|ckpt|sft)$/i.test(name)) {
-      toast(kind === 'presets' ? 'A preset is a .txt file.' : 'Only .gguf, .safetensors, .ckpt and .sft files.', 6000);
+    var okName = kind === 'presets' ? /\.txt$/i : kind === 'upscalers' ? /\.(pth|pt|safetensors|gguf)$/i : /\.(gguf|safetensors|ckpt|sft)$/i;
+    if (!okName.test(name)) {
+      toast(kind === 'presets' ? 'A preset is a .txt file.' : kind === 'upscalers' ? 'An upscaler is a .pth, .pt, .safetensors or .gguf file.'
+        : 'Only .gguf, .safetensors, .ckpt and .sft files.', 6000);
       return;
     }
     var x = new XMLHttpRequest();
@@ -2988,9 +3104,11 @@
     $('up-pick').disabled = false;
     $('up-kind').disabled = false;
     if (code === 200) {
-      var listed = kind === 'models' || kind === 'presets' || kind === 'loras';
+      var listed = kind === 'models' || kind === 'presets' || kind === 'loras' || kind === 'upscalers';
       toast(name + ' is on the console' + (listed ? ' and in the list.' : '.'), 6000);
-      if (kind === 'loras') loadLoras(null); else if (listed) loadModels(null);
+      if (kind === 'loras') loadLoras(null);
+      else if (kind === 'upscalers') { loadUpscalers(); loadInfo(); }
+      else if (listed) loadModels(null);
     } else if (code === 0) {
       toast('The upload of ' + name + ' stopped.', 6000);
     } else {
@@ -3185,6 +3303,175 @@
     return row;
   }
 
+  // ---------- upscalers ----------
+  // The ESRGAN models in /data/PS5SD/upscalers: for the hires fix and the Upscale button. Two
+  // well-known ones can be fetched with one click (the Hugging Face copies are byte for byte
+  // Real-ESRGAN's own releases).
+  var UPSCALERS = [
+    { file: 'RealESRGAN_x4plus.pth', label: 'Real-ESRGAN x4plus', note: 'photos and most images, 67 MB',
+      url: 'https://huggingface.co/lllyasviel/Annotators/resolve/main/RealESRGAN_x4plus.pth' },
+    { file: 'RealESRGAN_x4plus_anime_6B.pth', label: 'Real-ESRGAN x4plus anime 6B', note: 'anime and drawings, 18 MB',
+      url: 'https://huggingface.co/gemasai/RealESRGAN_x4plus_anime_6B/resolve/main/RealESRGAN_x4plus_anime_6B.pth' }
+  ];
+  var upList = null;      // GET APP/upscalers ({name, file, bytes}), null until known
+  var upModels = [];      // the server's upscalers that the Upscale button can use (names)
+  var upBusy = false;
+
+  function loadUpscalers() {
+    req('GET', APP + '/upscalers', null, function (code, data) {
+      if (code !== 200 || !data || !data.upscalers) return;
+      upList = data.upscalers;
+      show('pnl-ups', true);
+      drawUpscalers();
+    });
+  }
+
+  function drawUpscalers() {
+    var box = $('ulist');
+    clear(box);
+    var list = upList || [];
+    if (!list.length) box.appendChild(el('div', 'empty-note', 'No upscalers yet. Get one below.'));
+    for (var i = 0; i < list.length; i++) {
+      (function (u) {
+        var row = el('div', 'mrow mwrap');
+        var main = el('div', 'mmain');
+        main.appendChild(el('div', 'mname', u.name));
+        main.appendChild(el('div', 'mmeta', bytes(u.bytes) + ' · ' + u.file));
+        row.appendChild(main);
+        var acts = el('div', 'macts');
+        var del = actionButton('Delete', function () { askDeleteUpscaler(u); });
+        del.className = 'danger';
+        acts.appendChild(del);
+        row.appendChild(acts);
+        box.appendChild(row);
+      })(list[i]);
+    }
+    var sug = $('usugg');
+    clear(sug);
+    for (var k = 0; k < UPSCALERS.length; k++) {
+      (function (c) {
+        for (var j = 0; j < list.length; j++) if (list[j].file === c.file) return;
+        var row = el('div', 'mrow mwrap');
+        var main = el('div', 'mmain');
+        main.appendChild(el('div', 'mname', c.label));
+        main.appendChild(el('div', 'mmeta', c.note));
+        row.appendChild(main);
+        var acts = el('div', 'macts');
+        var b = actionButton('Download', function () { startDownload(c.url, b, true, null, 'upscalers'); });
+        b.className = 'on';
+        acts.appendChild(b);
+        row.appendChild(acts);
+        sug.appendChild(row);
+      })(UPSCALERS[k]);
+    }
+  }
+
+  function askDeleteUpscaler(u) {
+    dlgFor = { upscaler: u };
+    dlgFrom = document.activeElement;
+    text($('dlg-title'), 'Delete ' + u.name + ' (' + bytes(u.bytes) + ')?');
+    text($('dlg-body'), 'The upscaler file is deleted from the console.');
+    $('dlg-ok').disabled = false;
+    $('dlg-cancel').disabled = false;
+    text($('dlg-ok'), 'Delete');
+    show('dlg', true, 'flex');
+    $('dlg-cancel').focus();
+  }
+
+  function deleteUpscaler(u) {
+    req('DELETE', APP + '/upscalers/' + encodeURIComponent(u.file), null, function (code, data) {
+      closeDlg();
+      if (code === 200 && data && data.upscalers) {
+        upList = data.upscalers;
+        drawUpscalers();
+        loadInfo();
+        toast('Deleted ' + u.name + '.');
+      } else {
+        toast(errText(code, data, 'Could not delete ' + u.name), 6000);
+        loadUpscalers();
+      }
+    }, 30000);
+  }
+
+  // The server's upscalers (capabilities): every one for the hires fix, the ESRGAN ones for the
+  // Upscale button.
+  function setUpscalers(list) {
+    var all = [], img = [];
+    for (var i = 0; i < list.length; i++) {
+      if (!list[i] || !list[i].name || list[i].name === 'None') continue;
+      all.push(list[i].name);
+      if (list[i].image_upscale) img.push(list[i].name);
+    }
+    var hr = $('hr-up'), keep = hr.value || load('hrup') || 'Latent';
+    clear(hr);
+    for (var j = 0; j < all.length; j++) {
+      var o = document.createElement('option');
+      o.value = all[j];
+      text(o, all[j]);
+      hr.appendChild(o);
+    }
+    setSelect('hr-up', keep, 'Latent');
+    upModels = img;
+    var sel = $('opt-up'), want = load('upscaler') || sel.value;
+    clear(sel);
+    for (var k = 0; k < img.length; k++) {
+      var u = document.createElement('option');
+      u.value = img[k];
+      text(u, img[k]);
+      sel.appendChild(u);
+    }
+    if (img.length) setSelect('opt-up', want, img[0]);
+    show('opt-up-box', img.length > 0);
+    show('lb-up', img.length > 0, 'inline-block');
+    if (!st.busy && st.results) pickResult(st.pick);
+  }
+
+  // The image as base64: a data URL as it is, a gallery file fetched.
+  function imageBase64(src, cb) {
+    if (src.indexOf('data:') === 0) { cb(src.substring(src.indexOf(',') + 1)); return; }
+    var x = new XMLHttpRequest();
+    x.open('GET', src, true);
+    x.responseType = 'arraybuffer';
+    x.onload = function () {
+      if (x.status !== 200) { cb(null); return; }
+      var a = new Uint8Array(x.response), bin = '';
+      for (var i = 0; i < a.length; i += 0x8000) bin += String.fromCharCode.apply(null, a.subarray(i, i + 0x8000));
+      cb(window.btoa(bin));
+    };
+    x.onerror = function () { cb(null); };
+    x.send();
+  }
+
+  // Runs the upscaler over an image; the server saves the result to the gallery, which then
+  // opens on it. b: the button pressed (shows the progress).
+  function upscale(src, b) {
+    if (upBusy || !upModels.length) return;
+    upBusy = true;
+    var label = b ? b.textContent : '';
+    if (b) { b.disabled = true; text(b, 'Upscaling…'); }
+    var t0 = new Date().getTime();
+    var finish = function (message, ms) {
+      upBusy = false;
+      if (b) { b.disabled = false; text(b, label); }
+      if (message) toast(message, ms || 6000);
+    };
+    imageBase64(src, function (b64) {
+      if (!b64) { finish('Could not read the image.'); return; }
+      var body = { image: b64, upscaler: $('opt-up').value || upModels[0], return_image: false };
+      req('POST', '/sdcpp/v1/upscale', body, function (code, data) {
+        if (code !== 200 || !data) { finish(errText(code, data, 'The upscale failed')); return; }
+        var secs = (new Date().getTime() - t0) / 1000;
+        var name = data.saved && data.saved[0];
+        finish('Upscaled to ' + data.width + '×' + data.height + ' in ' + clock(secs) + (name ? '; it is in the gallery.' : '.'), 6000);
+        if (!name) return;
+        loadGallery(function (list) {
+          if (!list) return;
+          for (var i = 0; i < list.length; i++) if (list[i].name === name) { openLb(i, b); return; }
+        });
+      }, 30 * 60 * 1000);
+    });
+  }
+
   // ---------- server info ----------
   function loadInfo() {
     if (st.infoBusy) return;
@@ -3197,6 +3484,7 @@
             var modes = caps.supported_modes || [];
             for (var i = 0; i < modes.length; i++) if (modes[i] === 'img_gen') st.useJobs = true;
             st.canCancelGen = !!(caps.features && caps.features.cancel_generating);
+            setUpscalers(caps.upscalers || []);
             var mb = caps.limits && caps.limits.max_batch_count;
             if (typeof mb === 'number' && mb >= 1) {
               st.maxBatch = Math.floor(mb);
@@ -3292,6 +3580,17 @@
     loadTvOption();
     $('opt-tv').onchange = setTvOption;
     $('opt-tvkey').onchange = setTvKeyOption;
+    $('hr-on').onchange = function () { drawHires(); persist(); };
+    $('hr-up').onchange = function () { save('hrup', this.value); persist(); };
+    $('hr-scale').onchange = $('hr-steps').onchange = $('hr-den').onchange = persist;
+    $('hr-scale-').onclick = function () { stepper('hr-scale', -0.25, 1.25, 4, 2); };
+    $('hr-scale+').onclick = function () { stepper('hr-scale', 0.25, 1.25, 4, 2); };
+    $('hr-steps-').onclick = function () { stepper('hr-steps', -1, 0, 150, 0); };
+    $('hr-steps+').onclick = function () { stepper('hr-steps', 1, 0, 150, 0); };
+    $('hr-den-').onclick = function () { stepper('hr-den', -0.05, 0.05, 1, 2); };
+    $('hr-den+').onclick = function () { stepper('hr-den', 0.05, 0.05, 1, 2); };
+    $('opt-up').onchange = function () { save('upscaler', this.value); };
+    $('lb-up').onclick = function () { var it = galleryList[st.lb]; if (it) upscale(it.url, $('lb-up')); };
     $('auth-on').onclick = newKey;
     $('auth-new').onclick = newKey;
     $('auth-off').onclick = askAuthOff;

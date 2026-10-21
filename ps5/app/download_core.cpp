@@ -265,6 +265,17 @@ bool is_model_file_name(const std::string & name) {
     return false;
 }
 
+bool is_upscaler_file_name(const std::string & name) {
+    const std::string n = lower(name);
+    for (const char * ext : { ".pth", ".pt", ".safetensors", ".gguf" }) {
+        const std::string e = ext;
+        if (n.size() > e.size() && n.compare(n.size() - e.size(), e.size(), e) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
 bool valid_dest(const std::string & dest, std::string & error) {
     if (dest.empty() || dest.size() > 240) {
         error = "dest must be a file name or a relative path of at most 240 bytes";
@@ -505,8 +516,8 @@ bool upload_target(const std::string & path, std::string & kind, std::string & n
     const size_t slash = path.find('/');
     kind               = path.substr(0, slash);
     name               = slash == std::string::npos ? std::string() : path.substr(slash + 1);
-    if (kind != "models" && kind != "loras" && kind != "embeddings" && kind != "presets") {
-        error = "uploads go to models, loras, embeddings or presets, not '" + kind + "'";
+    if (kind != "models" && kind != "loras" && kind != "embeddings" && kind != "presets" && kind != "upscalers") {
+        error = "uploads go to models, loras, embeddings, presets or upscalers, not '" + kind + "'";
         return false;
     }
     if (kind == "models") {
@@ -515,6 +526,17 @@ bool upload_target(const std::string & path, std::string & kind, std::string & n
     if (name.find('/') != std::string::npos) {
         error = "no folders in " + kind + ": " + name;
         return false;
+    }
+    if (kind == "upscalers") {
+        // sd-server lists the top of the folder only; ESRGAN models are often .pth
+        std::string ignored;
+        const size_t dot = name.rfind('.');
+        if (!is_upscaler_file_name(name) || dot == std::string::npos ||
+            !valid_dest(name.substr(0, dot) + ".gguf", ignored)) {
+            error = "an upscaler is a .pth, .pt, .safetensors or .gguf file name: " + name;
+            return false;
+        }
+        return true;
     }
     if (kind != "presets") {
         return valid_dest(name, error);
@@ -537,16 +559,16 @@ bool valid_target(const std::string & kind, const std::string & dest, std::strin
     if (kind == "models") {
         return valid_dest(dest, error);
     }
-    if (kind != "loras") {
-        error = "kind is models or loras, not '" + kind + "'";
+    if (kind != "loras" && kind != "upscalers") {
+        error = "kind is models, loras or upscalers, not '" + kind + "'";
         return false;
     }
     std::string ignored_kind, ignored_name;
-    return upload_target("loras/" + dest, ignored_kind, ignored_name, error);
+    return upload_target(kind + "/" + dest, ignored_kind, ignored_name, error);
 }
 
 std::string download_key(const std::string & kind, const std::string & dest) {
-    return kind == "loras" ? "loras/" + dest : dest;
+    return kind == "models" ? dest : kind + "/" + dest;
 }
 
 bool gallery_name_ok(const std::string & name) {
@@ -584,7 +606,10 @@ std::vector<DownloadRecord> queue_from_json(const std::string & text) {
         DownloadRecord d;
         d.url     = str_of(e, "url");
         d.dest    = str_of(e, "dest");
-        d.kind    = str_of(e, "kind") == "loras" ? "loras" : "models";
+        d.kind    = str_of(e, "kind");
+        if (d.kind != "loras" && d.kind != "upscalers") {
+            d.kind = "models";
+        }
         d.catalog = str_of(e, "catalog");
         d.state   = str_of(e, "state");
         d.error   = str_of(e, "error");
@@ -629,12 +654,12 @@ bool parse_download_request(const std::string & body, DownloadRequest & out, std
     out.dest    = str_of(j, "dest");
     out.catalog = str_of(j, "catalog");
     out.kind    = str_of(j, "kind");
-    if (!out.kind.empty() && out.kind != "models" && out.kind != "loras") {
-        error = "kind is models or loras, not '" + out.kind + "'";
+    if (!out.kind.empty() && out.kind != "models" && out.kind != "loras" && out.kind != "upscalers") {
+        error = "kind is models, loras or upscalers, not '" + out.kind + "'";
         return false;
     }
-    if (out.kind == "loras" && !out.catalog.empty()) {
-        error = "a catalog entry goes to models, not loras";
+    if (!out.kind.empty() && out.kind != "models" && !out.catalog.empty()) {
+        error = "a catalog entry goes to models, not " + out.kind;
         return false;
     }
     if (out.url.empty() && out.catalog.empty()) {
@@ -768,12 +793,13 @@ bool parse_civitai_version(const std::string & text, const std::string & file_id
     if (pick->contains("sizeKB") && (*pick)["sizeKB"].is_number()) {
         bytes = static_cast<uint64_t>(std::llround((*pick)["sizeKB"].get<double>() * 1024.0));
     }
-    if (name.empty() || !is_model_file_name(name)) {
+    const std::string type = j.contains("model") && j["model"].is_object() ? str_of(j["model"], "type") : "";
+    if (name.empty() || !(is_model_file_name(name) || (type == "Upscaler" && is_upscaler_file_name(name)))) {
         error = "the file of this model version is not a model file: " + name;
         return false;
     }
     if (model_type != nullptr) {
-        *model_type = j.contains("model") && j["model"].is_object() ? str_of(j["model"], "type") : "";
+        *model_type = type;
     }
     return true;
 }

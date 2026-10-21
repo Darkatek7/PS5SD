@@ -147,6 +147,7 @@ constexpr const char * kDocs    = "/app0/docs";  // the Help tab's docs (scripts
 constexpr const char * kOutputs = "/data/PS5SD/outputs";
 constexpr const char * kLoras   = "/data/PS5SD/loras";
 constexpr const char * kEmbeddings = "/data/PS5SD/embeddings";
+constexpr const char * kUpscalers = "/data/PS5SD/upscalers";  // ESRGAN models: hires fix and the Upscale button
 constexpr const char * kModels  = "/data/PS5SD/models";
 constexpr const char * kPresets = "/data/PS5SD/presets";
 #ifndef PS5SD_NO_DISPLAY
@@ -561,6 +562,11 @@ bool server_plan(ServerPlan & plan, std::string & error) {
     }
     if (!names({ "--embd-dir" })) {
         args.insert(args.end(), { "--embd-dir", kEmbeddings });
+    }
+    // Upscaler models for the hires fix and POST /sdcpp/v1/upscale (sd-server
+    // lists the top of the folder).
+    if (!names({ "--hires-upscalers-dir" })) {
+        args.insert(args.end(), { "--hires-upscalers-dir", kUpscalers });
     }
     args.insert(args.end(), extra.begin(), extra.end());
     for (size_t i = 0; i + 1 < args.size(); i++) {
@@ -987,6 +993,8 @@ bool set_api_key(bool on, std::string & error) {
 //   catalog, downloads, downloads/<id>, hf/search: the model downloader
 //                       (downloader.hpp), which runs on its own threads and
 //                       keeps going while the server restarts.
+//   upscalers (GET), upscalers/<file> (DELETE): the upscaler models in
+//                       /data/PS5SD/upscalers.
 //   settings (GET, POST) the app's settings (AppSettings): {"tv_images": bool,
 //                       "tv_api_key": bool}.
 //   auth (GET), auth/enable, auth/disable (POST): the API key; enable makes
@@ -1044,7 +1052,8 @@ extern "C" int sd_app_upload(const char * path, uint64_t length, sd_app_reader r
                        },
                        &ctx) != 0;
         };
-        status = upload_file(UploadDirs{ kModels, kLoras, kEmbeddings, kPresets }, p.substr(8), length, reader, out);
+        status = upload_file(UploadDirs{ kModels, kLoras, kEmbeddings, kPresets, kUpscalers }, p.substr(8), length, reader,
+                             out);
     }
     *out_body = static_cast<char *>(std::malloc(out.size()));
     if (*out_body != nullptr) {
@@ -1242,6 +1251,26 @@ extern "C" int sd_app_request(const char * method, const char * path, const char
             out    = error_json("could not delete " + path + ": " + std::strerror(errno));
             status = 500;
         }
+    } else if (m == "GET" && p == "upscalers") {
+        out    = upscalers_json(kUpscalers);
+        status = 200;
+    } else if (m == "DELETE" && p.rfind("upscalers/", 0) == 0) {
+        // One upscaler file; a running hires fix or upscale has read it already.
+        const std::string name = p.substr(10);
+        std::string       kind, file, error;
+        if (!upload_target("upscalers/" + name, kind, file, error)) {
+            out    = error_json("not an upscaler file: " + name);
+            status = 400;
+        } else if (::unlink((std::string(kUpscalers) + "/" + name).c_str()) == 0) {
+            out    = upscalers_json(kUpscalers);
+            status = 200;
+        } else if (errno == ENOENT) {
+            out    = error_json("no upscaler " + name);
+            status = 404;
+        } else {
+            out    = error_json("could not delete " + name + ": " + std::strerror(errno));
+            status = 500;
+        }
     } else if (m == "DELETE" && p.rfind("gallery/", 0) == 0) {
         // One image of the gallery (the PNGs in outputs); the gallery lists
         // that folder on each request, so the file is all there is.
@@ -1334,7 +1363,7 @@ extern "C" void sd_activity_job_end(int ok, const char * output_path) {
 
 int main(int, char **) {
     mkdir(kDir, 0777);
-    for (const char * dir : { kModels, kLoras, kEmbeddings, kPresets }) {
+    for (const char * dir : { kModels, kLoras, kEmbeddings, kPresets, kUpscalers }) {
         mkdir(dir, 0777);  // uploads, downloads and sd-server's lists expect them
     }
     // stdout and stderr to a file the PC can fetch over FTP.
@@ -1431,6 +1460,7 @@ int main(int, char **) {
         DownloaderConfig dl;
         dl.models_dir         = kModels;
         dl.loras_dir          = kLoras;
+        dl.upscalers_dir      = kUpscalers;
         dl.presets_dir        = kPresets;
         dl.queue_file         = std::string(kDir) + "/downloads.json";
         dl.hf_token_file      = std::string(kDir) + "/hf-token.txt";

@@ -9,6 +9,9 @@ go into [issues](https://github.com/Darkatek7/PS5SD/issues); this file says what
   end), uploads from the PC, gallery, Help tab, TV dashboard.
 - **0.2.0**: LoRAs, several per model, each with its own strength; download, upload, list and delete.
 - **0.3.0**: web UI options from [#3](https://github.com/Darkatek7/PS5SD/issues/3), below.
+- **0.4.0**: the hires fix (a second pass at a larger size, on the Create tab and in presets) and the
+  Upscale button (ESRGAN, the result saved to the gallery); upscaler models in `/data/PS5SD/upscalers`,
+  two of them one click away on the Models tab.
 - **0.3.1**: an API key for the whole API (Bearer, Basic or the web UI's login; made by the console and
   shown on the TV), CORS without credentials, a 64 MB limit on request bodies; a Presets tab (save the
   Create tab's settings as a preset, edit, delete; a preset of the loaded model switches at once), and
@@ -24,16 +27,17 @@ Small changes, all in the web UI and the dashboard; nothing new for the console'
 - [x] **Done signal**: a sound and a mark in the tab's title when a run ends; a browser notification
   where the browser allows one (only on HTTPS or localhost, so not on the console's plain HTTP page).
 
-## 0.4.0: high resolution and upscaling (#3)
+## 0.4.0: high resolution and upscaling ([#3](https://github.com/Darkatek7/PS5SD/issues/3))
 
-sd-server already supports both; PS5SD does not expose them yet.
-
-- [ ] **Hires fix / second pass**: generate, scale up (latent, Lanczos or an upscaler model), and run a
-  few more steps at the larger size. A "Hires fix" section on the Create tab.
-- [ ] **Upscale an image**: an ESRGAN model in `/data/PS5SD/upscalers` (also passed to sd-server as
-  `--hires-upscalers-dir`) and an Upscale button in the image viewer (`POST /sdcpp/v1/upscale`).
-- [ ] **Measure first**: how large an SDXL image can get on the console (2048x2048 and up: memory, time,
-  VAE tiling), before the UI offers it.
+- [x] **Hires fix / second pass**: generate, scale up (latent, Lanczos or an upscaler model), and run
+  more steps at the larger size. A "Hires fix" part of the Create tab's Settings; presets keep it.
+- [x] **Upscale an image**: an ESRGAN model in `/data/PS5SD/upscalers` (passed to sd-server as
+  `--hires-upscalers-dir`), an Upscale button under the result and in the image viewer
+  (`POST /sdcpp/v1/upscale`, patch 0061 saves the result to the gallery). Download, upload and delete on
+  the Models tab, with Real-ESRGAN x4plus and its anime model one click away.
+- [ ] **Measure on the console**: how large an SDXL image can get with the hires fix (2048x2048 and up:
+  memory, time, VAE tiling), and how long an Upscale of 1024 to 4096 takes. The web UI warns above
+  2048 until then.
 
 ## 0.5.0: image to image and inpainting ([#3](https://github.com/Darkatek7/PS5SD/issues/3))
 
@@ -71,6 +75,8 @@ Image input is what ControlNet (0.6.0) needs as well.
   img2img in the app. Only if hires fix plus ESRGAN (0.4.0) is not enough.
 - **Preset defaults for API clients**: presets could set the sampler, scheduler and steps for clients that
   send none (for example `ays` for iLustMix at 10 steps; the web UI sets them already).
+- **Gallery thumbnails**: the gallery shows every image at full size, which for 4096 px upscales is
+  slow on the console's own browser. Small copies made when an image is saved would fix that.
 - **Face and detail fix** (like ADetailer): sd.cpp's `sd-cli` can find faces with a YOLOv8 model and
   inpaint each one cropped. sd-server does not have it; with 0.5.0's masked inpainting it could be a
   button that runs the detector and inpaints what it finds.

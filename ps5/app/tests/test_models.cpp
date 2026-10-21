@@ -182,6 +182,14 @@ int main() {
         check(!lib.create_preset("a\nb", "flux", {}, id, error), "a name of two lines");
         check(!lib.create_preset("x", "flux", { { "steps", "1 --evil" } }, id, error), "a default with a space");
         check(!lib.create_preset("x", "flux", { { "prompt", "a" } }, id, error), "an unknown default");
+        check(lib.create_preset("Flux hires", "flux",
+                                { { "hires_scale", "1.5" }, { "hires_steps", "0" }, { "hires_denoise", "0.45" },
+                                  { "hires_upscaler", "Latent%20%28nearest-exact%29" } },
+                                id, error) &&
+                  lib.find(id, v, error) && v.defaults.size() == 4 && v.defaults[3].second == "Latent%20%28nearest-exact%29",
+              "hires defaults, the upscaler percent-encoded");
+        check(!lib.create_preset("x", "flux", { { "hires_upscaler", "Latent (nearest)" } }, id, error),
+              "an upscaler name with spaces must be encoded");
         check(!lib.create_preset("x", "nope", {}, id, error), "no such base");
         const auto j = nlohmann::json::parse(ps5sd::models_json(lib, "", "", false));
         bool       seen = false;
@@ -261,6 +269,15 @@ int main() {
               "loras json: model files only, with subfolders and sizes");
         check(nlohmann::json::parse(ps5sd::loras_json((root / "none").u8string()))["loras"].empty(),
               "loras json: no folder, no LoRAs");
+        const fs::path ups = root / "upscalers";
+        fs::create_directories(ups / "sub");
+        std::ofstream(ups / "RealESRGAN_x4plus.pth") << "123";
+        std::ofstream(ups / "4x.safetensors") << "1";
+        std::ofstream(ups / "4x.pth.part") << "1";
+        std::ofstream(ups / "sub" / "deep.pth") << "1";
+        const auto u = nlohmann::json::parse(ps5sd::upscalers_json(ups.u8string()))["upscalers"];
+        check(u.size() == 2 && u[0]["file"] == "4x.safetensors" && u[1]["name"] == "RealESRGAN_x4plus" && u[1]["bytes"] == 3,
+              "upscalers json: the top of the folder, upscaler files only");
     }
 
     fs::remove_all(root);

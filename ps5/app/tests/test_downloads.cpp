@@ -263,6 +263,38 @@ int main() {
     check(valid_target("loras", "style.safetensors", error) && !valid_target("loras", "a/style.safetensors", error) &&
               valid_target("models", "a/m.gguf", error) && !valid_target("vae", "v.safetensors", error),
           "download targets");
+    {
+        std::string kind, name, e;
+        check(valid_target("upscalers", "RealESRGAN_x4plus.pth", error) && valid_target("upscalers", "4x.safetensors", error) &&
+                  !valid_target("upscalers", "esrgan/4x.pth", error) && !valid_target("upscalers", "4x.ckpt", error) &&
+                  !valid_target("upscalers", ".4x.pth", error) && !valid_target("upscalers", "../4x.pth", error),
+              "upscaler targets: .pth/.pt/.safetensors/.gguf, no folders");
+        check(upload_target("upscalers/4x-UltraSharp.pth", kind, name, e) && kind == "upscalers" && name == "4x-UltraSharp.pth",
+              "upload: an upscaler");
+        check(download_key("upscalers", "a.pth") == "upscalers/a.pth" && download_key("models", "a.gguf") == "a.gguf",
+              "an upscaler's id differs from a model's");
+        DownloadRecord u;
+        u.url  = "https://huggingface.co/a/b/resolve/main/x4.pth";
+        u.dest = "x4.pth";
+        u.kind = "upscalers";
+        u.id   = download_id(download_key(u.kind, u.dest));
+        const auto back = queue_from_json(queue_to_json({ u }));
+        check(back.size() == 1 && back[0].kind == "upscalers", "an upscaler download keeps its kind");
+        DownloadRequest dr;
+        check(parse_download_request("{\"url\":\"u\",\"kind\":\"upscalers\"}", dr, error) && dr.kind == "upscalers",
+              "an upscaler download request");
+        check(!parse_download_request("{\"catalog\":\"sdxs-512\",\"kind\":\"upscalers\"}", dr, error),
+              "no catalog entry as an upscaler");
+        std::string n, url, type;
+        uint64_t    bytes = 0;
+        check(parse_civitai_version(R"({"model":{"type":"Upscaler"},"files":[{"type":"Model","name":"4x_foo.pth","downloadUrl":"https://civitai.com/api/download/models/1"}]})",
+                                    "", n, url, bytes, error, &type) &&
+                  n == "4x_foo.pth" && type == "Upscaler",
+              "a Civitai upscaler may be a .pth");
+        check(!parse_civitai_version(R"({"model":{"type":"Checkpoint"},"files":[{"type":"Model","name":"x.pth","downloadUrl":"u"}]})",
+                                     "", n, url, bytes, error, &type),
+              "a checkpoint must not be a .pth");
+    }
 
     // The .part grows as pieces land: a done piece must lie inside it.
     check(pieces_within("1100", 10, 35, 20) && pieces_within("0000", 10, 35, 0), "pieces inside the .part");

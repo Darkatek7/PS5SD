@@ -352,9 +352,12 @@ std::string slug(const std::string & name) {
 }
 
 // A default's value as "# defaults:" can hold it: one word of letters,
-// digits and . _ + - : , / (sampler names like dpm++2m, LoRA lists).
+// digits and . _ + - : , / % (sampler names like dpm++2m, LoRA lists, a
+// percent-encoded upscaler name like Latent%20(nearest-exact)).
 bool valid_default(const std::string & key, const std::string & value) {
-    static const char * const kKeys[] = { "steps", "cfg", "width", "height", "sampler", "scheduler", "loras" };
+    static const char * const kKeys[] = { "steps",       "cfg",         "width",         "height",        "sampler",
+                                          "scheduler",   "loras",       "hires_scale",   "hires_steps",   "hires_denoise",
+                                          "hires_upscaler" };
     bool known = false;
     for (const char * k : kKeys) {
         known = known || key == k;
@@ -363,7 +366,7 @@ bool valid_default(const std::string & key, const std::string & value) {
         return false;
     }
     for (unsigned char c : value) {
-        if (!(std::isalnum(c) && c < 0x80) && std::strchr("._+-:,/", c) == nullptr) {
+        if (!(std::isalnum(c) && c < 0x80) && std::strchr("._+-:,/%", c) == nullptr) {
             return false;
         }
     }
@@ -563,6 +566,29 @@ std::string loras_json(const std::string & dir) {
         list.push_back({ { "name", fs::u8path(f.first).stem().u8string() }, { "path", f.first }, { "bytes", f.second } });
     }
     return nlohmann::json{ { "loras", list } }.dump();
+}
+
+std::string upscalers_json(const std::string & dir) {
+    std::vector<std::pair<std::string, uint64_t>> files;
+    std::error_code                               ec;
+    for (fs::directory_iterator it(fs::u8path(dir), ec), end; !ec && it != end; it.increment(ec)) {
+        const std::string name = it->path().filename().u8string();
+        const std::string n    = lower(name);
+        bool              ext  = false;
+        for (const char * e : { ".pth", ".pt", ".safetensors", ".gguf" }) {
+            const std::string x = e;
+            ext = ext || (n.size() > x.size() && n.compare(n.size() - x.size(), x.size(), x) == 0);
+        }
+        if (ext && name[0] != '.' && is_file(it->path())) {
+            files.emplace_back(name, size_of(it->path()));
+        }
+    }
+    std::sort(files.begin(), files.end());
+    nlohmann::json list = nlohmann::json::array();
+    for (const auto & f : files) {
+        list.push_back({ { "name", fs::u8path(f.first).stem().u8string() }, { "file", f.first }, { "bytes", f.second } });
+    }
+    return nlohmann::json{ { "upscalers", list } }.dump(-1, ' ', false, nlohmann::json::error_handler_t::replace);
 }
 
 std::string sd_models_json(const ModelLibrary & library) {

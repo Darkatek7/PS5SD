@@ -16,6 +16,7 @@ It reads `.safetensors`, `.gguf`, `.ckpt` and `.sft` files. Everything lives und
 | `/data/PS5SD/presets` | one `<id>.txt` per multi-file model, or per checkpoint that needs its own options |
 | `/data/PS5SD/loras` | LoRAs; see **LoRAs** below |
 | `/data/PS5SD/embeddings` | textual inversions |
+| `/data/PS5SD/upscalers` | upscalers (ESRGAN, `.pth`): see **Upscalers** below |
 
 There are four ways to get a model there:
 
@@ -202,6 +203,26 @@ On the console, a LoRA costs no time per step: it is merged into the loaded weig
 again for a request without it. Changing the set of LoRAs makes the first step of that request longer
 once (about 1.5 s for the first SDXL LoRA, about 13 s when a second one comes or goes); the next
 requests with the same LoRAs run at full speed. The measurements are in [CONSOLE.md](CONSOLE.md).
+
+## Upscalers
+
+An upscaler makes an image larger and sharper. PS5SD uses one in two places: the **Upscale** button
+under an image and in the gallery (the result goes into the gallery), and the **Hires fix** on the Create
+tab (Settings), which generates, scales up and samples again at the larger size. The hires fix works
+without one, with the built-in `Latent`, `Lanczos` and `Nearest`; a model keeps more detail.
+
+The Models tab offers two with one click:
+
+| | For | Size |
+|---|---|---|
+| Real-ESRGAN x4plus | photos and most images | 67 MB |
+| Real-ESRGAN x4plus anime 6B | anime and drawings | 18 MB |
+
+Both are byte for byte the files of [Real-ESRGAN](https://github.com/xinntao/Real-ESRGAN)'s releases
+(BSD-3-Clause). Others (4x-UltraSharp, the models on [OpenModelDB](https://openmodeldb.info) with the
+ESRGAN or MoSR architecture): a Hugging Face or Civitai link as **Upscaler** under **Add by link**, a
+`.pth` file as **Upscaler** under **Upload**, or by FTP into `/data/PS5SD/upscalers` (no subfolders).
+Most make an image 4 times as wide and high; an Upscale of a 1024x1024 image is 4096x4096.
 
 ## How big a model can be
 

@@ -26,6 +26,7 @@ namespace ps5sd {
 struct DownloaderConfig {
     std::string models_dir;          // /data/PS5SD/models
     std::string loras_dir;           // /data/PS5SD/loras (kind "loras")
+    std::string upscalers_dir;       // /data/PS5SD/upscalers (kind "upscalers")
     std::string presets_dir;         // /data/PS5SD/presets
     std::string queue_file;          // /data/PS5SD/downloads.json
     std::string hf_token_file;       // /data/PS5SD/hf-token.txt (optional)

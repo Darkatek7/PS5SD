@@ -65,6 +65,7 @@ int upload_file(const UploadDirs & dirs, const std::string & path, uint64_t leng
     const std::string & dir  = kind == "models" ? dirs.models
                                : kind == "loras" ? dirs.loras
                                : kind == "embeddings" ? dirs.embeddings
+                               : kind == "upscalers" ? dirs.upscalers
                                                       : dirs.presets;
     const std::string   dest = dir + "/" + name;
     const std::string   part = dest + ".part";

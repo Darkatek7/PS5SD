@@ -54,9 +54,9 @@ std::string models_path(const std::string & dest) {
     return g_cfg.models_dir + "/" + dest;
 }
 
-// Where a download of kind ("models" or "loras") lands.
+// Where a download of kind ("models", "loras" or "upscalers") lands.
 std::string target_path(const std::string & kind, const std::string & dest) {
-    return (kind == "loras" ? g_cfg.loras_dir : g_cfg.models_dir) + "/" + dest;
+    return (kind == "loras" ? g_cfg.loras_dir : kind == "upscalers" ? g_cfg.upscalers_dir : g_cfg.models_dir) + "/" + dest;
 }
 
 bool file_exists(const std::string & path) {
@@ -937,6 +937,8 @@ int post_download(const std::string & body, std::string & out) {
             }
             if (kind.empty() && is_lora_type(type)) {
                 kind = "loras";  // a Civitai LoRA, LoCon or DoRA
+            } else if (kind.empty() && type == "Upscaler") {
+                kind = "upscalers";
             }
         } else {
             dest = src.file_name;

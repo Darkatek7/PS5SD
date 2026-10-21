@@ -77,7 +77,8 @@ struct ModelLibrary {
     // A new variant preset of the entry base_id (the root entry, when base_id
     // is a variant itself): its model arguments, the name and the defaults
     // (keys as in "# defaults:": steps, cfg, width, height, sampler,
-    // scheduler, loras). The id comes from the name. False with a message
+    // scheduler, loras, hires_scale, hires_steps, hires_denoise,
+    // hires_upscaler). The id comes from the name. False with a message
     // for a name, a default or a base that does not do.
     bool create_preset(const std::string & name, const std::string & base_id,
                        const std::vector<std::pair<std::string, std::string>> & defaults, std::string & id,
@@ -120,6 +121,11 @@ std::string openai_models_json(const ModelLibrary & library);
 // files under dir and its subfolders (as sd-server's /sdapi/v1/loras lists
 // them, with sizes), sorted by path.
 std::string loras_json(const std::string & dir);
+
+// GET /ps5sd/v1/app/upscalers: {"upscalers": [{"name", "file", "bytes"}]},
+// the upscaler files (.pth, .pt, .safetensors, .gguf) directly in dir, as
+// sd-server lists them (name is the file name without its extension), sorted.
+std::string upscalers_json(const std::string & dir);
 
 // The id of the entry an A1111 client names as sd_model_checkpoint: its id or
 // its name, either with A1111's " [hash]" after it. Empty when none matches.
