@@ -1,132 +1,160 @@
 # Roadmap
 
-What is planned for PS5SD, in order. Each version is one release in the homebrew store. Ideas and wishes
-go into [issues](https://github.com/Darkatek7/PS5SD/issues); this file says what comes next and why.
+What is planned for PS5SD, in order, up to 1.0. Each version is one release in the homebrew store. Ideas
+and wishes go into [issues](https://github.com/Darkatek7/PS5SD/issues); this file says what comes next and
+why.
+
+The goal for 1.0: a title that someone who has never heard of stable-diffusion.cpp can install, open on a
+phone, and get good images and videos from without reading anything first; and an API that other programs
+can rely on.
 
 ## Done
 
-- **0.1.0**: the title with server, web UI, model downloader (through ftpsrv, at full speed to the
-  end), uploads from the PC, gallery, Help tab, TV dashboard.
-- **0.2.0**: LoRAs, several per model, each with its own strength; download, upload, list and delete.
-- **0.3.0**: web UI options from [#3](https://github.com/Darkatek7/PS5SD/issues/3), below.
 - **0.7.0**: ControlNet with SDXL (a guide image on the Create tab, Canny on the console, SDXL + Canny in
   the catalog), and the CausVid LoRA: a 2-second video in 3 minutes 40 s instead of about 14.5 minutes.
 - **0.6.0**: video with Wan 2.1 T2V 1.3B (WebM, played in the page and the gallery; in the catalog),
   and DMD2 and SDXL-Lightning one click away on the LoRAs panel.
-- **0.5.2**: the TV shows the console's own address (it showed `<console ip>` before) and a QR code that
-  opens the web UI, with the API key in it while the TV shows the key; after
+- **0.5.2**: the TV shows the console's own address and a QR code that opens the web UI, with the API key
+  in it while the TV shows the key; after
   [Machete PS5SD](https://github.com/VenezuelanBiggie24/Machete-PS5SD-IMG-and-VID) by VenezuelanBiggie24.
 - **0.5.1**: a loaded preset's settings are the API's defaults too (from
-  [#4](https://github.com/Darkatek7/PS5SD/pull/4), by nikay99), set at run time so presets of one model
-  still switch at once; the A1111 and OpenAI model lists show models only; deleting a saved preset through
-  the API no longer touches the model's file; `txt2img` without a size takes the default size.
-- **0.5.0**: image to image and inpainting: a start image (a file, a gallery image, the last result), a
-  mask painted in the page, only the masked area made at the model's size and put back with a soft edge;
-  SDXL and SD 1.5 inpainting models in the catalog.
-- **0.4.0**: the hires fix (a second pass at a larger size, on the Create tab and in presets) and the
-  Upscale button (ESRGAN, the result saved to the gallery); upscaler models in `/data/PS5SD/upscalers`,
-  two of them one click away on the Models tab.
-- **0.3.1**: an API key for the whole API (Bearer, Basic or the web UI's login; made by the console and
-  shown on the TV), CORS without credentials, a 64 MB limit on request bodies; a Presets tab (save the
-  Create tab's settings as a preset, edit, delete; a preset of the loaded model switches at once), and
-  the Models tab shows only models.
+  [#4](https://github.com/Darkatek7/PS5SD/pull/4), by nikay99); the A1111 and OpenAI model lists show
+  models only; `txt2img` without a size takes the default size.
+- **0.5.0**: image to image and inpainting (a start image, a mask painted in the page, only the masked area
+  made at the model's size); SDXL and SD 1.5 inpainting models in the catalog.
+- **0.4.0**: the hires fix and the Upscale button (ESRGAN); two upscalers one click away.
+- **0.3.1**: an API key for the whole API; a Presets tab.
+- **0.3.0**: batch, own size presets, no image on the TV, a done signal
+  ([#3](https://github.com/Darkatek7/PS5SD/issues/3)).
+- **0.2.0**: LoRAs, several per model, each with its own strength.
+- **0.1.0**: the title with server, web UI, model downloader, uploads from the PC, gallery, Help tab, TV
+  dashboard.
 
-## 0.3.0: web UI options ([#3](https://github.com/Darkatek7/PS5SD/issues/3)), done
+## 0.7.1: what [#3](https://github.com/Darkatek7/PS5SD/issues/3) asked for
 
-Small changes, all in the web UI and the dashboard; nothing new for the console's memory.
+Small, and promised in the issue.
 
-- [x] **Batch**: several images per run (sd-server's `batch_count`, up to 8), all shown and saved in the gallery.
-- [x] **Own size presets**: save the sizes you use and pick them with one click.
-- [x] **No image on the TV**: a switch that hides the images and prompts on the PS5 screen (dashboard).
-- [x] **Done signal**: a sound and a mark in the tab's title when a run ends; a browser notification
-  where the browser allows one (only on HTTPS or localhost, so not on the console's plain HTTP page).
+- [ ] **Hires fix at ×1**: a second pass at the same size, to refine an image without making it larger.
+  Measure first whether sd.cpp's hires pass takes a scale of 1.
+- [ ] **Say why a run failed**: "generate_image returned no results" tells nobody anything. The server
+  knows more (out of memory, a model that did not load, a LoRA of another family); the web UI and the API
+  should show that, with what to change.
+- [ ] **No sideways scrolling on a phone**: the tab bar is wider than a phone screen, so Help is cut off
+  and the whole page scrolls sideways.
 
-## 0.4.0: high resolution and upscaling ([#3](https://github.com/Darkatek7/PS5SD/issues/3))
+## 0.8.0: a clearer web UI
 
-- [x] **Hires fix / second pass**: generate, scale up (latent, Lanczos or an upscaler model), and run
-  more steps at the larger size. A "Hires fix" part of the Create tab's Settings; presets keep it.
-- [x] **Upscale an image**: an ESRGAN model in `/data/PS5SD/upscalers` (passed to sd-server as
-  `--hires-upscalers-dir`), an Upscale button under the result and in the image viewer
-  (`POST /sdcpp/v1/upscale`, patch 0061 saves the result to the gallery). Download, upload and delete on
-  the Models tab, with Real-ESRGAN x4plus and its anime model one click away.
-- [ ] **Measure on the console**: how large an SDXL image can get with the hires fix (2048x2048 and up:
-  memory, time, VAE tiling), and how long an Upscale of 1024 to 4096 takes. The web UI warns above
-  2048 until then.
+The web UI grew one feature at a time, and it shows. Measured on 0.7.0: the Create tab's Settings drawer
+is 2,329 px tall, with 29 fields, 47 buttons and 14 hint paragraphs in one list, where the steps of an
+image sit next to the API key and the sound. The Models tab is one list of eight panels. This version
+changes how the page is built, not what it can do; every feature stays.
 
-## 0.5.0: image to image and inpainting ([#3](https://github.com/Darkatek7/PS5SD/issues/3))
+**Where things are**
 
-sd-server takes an init image and a mask already (`init_images` and `mask` on `/sdapi/v1/img2img`,
-`init_image` and `mask_image` on `/sdcpp/v1/img_gen`), and sd.cpp loads the inpainting checkpoints of
-SD 1.x, SD 2.x and SDXL. What is missing is the web UI.
+- [ ] **Five tabs: Create, Gallery, Models, Settings, Help.** The Presets tab goes into Create (pick a
+  preset at the top) and Models (manage them).
+- [ ] **A Settings tab** for everything about the app, not the image: the done signal, the TV (images,
+  API key), the Upscale button's model, the API key, and the version and sd.cpp build. The Create tab keeps
+  only what makes the image.
+- [ ] **On a phone, the tabs sit at the bottom** of the screen, where a thumb reaches them, and the
+  Generate button stays in view while the settings scroll.
 
-- [x] **Image to image**: start from an image (a file, an image of the gallery with Edit, or the last
-  result) with a strength. Less than 1 runs only that share of the steps, so a light change is fast.
-- [x] **Inpainting**: paint a mask over the image (brush size, eraser, invert, clear) in a canvas that takes
-  a mouse, a finger and the DualSense cursor; only the masked part changes, and the rest stays pixel for
-  pixel (the result is blended back in the page).
-- [x] **Only the masked area**: a box around the mask, made at the model's size and put back with a soft
-  edge (A1111's "inpaint only masked"). The finished image goes to the gallery
-  (`POST /ps5sd/v1/app/gallery`) in place of the raw one.
-- [x] SDXL Inpainting 0.1 and SD 1.5 Inpainting (Q8_0 GGUF) in the catalog.
-- [ ] **Measure on the console**: a masked fix in a 1024x1024 SDXL image against the whole image, and
-  the inpainting models (only tested on a PC with a normal model so far).
+**The Create tab**
 
-Image input is what ControlNet (0.7.0) needs as well.
+- [ ] **The model is picked where it is used**: a list of the installed models (with what each is: SDXL,
+  FLUX, video, ControlNet) opens on the Create tab instead of jumping to the Models tab. A switch shows its
+  progress in place.
+- [ ] **One mode at a time**: Image, Edit (a start image, with the mask), Guide (ControlNet, with a model
+  that has one) and Video (with a video model). The mode shows only its own fields, so a video model never
+  shows the hires fix and an SD 1.5 model never shows ControlNet.
+- [ ] **Settings in groups**: Size, Quality (steps, CFG, sampler, scheduler), Style (LoRAs), Hires fix,
+  Seed and batch. Each group is closed by default and shows its values in one line, as the Settings
+  summary does now. The fields of a group open in place.
+- [ ] **The result is the biggest thing on the page**: on a PC it stays in view next to the settings, at
+  the size of the window; on a phone it comes first after a run.
+- [ ] **Progress that means something**: the step, the time per step and the time left; for video, which
+  part is running (text, steps, decoding).
+- [ ] **Less text on the page**: a hint is shown where a choice needs one (a LoRA of the wrong family, a
+  size that will not fit), not as a paragraph under every field. The long explanations go to Help, one tap
+  away (an ⓘ next to the field).
+- [ ] **Keys**: Ctrl+Enter generates, Escape cancels or closes the viewer, the arrows step through the
+  gallery.
 
-## 0.6.0: video, done
+**The Models tab**
 
-sd.cpp makes videos with Wan (`vid_gen`, `POST /sdcpp/v1/vid_gen`); sd-server has the route.
-[Machete PS5SD](https://github.com/VenezuelanBiggie24/Machete-PS5SD-IMG-and-VID) showed the idea; its
-presets do not load as they are (the text encoder goes in `--t5xxl`, Wan 2.2 TI2V 5B needs the Wan 2.2
-VAE), and LTX-Video 2B is not in this sd.cpp.
+- [ ] **Three parts: Installed, Get more, Downloads.** Installed lists models, LoRAs and upscalers, each in
+  its own group; Get more has the catalog, a link, an upload and the Hugging Face search; Downloads shows
+  what is running, and the finished ones can be cleared.
+- [ ] **Names a person reads**: "iLustMix v11.1", not `ilustmix_v111`; a tag for the family (SD 1.5, SDXL,
+  FLUX, Z-Image, Wan) and one for what it does (video, ControlNet, inpainting); "Model" and "Settings for a
+  model" instead of "Checkpoint" and "Model with options".
+- [ ] **The catalog says what each model is good at**: photos, anime, fast, video; with the time an image
+  takes on the console, measured.
+- [ ] **Delete is out of the way**: in a menu on each entry, not a button as large as Use.
 
-- [x] **A video the browser can play**: libwebp and libwebm are built for the PS5, so the default output
-  is WebM (VP8). It plays on the page in Chrome, Firefox and Edge; Safari on iPhone may need a download.
-- [x] **Measure on the console**: Wan 2.1 T2V 1.3B at 832x480, 33 frames, 20 steps: about 14.5 minutes
-  (36 s a step, 2 minutes to decode), 4.0 of 11.44 GiB free after the run; 256 px VAE tiles ran out of
-  memory, 128 px fit.
-- [x] **Web UI and gallery**: a video model switches the Create tab to frames and frames per second; the
-  result plays on the page; the gallery shows videos and plays them in the viewer. Wan 2.1 is in the catalog.
-- [ ] **Wan 2.2 TI2V 5B**: measure whether it fits (it needs the Wan 2.2 VAE).
-- [ ] **Flow shift in the web UI**: set in the preset only for now (3 for Wan 2.1).
-- [ ] **Image to video**: a start image for a Wan model (Wan 2.1 T2V is text only).
-- [ ] **Longer clips (49 and 81 frames)**: measure memory and time.
+**Under the page**
 
-## 0.7.0: faster video, done
+- [ ] **The web UI in parts**: `ps5/webui/index.html` is 4,500 lines of HTML, CSS and script in one file.
+  It becomes a few files (`app.css`, one script per tab) that the build puts back into one page, as
+  `embed-file.sh` embeds it now; still no npm and no framework.
+- [ ] **Screenshots in the README and the store listing**, taken from the new page on a phone and a PC.
 
-- [x] **CausVid**: a LoRA for Wan 2.1 1.3B, one click away on the LoRAs panel; 4 steps at CFG 1 make 33
-  frames in 3 minutes 40 s instead of about 14.5 minutes.
+## 0.9.0: gallery and video
 
-## 0.7.0: ControlNet ([#3](https://github.com/Darkatek7/PS5SD/issues/3)), done
+**Gallery**
 
-- [x] **ControlNet in a preset and on the Create tab**: a ControlNet loads with its model (`--control-net`),
-  sd.cpp's Canny is built in, and the Create tab takes a guide image (a file, or **Guide** on a gallery
-  image or a result) with the strength and the Canny switch. The API takes `control_image`. The catalog
-  has SDXL Base 1.0 (Q8_0) + Canny ControlNet.
-- [x] **Measure first**: SDXL fits with its Canny ControlNet: 6.2 GiB of the 11.44 GiB pool free after
-  loading, 2.7 GiB after a 1024x1024 image. 20 steps at 1024x1024 took 130 s (about 4.6 s a step; about
-  3 s without the ControlNet).
-- [ ] **More ControlNets in the catalog**: OpenPose and depth for SDXL (they need a pose or depth image;
-  no preprocessor on the console).
-- [ ] **Guide image with the hires fix**: not measured yet.
+- [ ] **Thumbnails**: small copies made when an image is saved, so a gallery of hundreds of images and
+  4096 px upscales opens fast, on the console's own browser too.
+- [ ] **What made an image**: the prompt, model, seed and settings saved with each image (in the PNG, as
+  A1111 does, so other tools read them too), shown in the viewer, with **Use these settings** to make it
+  again or change it.
+- [ ] **Find and tidy**: images or videos only, newest or oldest first, a search in the prompts, and
+  several images selected for one delete or download.
+- [ ] **The gallery in pages** in the API, with each image's prompt and settings.
+
+**Video**
+
+- [ ] **Longer clips (49 and 81 frames)**: measure memory and time with CausVid.
+- [ ] **Faster decoding**: the VAE decode is now about 2 of the 3 minutes 40 s. Try 192 px tiles, and a
+  small decoder for Wan (as TAESD is for images).
+- [ ] **Image to video**: a start image. Wan 2.1 T2V 1.3B is text only, so this means Wan 2.2 TI2V 5B; first
+  measure whether it fits with the Wan 2.2 VAE.
+- [ ] **Flow shift on the Create tab**, set in the preset only for now (3 for Wan 2.1).
+
+**Images**
+
+- [ ] **More ControlNets**: OpenPose and depth for SDXL. Without a preprocessor on the console they need
+  a pose or depth image, so only if people ask for them.
+- [ ] **Face and detail fix** (like ADetailer): sd.cpp can find faces with a YOLOv8 model; with 0.5.0's
+  masked inpainting this is a button that inpaints each face it finds.
+
+## 1.0.0: ready
+
+No large features; 1.0 is the version that keeps its promises. It is out when all of these hold:
+
+- [ ] **Every open measurement is done** and in [docs/CONSOLE.md](docs/CONSOLE.md): the largest SDXL size
+  with the hires fix, an Upscale of 1024 to 4096, inpainting on the console, a guide image with the hires
+  fix.
+- [ ] **No run fails without a reason**: before a run that will not fit, the web UI says so and what to
+  lower; a run that fails anyway says why.
+- [ ] **The API is fixed**: one error shape everywhere; progress as server-sent events besides polling;
+  `POST /sdapi/v1/options` waits until the model has loaded, as A1111 does; the `model` of
+  `/v1/images/generations` switches the model (or answers `409`); an OpenAPI description at
+  `/ps5sd/v1/app/openapi.json`. After 1.0, a change that breaks a client needs a new major version.
+- [ ] **Close during a stalled main loop**: a thread that passes the GPU suspend point every 100 ms, so the
+  25 s limit is never hit (see [docs/CONSOLE.md](docs/CONSOLE.md)).
+- [ ] **An update keeps everything**: models, LoRAs, presets, gallery, settings and the API key survive an
+  update from every 0.x version, tested from 0.5.0 on.
+- [ ] **The docs match the title**: README, Help tab, MODELS.md and API.md read against 1.0, with the
+  screenshots of 0.8.0.
+- [ ] **No known crash** and no open bug labelled `bug` older than a release.
 
 ## Later, if needed
 
 - **Tiled upscaling** (like Ultimate SD Upscale): sd.cpp has nothing like it; it would be a tile loop over
-  img2img in the app. Only if hires fix plus ESRGAN (0.4.0) is not enough.
-- **Gallery thumbnails**: the gallery shows every image at full size, which for 4096 px upscales is
-  slow on the console's own browser. Small copies made when an image is saved would fix that.
-- **Face and detail fix** (like ADetailer): sd.cpp's `sd-cli` can find faces with a YOLOv8 model and
-  inpaint each one cropped. sd-server does not have it; with 0.5.0's masked inpainting it could be a
-  button that runs the detector and inpaints what it finds.
-- **The API, for clients from outside**: progress pushed as server-sent events instead of polling; a
-  wait on `POST /sdapi/v1/options` until the model has loaded, as A1111 does; the `model` field of
-  `/v1/images/generations` switching the model (or a `409`) instead of being ignored; one error shape
-  everywhere; an OpenAPI description at `/ps5sd/v1/app/openapi.json`; the gallery in pages, with each
-  image's prompt and settings.
-- **Close during a stalled main loop**: a thread that passes the GPU suspend point every 100 ms, so the
-  25 s limit is never hit (see [docs/CONSOLE.md](docs/CONSOLE.md)). Closes have been clean since 0.1.0's
-  download fix; this would be a safety net.
+  img2img in the app. Only if hires fix plus ESRGAN is not enough.
+- **A preview while it draws**: sd.cpp can decode the latent every few steps with TAESD. It costs time on
+  every step, so only as an option, and only if the console has the memory.
 
 ## Not planned
 
