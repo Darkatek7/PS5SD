@@ -3,10 +3,12 @@
 stable-diffusion.cpp on the PS5 GPU — a native title running ggml-vulkan on RADV, with an
 OpenAI/A1111-compatible image API, a browser UI and a TV dashboard.
 
-> **Status: 0.3.0.** The title runs the server, the web UI, the model downloader and the TV dashboard
-> on the console. 0.2.0 added LoRAs (one or several per model, at no cost per step); 0.3.0 adds several
+> **Status: 0.3.1.** The title runs the server, the web UI, the model downloader and the TV dashboard
+> on the console. 0.2.0 added LoRAs (one or several per model, at no cost per step); 0.3.0 added several
 > images per run, your own size buttons, a sound when a run is done, and a switch that keeps images and
-> prompts off the TV. Downloads run at 50 to 75 MB/s from start to end and resume after a
+> prompts off the TV. 0.3.1 adds an API key (made by the console, shown on the TV), so the console can be
+> reached from outside your network through a Cloudflare Tunnel or a VPN, and a Presets tab: save the
+> Create tab's settings as a preset of the model, and switch between presets of the loaded model at once. Downloads run at 50 to 75 MB/s from start to end and resume after a
 > close; the web UI uploads models from the PC at about 80 MB/s, and its Help tab shows
 > [docs/MODELS.md](docs/MODELS.md) and [docs/API.md](docs/API.md). Closing from the home screen during
 > a download used to end in a crash report about 1 time in 5; that has not happened in 8 Closes since
@@ -67,6 +69,11 @@ Port 7860 serves the web UI and the A1111, OpenAI and sd-server APIs, plus PS5SD
 
 With no model yet, the title starts in standby, so a fresh install can fetch its first model from the
 web UI. Every route is in [docs/API.md](docs/API.md).
+
+The API is open on your network until you turn on the API key (web UI, Create, Settings, API key). Then
+every client needs it, the TV shows it, and the console can be put on the internet behind a Cloudflare
+Tunnel or reached through a VPN; [docs/API.md](docs/API.md#the-api-key) shows how. Do not forward port
+7860 on your router: the console speaks plain HTTP.
 
 ## Building
 

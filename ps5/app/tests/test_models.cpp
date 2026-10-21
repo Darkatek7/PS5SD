@@ -150,6 +150,102 @@ int main() {
     kept.clear();
     check(lib.remove("broken", {}, deleted, kept, error) && !fs::exists(presets / "broken.txt"),
           "a preset with missing files can be deleted");
+    // Variant presets ("# base:"), as the web UI saves them.
+    {
+        write(models / "ilu.safetensors", std::string(500, 'x'));
+        write(models / "flux" / "dit.gguf", std::string(50, 'x'));
+        write(models / "flux" / "vae.safetensors", std::string(5, 'x'));
+        write(presets / "flux.txt", "# name: FLUX\n# defaults: steps=16\n--diffusion-model\nflux/dit.gguf\n--vae\n"
+                                    "flux/vae.safetensors\n--vae-tiling\n");
+        std::string id;
+        check(lib.create_preset("Portrait, fast!", "ilu.safetensors",
+                                { { "width", "832" }, { "height", "1216" }, { "sampler", "dpm++2m" },
+                                  { "loras", "styles/ink.gguf:0.8,detail.safetensors:1" } },
+                                id, error) &&
+                  id == "portrait-fast",
+              "create a variant of a checkpoint");
+        ps5sd::ModelEntry v;
+        check(lib.find("portrait-fast", v, error) && v.name == "Portrait, fast!" && v.base == "ilu.safetensors" &&
+                  v.args.size() == 2 && v.args[1] == (models / "ilu.safetensors").lexically_normal().u8string(),
+              "the variant loads the checkpoint");
+        check(v.defaults.size() == 4 && v.defaults[0].second == "832" && v.defaults[3].first == "loras",
+              "the variant keeps its defaults");
+        check(lib.create_preset("Portrait, fast!", "ilu.safetensors", {}, id, error) && id == "portrait-fast-2",
+              "a taken id gets a number");
+        check(lib.create_preset("Of a variant", "portrait-fast-2", {}, id, error) && lib.find(id, v, error) &&
+                  v.base == "ilu.safetensors",
+              "a variant of a variant has the root as its base");
+        check(lib.create_preset("Flux 512", "flux", { { "width", "512" } }, id, error) && lib.find(id, v, error) &&
+                  v.base == "flux" && v.files.size() == 2 && v.args.back() == "--vae-tiling",
+              "a variant of a preset copies its arguments");
+        check(!lib.create_preset("", "flux", {}, id, error), "no name");
+        check(!lib.create_preset("a\nb", "flux", {}, id, error), "a name of two lines");
+        check(!lib.create_preset("x", "flux", { { "steps", "1 --evil" } }, id, error), "a default with a space");
+        check(!lib.create_preset("x", "flux", { { "prompt", "a" } }, id, error), "an unknown default");
+        check(!lib.create_preset("x", "nope", {}, id, error), "no such base");
+        const auto j = nlohmann::json::parse(ps5sd::models_json(lib, "", "", false));
+        bool       seen = false;
+        for (const auto & m : j["models"]) {
+            seen = seen || (m["id"] == "portrait-fast" && m["base"] == "ilu.safetensors");
+        }
+        check(seen, "models json has the base");
+
+        std::string text;
+        check(lib.read_preset("flux-512", text, error) && text.find("# base: flux") != std::string::npos, "read a preset");
+        check(lib.write_preset("flux-512", "# name: Flux small\n--diffusion-model\nflux/dit.gguf\n", error) &&
+                  lib.find("flux-512", v, error) && v.name == "Flux small",
+              "write a preset");
+        check(!lib.write_preset("flux-512", "# name: nothing\n--vae-tiling\n", error), "a preset without a model");
+        check(!lib.write_preset("nope", "-m\nilu.safetensors\n", error), "only existing presets");
+        check(!lib.write_preset("../x", "-m\nilu.safetensors\n", error), "no paths");
+        check(!lib.remove_variant("flux", error), "a model is not a variant");
+        check(lib.remove_variant("portrait-fast-2", error) && !fs::exists(presets / "portrait-fast-2.txt") &&
+                  fs::exists(models / "ilu.safetensors"),
+              "deleting a variant leaves the model");
+
+        // Deleting the checkpoint takes its variants with it (they do not keep it).
+        deleted.clear();
+        kept.clear();
+        check(lib.remove("ilu.safetensors", {}, deleted, kept, error) && !fs::exists(models / "ilu.safetensors") &&
+                  !fs::exists(presets / "portrait-fast.txt") && !fs::exists(presets / "of-a-variant.txt") &&
+                  deleted.size() == 3,
+              "a checkpoint goes with its variants");
+        // A preset that names flux's file without being its variant keeps the file.
+        deleted.clear();
+        check(lib.write_preset("flux-512", "# base: flux\n--diffusion-model\nflux/dit.gguf\n", error), "rebase");
+        write(presets / "other.txt", "--vae\nflux/vae.safetensors\n");
+        check(lib.remove("flux", {}, deleted, kept, error) && !fs::exists(models / "flux" / "dit.gguf") &&
+                  !fs::exists(presets / "flux-512.txt") && fs::exists(models / "flux" / "vae.safetensors") &&
+                  kept.size() == 1,
+              "a preset goes with its variants; another preset's file stays");
+        fs::remove(presets / "other.txt");
+        deleted.clear();
+        kept.clear();
+    }
+    // The API key.
+    {
+        unsigned char bytes[32];
+        for (int i = 0; i < 32; i++) {
+            bytes[i] = static_cast<unsigned char>(i * 37 + 11);
+        }
+        const std::string key = ps5sd::api_key_from_bytes(bytes, 32);
+        check(key.size() == 52 && ps5sd::valid_api_key(key), "a key is 52 base32 characters");
+        const unsigned char zeros[5] = { 0, 0, 0, 0, 0 };
+        check(ps5sd::api_key_from_bytes(zeros, 5) == "aaaaaaaa", "base32 of zeros");
+        const unsigned char ff[1] = { 0xff };
+        check(ps5sd::api_key_from_bytes(ff, 1) == "74", "base32 pads the last bits");
+        check(ps5sd::api_key_groups("abcdefghij") == "abcd efgh ij", "groups of four");
+        check(!ps5sd::valid_api_key("") && !ps5sd::valid_api_key("abc1") && !ps5sd::valid_api_key("ABC"),
+              "not a key");
+        const auto a = nlohmann::json::parse(ps5sd::auth_json(key));
+        check(a["enabled"] == true && a["key"] == key, "auth json");
+        check(nlohmann::json::parse(ps5sd::auth_json(""))["enabled"] == false, "auth json, no key");
+        ps5sd::AppSettings settings;
+        check(settings.tv_api_key && ps5sd::apply_settings(R"({"tv_api_key": false})", settings, error) &&
+                  !settings.tv_api_key && settings.tv_images,
+              "tv_api_key setting");
+        check(!ps5sd::apply_settings(R"({"tv_api_key": 1})", settings, error), "tv_api_key wrong type");
+    }
     const auto r = nlohmann::json::parse(ps5sd::removed_json(lib, { "a" }, { "b" }, "x", "y"));
     check(r["deleted"][0] == "a" && r["kept"][0] == "b" && r["active"] == "x", "removed json");
     {

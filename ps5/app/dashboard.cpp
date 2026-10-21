@@ -589,6 +589,13 @@ void Dashboard::draw_server(DrawList & list, const Rect & r) const {
     x += hui::ui::text(list, fonts_.display, ":", x, r.y + 106, 58, with_a(kInk, 0.42f));
     hui::ui::text(list, fonts_.display, std::to_string(snap_.port), x, r.y + 106, 58, kCyan);
 
+    if (!snap_.api_key.empty()) {
+        // The key the web UI and API clients need, in groups of four to read off.
+        const float w = caps(list, "API key", r.x + kPad, r.y + 140, 15, with_a(kInk, 0.5f));
+        hui::ui::text(list, fonts_.mono, fonts_.mono.font->fit(snap_.api_key, 24, r.w - 2 * kPad - w - 18),
+                      r.x + kPad + w + 18, r.y + 140, 24, kCyan);
+        return;
+    }
     const std::string hint = "From a phone or a PC on your network. The web UI and the OpenAI and A1111 APIs share it.";
     hui::ui::text(list, fonts_.regular, fonts_.regular.font->fit(hint, 22, r.w - 2 * kPad), r.x + kPad, r.y + 140, 22,
                   with_a(kInk, kMuted));

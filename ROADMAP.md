@@ -9,6 +9,10 @@ go into [issues](https://github.com/Darkatek7/PS5SD/issues); this file says what
   end), uploads from the PC, gallery, Help tab, TV dashboard.
 - **0.2.0**: LoRAs, several per model, each with its own strength; download, upload, list and delete.
 - **0.3.0**: web UI options from [#3](https://github.com/Darkatek7/PS5SD/issues/3), below.
+- **0.3.1**: an API key for the whole API (Bearer, Basic or the web UI's login; made by the console and
+  shown on the TV), CORS without credentials, a 64 MB limit on request bodies; a Presets tab (save the
+  Create tab's settings as a preset, edit, delete; a preset of the loaded model switches at once), and
+  the Models tab shows only models.
 
 ## 0.3.0: web UI options ([#3](https://github.com/Darkatek7/PS5SD/issues/3)), done
 

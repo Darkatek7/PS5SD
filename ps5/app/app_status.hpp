@@ -69,6 +69,7 @@ class AppStatus {
         uint64_t                 preview_serial = 0;  // grows with every new preview
         std::vector<std::string> lines;         // the log's last lines, oldest first
         bool                     tv_images = true;  // false: the screen shows no images and no prompts
+        std::string              api_key;       // the API key to show, or empty (none, or hidden)
     };
 
     void set_phase(std::string phase, std::string detail = {});
@@ -77,6 +78,8 @@ class AppStatus {
     void set_result(std::string path);
     void set_model(std::string name);
     void set_tv_images(bool shown);
+    // The API key the screen shows; empty for none.
+    void set_api_key(std::string key);
     // Where a browser reaches the server. The address is whatever should be
     // shown in "http://<address>:<port>": an IPv4 string, or empty while the
     // app does not know its own (the screen then shows a placeholder).

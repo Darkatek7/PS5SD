@@ -19,6 +19,11 @@
 //     directory, so components can sit in subdirectories (vae/,
 //     text_encoders/, diffusion_models/) without showing up as checkpoints.
 //
+//     "# base: <id>" makes a preset a variant of another entry: the same
+//     model with other settings, as the web UI's "Save as preset" writes it.
+//     Deleting a variant deletes only its file; deleting its base deletes the
+//     variants with it.
+//
 // /data/PS5SD/model.txt says which entry is active: an id, or (as before
 // presets) the absolute path of a checkpoint.
 //
@@ -43,6 +48,7 @@ struct ModelEntry {
     std::vector<std::string>                         missing;  // those of them that are not there
     uint64_t                                         bytes = 0;  // their size together
     std::vector<std::pair<std::string, std::string>> defaults;   // from "# defaults:", in order
+    std::string                                      base;  // "# base:": the entry this preset is a variant of
 };
 
 struct ModelLibrary {
@@ -67,6 +73,26 @@ struct ModelLibrary {
     // A preset's entry from its text (one argument a line, "# key: value"
     // comments); exposed for the tests.
     ModelEntry parse_preset(const std::string & id, const std::string & text) const;
+
+    // A new variant preset of the entry base_id (the root entry, when base_id
+    // is a variant itself): its model arguments, the name and the defaults
+    // (keys as in "# defaults:": steps, cfg, width, height, sampler,
+    // scheduler, loras). The id comes from the name. False with a message
+    // for a name, a default or a base that does not do.
+    bool create_preset(const std::string & name, const std::string & base_id,
+                       const std::vector<std::pair<std::string, std::string>> & defaults, std::string & id,
+                       std::string & error) const;
+
+    // A preset's file as it is; false when there is none.
+    bool read_preset(const std::string & id, std::string & text, std::string & error) const;
+
+    // Replaces an existing preset's file with text (at most 64 KB, naming a
+    // model); false with a message otherwise.
+    bool write_preset(const std::string & id, const std::string & text, std::string & error) const;
+
+    // Deletes a variant preset's file (and nothing else). A preset without a
+    // base is a model: false, to be deleted with remove().
+    bool remove_variant(const std::string & id, std::string & error) const;
 };
 
 // The model options whose value is a path (-m, --vae, --llm, ...).
@@ -110,6 +136,17 @@ std::string checkpoint_from_options(const std::string & body);
 // GET /ps5sd/v1/app/info: {"name": "PS5SD", "version", "sd_cpp": {"version", "commit"}}.
 std::string info_json(const std::string & version, const std::string & sd_version, const std::string & sd_commit);
 
+// The API key: 32 random bytes in lower-case base32 (a-z, 2-7), 52
+// characters. A person reads it off the TV in groups of four
+// (api_key_groups); the login takes it with or without the spaces.
+std::string api_key_from_bytes(const unsigned char * bytes, size_t n);
+std::string api_key_groups(const std::string & key);
+// True for a key as api_key_from_bytes makes them (any length > 0, a-z and 2-7).
+bool valid_api_key(const std::string & key);
+
+// GET /ps5sd/v1/app/auth: {"enabled": bool, "key": "..." or ""}.
+std::string auth_json(const std::string & key);
+
 // {"error": message}.
 std::string error_json(const std::string & message);
 
@@ -119,10 +156,11 @@ std::string id_from_json(const std::string & body);
 // The app's own settings: GET and POST /ps5sd/v1/app/settings, kept in
 // /data/PS5SD/settings.json.
 struct AppSettings {
-    bool tv_images = true;  // the TV shows the images and the prompts
+    bool tv_images  = true;  // the TV shows the images and the prompts
+    bool tv_api_key = true;  // the TV shows the API key (when there is one)
 };
 
-// {"tv_images": true}.
+// {"tv_images": true, "tv_api_key": true}.
 std::string settings_json(const AppSettings & settings);
 
 // Applies what a body (or the settings file) sets to settings; a field it

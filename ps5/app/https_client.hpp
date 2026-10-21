@@ -39,6 +39,10 @@ struct HttpResponse {
 // Once per process; later calls return the first result.
 bool https_init(std::string & error);
 
+// n bytes from the system's random source (PSA's RNG over sysctl(KERN_ARND)
+// on the console), for the API key. False when there is none.
+bool random_bytes(unsigned char * out, size_t n);
+
 class HttpClient {
   public:
     HttpClient();

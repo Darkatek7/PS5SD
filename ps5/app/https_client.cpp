@@ -195,6 +195,10 @@ std::string HttpResponse::header(const std::string & name) const {
     return {};
 }
 
+bool random_bytes(unsigned char * out, size_t n) {
+    return psa_crypto_init() == PSA_SUCCESS && psa_generate_random(out, n) == PSA_SUCCESS;
+}
+
 bool https_init(std::string & error) {
     std::lock_guard<std::mutex> lock(g_init_mutex);
     if (g_init_done) {

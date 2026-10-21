@@ -25,7 +25,10 @@
     GET  /ps5sd/v1/app/docs/<MODELS.md|API.md>                          (the Help tab)
     DELETE /ps5sd/v1/app/gallery/<name>                                 (the image viewer's Delete)
     GET  /ps5sd/v1/app/loras, DELETE /ps5sd/v1/app/loras/<path>         (the LoRA picker and list)
-    GET/POST /ps5sd/v1/app/settings                                    (the "on the TV" switch; a 404 hides it)
+    GET/POST /ps5sd/v1/app/settings                                    (the "on the TV" switches; a 404 hides them)
+    GET /ps5sd/v1/auth, POST .../auth/login, .../auth/logout           (the API key: login cookie)
+    GET /ps5sd/v1/app/auth, POST .../app/auth/enable, .../auth/disable (the API key in Settings; a 404 hides it)
+    POST /ps5sd/v1/app/presets, GET/POST/DELETE .../app/presets/<id>   (the Presets tab)
     GET  /ps5sd/v1/app/catalog, GET/POST /ps5sd/v1/app/downloads,      (downloads; a 404 hides that part)
          DELETE .../downloads/<id>, POST .../app/hf/search
   SPDX-License-Identifier: MIT
@@ -271,6 +274,16 @@
   .hfile button { flex: none; min-height: 2.75rem; }
   .hmore { margin-top: 0.5rem; min-height: 2.75rem; }
 
+  .dlg-box.wide { max-width: 48rem; }
+  #pe-text { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 0.9rem; margin: 0.6rem 0 0.4rem; }
+  #login-key { margin: 0.2rem 0 0.4rem; font-family: ui-monospace, Menlo, Consolas, monospace; }
+  code.key { display: block; margin: 0.3rem 0 0.6rem; padding: 0.7rem 0.95rem; color: var(--text); background: var(--field);
+    border: 1px solid var(--border); border-radius: 10px; font-family: ui-monospace, Menlo, Consolas, monospace;
+    font-size: 1.05rem; word-break: break-all; -webkit-user-select: all; user-select: all; }
+  .authbtns { display: flex; flex-wrap: wrap; margin: 0 -0.25rem; }
+  .authbtns button { margin: 0.25rem; min-height: 2.75rem; }
+  #savepreset { margin-left: 0.5rem; }
+
   @media (max-width: 1300px) { .thumbs .t { flex-basis: 25%; } }
   @media (max-width: 900px) { .thumbs .t { flex-basis: 33.333%; } }
   @media (max-width: 720px) {
@@ -317,6 +330,7 @@
 <nav class="tabs">
   <button type="button" class="on" id="tab-create">Create</button>
   <button type="button" id="tab-models">Models<span class="tabdot" id="mdot"></span></button>
+  <button type="button" id="tab-presets" style="display:none">Presets</button>
   <button type="button" id="tab-gallery">Gallery <span id="gcount"></span></button>
   <button type="button" id="tab-help">Help</button>
 </nav>
@@ -383,7 +397,7 @@
         </div>
       </div>
       <p class="hint">-1 picks a random seed. Several images take the seeds one after the other (seed, seed + 1, …).</p>
-      <p class="hint"><span id="presetnote"></span><button type="button" id="resetpreset">Use preset</button></p>
+      <p class="hint"><span id="presetnote"></span><button type="button" id="resetpreset">Use defaults</button><button type="button" id="savepreset" style="display:none">Save as preset</button></p>
 
       <div class="lbl">When an image is done</div>
       <label class="opt"><input type="checkbox" id="opt-sound"> Play a sound</label>
@@ -392,6 +406,20 @@
       <div id="opt-tv-box" style="display:none">
         <div class="lbl">PS5 screen</div>
         <label class="opt"><input type="checkbox" id="opt-tv"> Show images and prompts on the TV</label>
+      </div>
+      <div id="opt-auth-box" style="display:none">
+        <div class="lbl">API key</div>
+        <p class="hint" id="auth-state" style="margin-top:0"></p>
+        <div id="auth-key-row" style="display:none"><code class="key" id="auth-key"></code></div>
+        <div class="authbtns">
+          <button type="button" id="auth-on">Turn on</button>
+          <button type="button" id="auth-show">Show key</button>
+          <button type="button" id="auth-new">New key</button>
+          <button type="button" id="auth-off" class="danger">Turn off</button>
+          <button type="button" id="auth-out">Sign out</button>
+        </div>
+        <label class="opt" id="opt-tvkey-row" style="display:none"><input type="checkbox" id="opt-tvkey"> Show the API key on the TV</label>
+        <p class="hint">Apps send it as <code>Authorization: Bearer &lt;key&gt;</code>, A1111 apps as the password of their API login. Help, HTTP API has the details and how to reach the console from outside your network.</p>
       </div>
     </div>
   </section>
@@ -464,6 +492,24 @@
   </div>
 </div>
 
+<div class="main" id="view-presets" style="display:none">
+  <div class="mcol">
+    <section class="panel">
+      <div class="ph"><h2>Saved presets</h2></div>
+      <div id="plist"></div>
+      <p class="hint">A preset is a model with your settings: size, steps, CFG, sampler and LoRAs. Use switches to it; when it is the model that is loaded already, at once. Delete removes only the preset, never the model.</p>
+    </section>
+  </div>
+  <div class="mcol">
+    <section class="panel">
+      <div class="ph"><h2>Save the current settings</h2></div>
+      <div class="hint" id="ps-what" style="margin-top:0"></div>
+      <div class="inrow" style="margin-top:0.8rem"><input id="ps-name" type="text" maxlength="100" placeholder="Name, e.g. Portrait fast" autocomplete="off"><button type="button" id="ps-save">Save</button></div>
+      <p class="hint">Change the settings on the Create tab first. The model's own options (VAE, tiling and so on) come along.</p>
+    </section>
+  </div>
+</div>
+
 <section class="gal" id="view-help" style="display:none">
   <div class="docbar">
     <button type="button" id="doc-models">Getting models on</button>
@@ -507,6 +553,27 @@
       <button type="button" id="dlg-cancel">Cancel</button>
       <button type="button" class="danger" id="dlg-ok">Delete</button>
     </div>
+  </div>
+</div>
+<div class="dlg" id="pe" style="display:none" role="dialog" aria-modal="true" aria-labelledby="pe-title">
+  <div class="dlg-box wide">
+    <div class="dlg-title" id="pe-title">Edit preset</div>
+    <p class="hint">One option a line, as in docs/MODELS.md. <code># name:</code> is the name, <code># defaults:</code> the settings.</p>
+    <textarea id="pe-text" rows="14" spellcheck="false" autocapitalize="off"></textarea>
+    <p class="mmeta bad" id="pe-err"></p>
+    <div class="dlg-btns">
+      <button type="button" id="pe-cancel">Cancel</button>
+      <button type="button" class="on" id="pe-save">Save</button>
+    </div>
+  </div>
+</div>
+<div class="dlg" id="login" style="display:none" role="dialog" aria-modal="true" aria-labelledby="login-title">
+  <div class="dlg-box">
+    <div class="dlg-title" id="login-title">This PS5SD needs its API key</div>
+    <p class="dlg-body">The key is on the TV, under the address. Spaces and dashes do not matter.</p>
+    <input id="login-key" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="API key">
+    <p class="mmeta bad" id="login-err"></p>
+    <div class="dlg-btns"><button type="button" class="on" id="login-go">Sign in</button></div>
   </div>
 </div>
 <div id="toast" role="status"></div>
@@ -579,15 +646,24 @@
   function text(node, value) { node.textContent = value; }
   function show(id, on, how) { $(id).style.display = on ? (how || 'block') : 'none'; }
 
+  // Every call to the server. X-PS5SD-Request lets a POST with the login cookie through (a page of
+  // another site cannot add it). A 401 that asks for the API key shows the login; until it is done,
+  // nothing else goes out, so the old cookie of a changed key does not count as wrong keys.
   function req(method, url, body, cb, timeout) {
+    if (auth.locked && url.indexOf('/ps5sd/v1/auth') !== 0) {
+      setTimeout(function () { cb(401, { error: 'API key needed', auth_required: true }); }, 0);
+      return;
+    }
     var x = new XMLHttpRequest();
     var done = false;
     function finish(code, data) {
       if (done) return;
       done = true;
+      if (code === 401 && data && data.auth_required && url.indexOf('/ps5sd/v1/auth') !== 0) showLogin();
       cb(code, data);
     }
     x.open(method, url, true);
+    x.setRequestHeader('X-PS5SD-Request', '1');
     x.onreadystatechange = function () {
       if (x.readyState !== 4) return;
       var data = null;
@@ -603,6 +679,120 @@
     } else {
       x.send();
     }
+  }
+
+  // ---------- API key: login, and the switch in Settings ----------
+  // The server says whether it needs a key (GET /ps5sd/v1/auth); the login sets a cookie, which the
+  // page and its images send from then on. The key itself is on the TV, under the address.
+  var auth = { locked: false, key: '', enabled: false, started: false };
+
+  function showLogin() {
+    if (auth.locked) return;
+    auth.locked = true;
+    req('POST', '/ps5sd/v1/auth/logout', {}, function () {});  // a cookie of an old key goes
+    text($('login-err'), '');
+    show('login', true, 'flex');
+    try { $('login-key').focus(); } catch (e) {}
+  }
+
+  function login() {
+    var key = trim($('login-key').value);
+    if (!key) { $('login-key').focus(); return; }
+    $('login-go').disabled = true;
+    req('POST', '/ps5sd/v1/auth/login', { key: key }, function (code, data) {
+      $('login-go').disabled = false;
+      if (code === 200) {
+        auth.locked = false;
+        $('login-key').value = '';
+        show('login', false);
+        if (!auth.started) start(); else window.location.reload();
+      } else if (code === 429) {
+        text($('login-err'), (data && data.error) || 'Too many tries. Wait a moment.');
+      } else if (code === 401) {
+        text($('login-err'), 'That is not the key. It is on the TV, under the address.');
+      } else {
+        text($('login-err'), errText(code, data, 'Could not sign in'));
+      }
+    }, 15000);
+  }
+
+  // Before anything else: does the server want a key, and does this browser have it?
+  function checkAuth(then) {
+    req('GET', '/ps5sd/v1/auth', null, function (code, data) {
+      if (code === 200 && data && data.required && !data.authenticated) { showLogin(); return; }
+      then();
+    }, 8000);
+  }
+
+  function loadAuth() {
+    req('GET', APP + '/auth', null, function (code, data) {
+      if (code !== 200 || !data || typeof data.enabled !== 'boolean') return;
+      auth.enabled = data.enabled;
+      auth.key = data.key || '';
+      show('opt-auth-box', true);
+      drawAuth();
+    });
+  }
+
+  function drawAuth() {
+    text($('auth-state'), auth.enabled
+      ? 'On: browsers and apps need the key. It is on the TV too.'
+      : 'Off: anyone who reaches this console can use it. Turn it on before you open it to the internet.');
+    show('auth-key-row', auth.enabled && auth.shown, 'block');
+    text($('auth-key'), auth.enabled ? auth.key : '');  // as apps need it; the TV shows it in groups
+    show('auth-on', !auth.enabled, 'inline-block');
+    show('auth-show', auth.enabled, 'inline-block');
+    text($('auth-show'), auth.shown ? 'Hide key' : 'Show key');
+    show('auth-new', auth.enabled, 'inline-block');
+    show('auth-off', auth.enabled, 'inline-block');
+    show('auth-out', auth.enabled, 'inline-block');
+    show('opt-tvkey-row', auth.enabled, 'flex');
+  }
+
+  // A new key (also the first): this browser signs in with it at once, so it stays in.
+  function newKey() {
+    var first = !auth.enabled;
+    $('auth-on').disabled = $('auth-new').disabled = true;
+    req('POST', APP + '/auth/enable', {}, function (code, data) {
+      $('auth-on').disabled = $('auth-new').disabled = false;
+      if (code !== 200 || !data || !data.key) { toast(errText(code, data, 'Could not make a key'), 6000); return; }
+      auth.enabled = true;
+      auth.key = data.key;
+      auth.shown = true;
+      req('POST', '/ps5sd/v1/auth/login', { key: data.key }, function () {
+        drawAuth();
+        toast(first ? 'The API key is on. Apps need it as "Authorization: Bearer <key>".'
+          : 'New key. The old one does not work any more; browsers that used it must sign in again.', 8000);
+      });
+    });
+  }
+
+  function askAuthOff() {
+    dlgFor = { authOff: true };
+    dlgFrom = document.activeElement;
+    text($('dlg-title'), 'Turn the API key off?');
+    text($('dlg-body'), 'Anyone who can reach the console can then use it, without a key.');
+    $('dlg-ok').disabled = false;
+    $('dlg-cancel').disabled = false;
+    text($('dlg-ok'), 'Turn off');
+    show('dlg', true, 'flex');
+    $('dlg-cancel').focus();
+  }
+
+  function authOff() {
+    req('POST', APP + '/auth/disable', {}, function (code, data) {
+      closeDlg();
+      if (code !== 200) { toast(errText(code, data, 'Could not turn it off'), 6000); return; }
+      auth.enabled = false;
+      auth.key = '';
+      auth.shown = false;
+      drawAuth();
+      toast('The API key is off.');
+    });
+  }
+
+  function signOut() {
+    req('POST', '/ps5sd/v1/auth/logout', {}, function () { window.location.reload(); });
   }
 
   var toastTimer = 0;
@@ -696,12 +886,24 @@
     if (!isNaN(n) && n >= 0) { p.cfg = n; any = true; }
     if (d.sampler) { p.sampler = d.sampler; any = true; }
     if (d.scheduler) { p.scheduler = d.scheduler; any = true; }
+    if (d.loras) { p.loras = parseLoras(d.loras); any = true; }
     if (any && entry.name) p.label = entry.name;
     return p;
   }
 
+  // "loras=styles/ink.gguf:0.8,detail.safetensors:1" in a preset's defaults.
+  function parseLoras(v) {
+    var out = [], parts = String(v).split(',');
+    for (var i = 0; i < parts.length; i++) {
+      var at = parts[i].lastIndexOf(':');
+      if (at > 0) out.push({ path: parts[i].substring(0, at), m: Number(parts[i].substring(at + 1)) || 0 });
+    }
+    return out;
+  }
+
   function presetNote(p) {
-    return 'Preset for this model (' + p.label + '): ' + p.steps + (p.steps === 1 ? ' step' : ' steps') + ', CFG ' + p.cfg + ', ' + p.w + '×' + p.h + '.';
+    return 'Defaults for this model (' + p.label + '): ' + p.steps + (p.steps === 1 ? ' step' : ' steps') + ', CFG ' + p.cfg + ', ' + p.w + '×' + p.h +
+      (p.loras && p.loras.length ? ', ' + p.loras.length + (p.loras.length === 1 ? ' LoRA' : ' LoRAs') : '') + '.';
   }
 
   // ---------- form <-> settings ----------
@@ -757,6 +959,7 @@
       ' · seed ' + (isNaN(seed) || seed < 0 ? 'random' : seed) +
       (loraSel.length ? ' · ' + loraSel.length + (loraSel.length === 1 ? ' LoRA' : ' LoRAs') : '') +
       (batchCount() > 1 ? ' · ' + batchCount() + ' images' : ''));
+    if (st.view === 'presets') drawSaveBox();
   }
 
   // The form follows the loaded model. After the user pressed Use (st.announce) it gets the
@@ -1138,6 +1341,7 @@
     req('GET', APP + '/settings', null, function (code, data) {
       if (code !== 200 || !data || typeof data.tv_images !== 'boolean') return;
       $('opt-tv').checked = data.tv_images;
+      $('opt-tvkey').checked = data.tv_api_key !== false;
       show('opt-tv-box', true);
     });
   }
@@ -1151,6 +1355,22 @@
       if (code === 200 && data && typeof data.tv_images === 'boolean') {
         box.checked = data.tv_images;
         toast(data.tv_images ? 'The TV shows images and prompts again.' : 'The TV shows no images and no prompts now.');
+      } else {
+        box.checked = !want;
+        toast('Could not change it' + (data && data.error ? ': ' + data.error : '.'), 6000);
+      }
+    });
+  }
+
+  function setTvKeyOption() {
+    var box = $('opt-tvkey');
+    var want = box.checked;
+    box.disabled = true;
+    req('POST', APP + '/settings', { tv_api_key: want }, function (code, data) {
+      box.disabled = false;
+      if (code === 200 && data && typeof data.tv_api_key === 'boolean') {
+        box.checked = data.tv_api_key;
+        toast(data.tv_api_key ? 'The TV shows the API key.' : 'The TV does not show the API key now.');
       } else {
         box.checked = !want;
         toast('Could not change it' + (data && data.error ? ': ' + data.error : '.'), 6000);
@@ -1611,14 +1831,17 @@
     st.view = name;
     show('view-create', name === 'create', 'flex');
     show('view-models', name === 'models', 'flex');
+    show('view-presets', name === 'presets', 'flex');
     show('view-gallery', name === 'gallery');
     show('view-help', name === 'help');
     $('tab-create').className = name === 'create' ? 'on' : '';
     $('tab-models').className = name === 'models' ? 'on' : '';
+    $('tab-presets').className = name === 'presets' ? 'on' : '';
     $('tab-gallery').className = name === 'gallery' ? 'on' : '';
     $('tab-help').className = name === 'help' ? 'on' : '';
     if (name === 'gallery') refreshGallery();
     if (name === 'help') showDoc(docName);
+    if (name === 'presets') { loadModels(null); loadLoras(null); drawSaveBox(); }
     if (name === 'models') enterModels(); else dlSchedule(dlDelay());
   }
 
@@ -1910,6 +2133,10 @@
   function onKey(e) {
     e = e || window.event;
     var k = e.keyCode;
+    if (peFor) {
+      if (k === 27) { closeEdit(); return false; }
+      return true;
+    }
     if (dlgFor) {
       var cb = $('dlg-cancel'), ok = $('dlg-ok');
       if (cb.disabled) return false;
@@ -2027,6 +2254,7 @@
     }
     if (!data.standby) st.sbSeen = false;
     drawModels();
+    drawPresets();
     drawCurrent();
   }
 
@@ -2050,7 +2278,205 @@
       box.appendChild(el('div', 'empty-note', 'No models installed yet. Add one below.'));
       return;
     }
-    for (var i = 0; i < d.models.length; i++) box.appendChild(modelRow(d.models[i], d));
+    var shown = 0;
+    for (var i = 0; i < d.models.length; i++) {
+      if (!isModel(d.models[i], d)) continue;
+      box.appendChild(modelRow(d.models[i], d));
+      shown++;
+    }
+    if (!shown) box.appendChild(el('div', 'empty-note', 'No models installed yet. Add one below.'));
+  }
+
+  // The Models tab lists models: checkpoints and presets without a base (a model in several files,
+  // or one with its own options), but not a checkpoint such a preset loads (the preset stands for it).
+  // A preset with a base is a saved preset: it is on the Presets tab.
+  function isModel(m, d) {
+    if (m.kind === 'preset') return !m.base;
+    var f = m.files && m.files[0];
+    for (var i = 0; i < d.models.length; i++) {
+      var o = d.models[i];
+      if (o.kind !== 'preset' || o.base || !o.files) continue;
+      for (var j = 0; j < o.files.length; j++) if (o.files[j] === f) return false;
+    }
+    return true;
+  }
+
+  function variantsOf(id) {
+    var out = [], list = st.mdl && st.mdl.models ? st.mdl.models : [];
+    for (var i = 0; i < list.length; i++) if (list[i].kind === 'preset' && list[i].base === id) out.push(list[i]);
+    return out;
+  }
+
+  // ---------- presets ----------
+  var plistSig = null;
+
+  function drawPresets() {
+    var d = st.mdl;
+    show('tab-presets', st.app === true, 'inline-block');
+    var sig = JSON.stringify(d) + '|' + (st.sw ? st.sw.id : '') + '|' + (st.delErr ? st.delErr.id + st.delErr.msg : '');
+    if (sig === plistSig) return;
+    plistSig = sig;
+    var box = $('plist');
+    clear(box);
+    if (!d) { box.appendChild(el('div', 'empty-note', 'Loading…')); return; }
+    var n = 0;
+    for (var i = 0; i < d.models.length; i++) {
+      if (d.models[i].kind !== 'preset' || !d.models[i].base) continue;
+      box.appendChild(presetRow(d.models[i], d));
+      n++;
+    }
+    if (!n) box.appendChild(el('div', 'empty-note', 'No presets yet. Set up the Create tab the way you like it, then save it here.'));
+    drawSaveBox();
+  }
+
+  function presetRow(m, d) {
+    var loaded = d.loaded === m.id;
+    var target = !!(st.sw && st.sw.id === m.id);
+    var miss = m.missing && m.missing.length;
+    var base = findModel(m.base);
+    var row = el('div', 'mrow mwrap' + (loaded ? ' on' : '') + (miss && !loaded ? ' dim' : ''));
+    var main = el('div', 'mmain');
+    var nm = el('div', 'mname', m.name || m.id);
+    if (loaded) nm.appendChild(el('span', 'badge ok', 'In use'));
+    else if (target) nm.appendChild(el('span', 'badge warn', 'Loading…'));
+    if (miss) nm.appendChild(el('span', 'badge bad', 'Model missing'));
+    main.appendChild(nm);
+    var meta = 'For ' + (base ? base.name || base.id : m.base);
+    var def = defaultsText(m.defaults);
+    if (def) meta += ' · ' + def;
+    var ls = m.defaults && m.defaults.loras ? parseLoras(m.defaults.loras) : [];
+    if (ls.length) meta += ' · ' + ls.length + (ls.length === 1 ? ' LoRA' : ' LoRAs');
+    main.appendChild(el('div', 'mmeta', meta));
+    if (st.delErr && st.delErr.id === m.id) main.appendChild(el('div', 'mmeta bad', st.delErr.msg));
+    row.appendChild(main);
+    var acts = el('div', 'macts');
+    if (!loaded) {
+      var usable = !target && !miss && !st.sw;
+      var b = actionButton(target ? 'Loading…' : 'Use', function () { useModel(m); });
+      b.disabled = !usable;
+      if (usable) b.className = 'on';
+      acts.appendChild(b);
+    }
+    acts.appendChild(actionButton('Edit', function () { editPreset(m); }));
+    var del = actionButton('Delete', function () { askDeletePreset(m); });
+    del.className = 'danger';
+    del.disabled = loaded || d.active === m.id || !!st.sw;
+    if (del.disabled && !st.sw) del.title = 'Switch to another model or preset first.';
+    acts.appendChild(del);
+    row.appendChild(acts);
+    return row;
+  }
+
+  // What "Save" keeps: the loaded model and the form of the Create tab.
+  function presetDefaults() {
+    var f = getForm();
+    var d = { width: String(f.w), height: String(f.h), steps: String(f.steps), cfg: String(f.cfg) };
+    if (f.sampler && f.sampler !== 'default') d.sampler = f.sampler;
+    if (f.scheduler && f.scheduler !== 'default') d.scheduler = f.scheduler;
+    var ls = [];
+    for (var i = 0; i < f.loras.length; i++) if (f.loras[i].m !== 0) ls.push(f.loras[i].path + ':' + f.loras[i].m);
+    if (ls.length) d.loras = ls.join(',');
+    return d;
+  }
+
+  function drawSaveBox() {
+    var ok = st.app === true && !!st.mid && !st.sw && !(st.mdl && st.mdl.standby);
+    $('ps-save').disabled = !ok;
+    $('ps-name').disabled = !ok;
+    show('savepreset', st.app === true && !!st.mid, 'inline-block');
+    if (!ok) {
+      text($('ps-what'), st.sw ? 'Wait for the model switch.' : 'Load a model first; a preset is a model with settings.');
+      return;
+    }
+    var d = presetDefaults(), m = findModel(st.mid);
+    var root = m && m.base ? findModel(m.base) : m;
+    var parts = [d.width + '×' + d.height, d.steps + (d.steps === '1' ? ' step' : ' steps'), 'CFG ' + d.cfg];
+    if (d.sampler) parts.push(d.sampler);
+    if (d.scheduler) parts.push(d.scheduler);
+    if (d.loras) parts.push(d.loras.split(',').length + (d.loras.split(',').length === 1 ? ' LoRA' : ' LoRAs'));
+    text($('ps-what'), 'Model: ' + (root ? root.name || root.id : st.mid) + ' · ' + parts.join(' · '));
+    if (!$('ps-name').value) $('ps-name').placeholder = 'Name, e.g. ' + (root ? root.name || root.id : 'My preset') + ' ' + d.width + '×' + d.height;
+  }
+
+  function savePreset() {
+    var name = trim($('ps-name').value);
+    if (!name) { toast('Give the preset a name.'); $('ps-name').focus(); return; }
+    $('ps-save').disabled = true;
+    req('POST', APP + '/presets', { name: name, base: st.mid, defaults: presetDefaults() }, function (code, data) {
+      $('ps-save').disabled = false;
+      if (code === 201 && data && data.models) {
+        $('ps-name').value = '';
+        setModels(data);
+        toast('Saved ' + name + '. Use switches to it.', 5000);
+      } else {
+        toast(errText(code, data, 'Could not save the preset'), 7000);
+      }
+    }, 15000);
+  }
+
+  var peFor = null;
+
+  function editPreset(m) {
+    req('GET', APP + '/presets/' + encodeURIComponent(m.id), null, function (code, data) {
+      if (code !== 200 || !data || typeof data.text !== 'string') { toast(errText(code, data, 'Could not read the preset'), 6000); return; }
+      peFor = m;
+      dlgFrom = document.activeElement;
+      text($('pe-title'), 'Edit ' + (m.name || m.id));
+      $('pe-text').value = data.text;
+      text($('pe-err'), '');
+      $('pe-save').disabled = false;
+      show('pe', true, 'flex');
+      $('pe-text').focus();
+    });
+  }
+
+  function closeEdit() {
+    show('pe', false);
+    peFor = null;
+    if (dlgFrom) { try { dlgFrom.focus(); } catch (e) {} }
+  }
+
+  function saveEdit() {
+    var m = peFor;
+    if (!m) return;
+    $('pe-save').disabled = true;
+    req('POST', APP + '/presets/' + encodeURIComponent(m.id), { text: $('pe-text').value }, function (code, data) {
+      $('pe-save').disabled = false;
+      if (code === 200 && data && data.models) {
+        closeEdit();
+        setModels(data);
+        toast('Saved. ' + (st.mdl && st.mdl.loaded === m.id ? 'New defaults apply when you press Use defaults; other options at the next load.' : ''), 6000);
+      } else {
+        text($('pe-err'), errText(code, data, 'Could not save'));
+      }
+    }, 15000);
+  }
+
+  function askDeletePreset(m) {
+    dlgFor = { preset: m };
+    dlgFrom = document.activeElement;
+    text($('dlg-title'), 'Delete the preset ' + (m.name || m.id) + '?');
+    text($('dlg-body'), 'Only the preset goes. The model and its files stay.');
+    $('dlg-ok').disabled = false;
+    $('dlg-cancel').disabled = false;
+    text($('dlg-ok'), 'Delete');
+    show('dlg', true, 'flex');
+    $('dlg-cancel').focus();
+  }
+
+  function deletePreset(m) {
+    st.delErr = null;
+    req('DELETE', APP + '/presets/' + encodeURIComponent(m.id), null, function (code, data) {
+      closeDlg();
+      if (code === 200 && data && data.models) {
+        setModels(data);
+        toast('Deleted the preset ' + (m.name || m.id) + '.');
+      } else {
+        st.delErr = { id: m.id, msg: errText(code, data, 'Could not delete') };
+        plistSig = null;
+        loadModels(null);
+      }
+    }, 15000);
   }
 
   function modelRow(m, d) {
@@ -2061,11 +2487,14 @@
     var row = el('div', 'mrow mwrap' + (loaded ? ' on' : '') + (miss && !loaded ? ' dim' : ''));
     var main = el('div', 'mmain');
     var nm = el('div', 'mname', m.name || m.id);
+    var via = !loaded && d.loaded ? findModel(d.loaded) : null;  // a saved preset of this model is loaded
+    if (via && via.base !== m.id) via = null;
     if (loaded) nm.appendChild(el('span', 'badge ok', 'In use'));
     else if (loading) nm.appendChild(el('span', 'badge warn', 'Loading…'));
+    else if (via) nm.appendChild(el('span', 'badge ok', 'In use via ' + (via.name || via.id)));
     if (miss) nm.appendChild(el('span', 'badge bad', 'Incomplete'));
     main.appendChild(nm);
-    var meta = (m.kind === 'preset' ? 'Preset' : 'Checkpoint') + ' · ' + bytes(m.bytes);
+    var meta = (m.kind === 'preset' ? 'Model with options' : 'Checkpoint') + ' · ' + bytes(m.bytes);
     var def = defaultsText(m.defaults);
     if (def) meta += ' · ' + def;
     main.appendChild(el('div', 'mmeta', meta));
@@ -2098,10 +2527,12 @@
   // Why this model cannot be deleted (shown in its row), or ''.
   function deleteBlock(m, d) {
     if (d.loaded === m.id || d.active === m.id) return 'Switch to another model first to delete this one.';
+    var inUse = findModel(d.loaded) || findModel(d.active);
+    if (inUse && inUse.base === m.id) return 'A preset of this model is in use. Switch to another model first.';
     if (m.kind === 'file' && m.files && m.files.length) {
       for (var i = 0; i < d.models.length; i++) {
         var o = d.models[i], used = o.files || [];
-        if (o.kind !== 'preset') continue;
+        if (o.kind !== 'preset' || o.base) continue;
         for (var j = 0; j < used.length; j++) {
           if (used[j] === m.files[0]) return 'Part of the preset ' + (o.name || o.id) + '. Delete that preset instead.';
         }
@@ -2118,7 +2549,9 @@
     dlgFor = m;
     dlgFrom = document.activeElement;
     text($('dlg-title'), 'Delete ' + (m.name || m.id) + (m.bytes > 0 ? ' (' + bytes(m.bytes) + ')' : '') + '?');
-    text($('dlg-body'), 'Files another model uses are kept.');
+    var vs = variantsOf(m.id);
+    text($('dlg-body'), 'Files another model uses are kept.' + (vs.length ? ' Its ' + (vs.length === 1 ? 'preset' : vs.length + ' presets') + ' (' +
+      vs.map(function (v) { return v.name || v.id; }).join(', ') + ') ' + (vs.length === 1 ? 'goes' : 'go') + ' too.' : ''));
     $('dlg-ok').disabled = false;
     $('dlg-cancel').disabled = false;
     text($('dlg-ok'), 'Delete');
@@ -2148,6 +2581,8 @@
     text($('dlg-ok'), 'Deleting…');
     if (m.image) { deleteImage(m.image); return; }
     if (m.lora) { deleteLora(m.lora); return; }
+    if (m.preset) { deletePreset(m.preset); return; }
+    if (m.authOff) { authOff(); return; }
     st.delErr = null;
     req('DELETE', APP + '/models/' + encodeURIComponent(m.id), null, function (code, data) {
       closeDlg();
@@ -2177,7 +2612,12 @@
     var waits = st.busy || st.others;
     req('POST', APP + '/models/active', { id: m.id }, function (code, data) {
       swPost = false;
-      if (code === 200) {
+      if (code === 200 && st.mid && st.mid !== m.id) {
+        // a preset of the model that is loaded: no restart, only its settings
+        st.announce = m.name || m.id;
+        if (data && data.models) setModels(data);
+        loadInfo();
+      } else if (code === 200) {
         toast((m.name || m.id) + ' is loaded already.');
         if (data && data.models) setModels(data);
       } else if (code === 202) {
@@ -2537,6 +2977,7 @@
     };
     x.open('PUT', '/ps5sd/v1/app/uploads/' + kind + '/' + encodeURIComponent(name), true);
     x.setRequestHeader('Content-Type', 'application/octet-stream');
+    x.setRequestHeader('X-PS5SD-Request', '1');
     x.send(f);
   }
 
@@ -2835,12 +3276,27 @@
     });
   }
 
+  // The login first (when the server wants a key), then the page.
   function init() {
+    $('login-go').onclick = login;
+    $('login-key').onkeydown = function (e) { e = e || window.event; if (e.keyCode === 13) { login(); return false; } return true; };
+    checkAuth(start);
+  }
+
+  function start() {
+    auth.started = true;
     loadVersion();
+    loadAuth();
     buildPresets();
     initSignal();
     loadTvOption();
     $('opt-tv').onchange = setTvOption;
+    $('opt-tvkey').onchange = setTvKeyOption;
+    $('auth-on').onclick = newKey;
+    $('auth-new').onclick = newKey;
+    $('auth-off').onclick = askAuthOff;
+    $('auth-out').onclick = signOut;
+    $('auth-show').onclick = function () { auth.shown = !auth.shown; drawAuth(); };
     var b = parseInt(load('batch'), 10);
     $('batch').value = b >= 1 ? b : 1;
     $('batch').onchange = $('batch').oninput = persist;
@@ -2879,8 +3335,14 @@
       setForm(st.preset);
       $('seed').value = seed;
       persist();
-      toast('Preset applied.');
+      toast('The model\'s defaults are set.');
     };
+    $('savepreset').onclick = function () { setView('presets'); try { $('ps-name').focus(); } catch (e) {} };
+    $('tab-presets').onclick = function () { setView('presets'); };
+    $('ps-save').onclick = savePreset;
+    $('ps-name').onkeydown = function (e) { e = e || window.event; if (e.keyCode === 13) { savePreset(); return false; } return true; };
+    $('pe-cancel').onclick = closeEdit;
+    $('pe-save').onclick = saveEdit;
     $('tab-create').onclick = function () { setView('create'); };
     $('tab-models').onclick = function () { setView('models'); };
     $('tab-gallery').onclick = function () { setView('gallery'); };
@@ -2917,6 +3379,7 @@
     dlPoll();
     if (window.location.hash === '#models') setView('models');
     if (window.location.hash === '#help') setView('help');
+    if (window.location.hash === '#presets') setView('presets');
   }
 
   init();

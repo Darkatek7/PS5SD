@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -137,6 +138,8 @@ ModelEntry ModelLibrary::parse_preset(const std::string & id, const std::string 
                 e.name = value;
             } else if (key == "defaults") {
                 e.defaults = parse_defaults(value);
+            } else if (key == "base") {
+                e.base = value;
             }
             continue;
         }
@@ -240,13 +243,20 @@ bool ModelLibrary::remove(const std::string & id_in, const std::vector<std::stri
         error = "no model " + id + " in " + models_dir + " or " + presets_dir;
         return false;
     }
-    // The files every other preset names, with that preset's id.
+    // The files every other preset names, with that preset's id; the variants
+    // of this entry ("# base: <id>") go with it and do not count.
     std::vector<std::pair<std::string, std::string>> used;
+    std::vector<fs::path>                            variants;
     for (const ModelEntry & e : list()) {
-        if (e.kind == "preset" && !(is_preset && e.id == id)) {
-            for (const auto & f : e.files) {
-                used.emplace_back(norm(f), e.id);
-            }
+        if (e.kind != "preset" || (is_preset && e.id == id)) {
+            continue;
+        }
+        if (e.base == id) {
+            variants.push_back(fs::u8path(presets_dir) / fs::u8path(e.id + ".txt"));
+            continue;
+        }
+        for (const auto & f : e.files) {
+            used.emplace_back(norm(f), e.id);
         }
     }
     const auto user_of = [&](const std::string & f) -> std::string {
@@ -306,6 +316,203 @@ bool ModelLibrary::remove(const std::string & id_in, const std::vector<std::stri
         }
         deleted.push_back(preset.u8string());
     }
+    for (const auto & v : variants) {
+        if (fs::remove(v, ec) && !ec) {
+            deleted.push_back(v.u8string());
+        }
+    }
+    return true;
+}
+
+namespace {
+
+// A preset's name: one line, not empty, at most 100 bytes.
+bool valid_preset_name(const std::string & name) {
+    return !name.empty() && name.size() <= 100 && name.find('\n') == std::string::npos &&
+           name.find('\r') == std::string::npos;
+}
+
+// "Portrait, fast!" -> "portrait-fast"
+std::string slug(const std::string & name) {
+    std::string out;
+    for (unsigned char c : name) {
+        if (std::isalnum(c) && c < 0x80) {
+            out.push_back(static_cast<char>(std::tolower(c)));
+        } else if (!out.empty() && out.back() != '-') {
+            out.push_back('-');
+        }
+    }
+    while (!out.empty() && out.back() == '-') {
+        out.pop_back();
+    }
+    if (out.size() > 48) {
+        out.resize(48);
+    }
+    return out.empty() ? "preset" : out;
+}
+
+// A default's value as "# defaults:" can hold it: one word of letters,
+// digits and . _ + - : , / (sampler names like dpm++2m, LoRA lists).
+bool valid_default(const std::string & key, const std::string & value) {
+    static const char * const kKeys[] = { "steps", "cfg", "width", "height", "sampler", "scheduler", "loras" };
+    bool known = false;
+    for (const char * k : kKeys) {
+        known = known || key == k;
+    }
+    if (!known || value.empty() || value.size() > 2000) {
+        return false;
+    }
+    for (unsigned char c : value) {
+        if (!(std::isalnum(c) && c < 0x80) && std::strchr("._+-:,/", c) == nullptr) {
+            return false;
+        }
+    }
+    return true;
+}
+
+std::string read_file(const fs::path & p) {
+    std::ifstream      in(p, std::ios::binary);
+    std::ostringstream text;
+    text << in.rdbuf();
+    return text.str();
+}
+
+bool write_file(const fs::path & p, const std::string & text) {
+    const fs::path tmp = fs::u8path(p.u8string() + ".tmp");
+    {
+        std::ofstream out(tmp, std::ios::binary | std::ios::trunc);
+        out << text;
+        if (!out.good()) {
+            return false;
+        }
+    }
+    std::error_code ec;
+    fs::rename(tmp, p, ec);
+    if (ec) {
+        fs::remove(tmp, ec);
+        return false;
+    }
+    return true;
+}
+
+}  // namespace
+
+bool ModelLibrary::create_preset(const std::string & name_in, const std::string & base_id,
+                                 const std::vector<std::pair<std::string, std::string>> & defaults, std::string & id,
+                                 std::string & error) const {
+    const std::string name = trim(name_in);
+    if (!valid_preset_name(name)) {
+        error = "a preset needs a name of one line (at most 100 characters)";
+        return false;
+    }
+    for (const auto & kv : defaults) {
+        if (!valid_default(kv.first, kv.second)) {
+            error = "not a setting a preset can keep: " + kv.first + "=" + kv.second;
+            return false;
+        }
+    }
+    ModelEntry base;
+    if (!find(base_id, base, error)) {
+        return false;
+    }
+    // The model's arguments: a checkpoint's file (by its name when it is in
+    // the models folder), or the base preset's lines without its comments.
+    std::string root = base.id;
+    std::string args;
+    if (base.kind == "preset") {
+        if (!base.base.empty()) {
+            root = base.base;
+        }
+        std::istringstream in(read_file(fs::u8path(presets_dir) / fs::u8path(base.id + ".txt")));
+        for (std::string line; std::getline(in, line);) {
+            line = trim(line);
+            if (!line.empty() && line[0] != '#') {
+                args += line + "\n";
+            }
+        }
+    } else {
+        const fs::path    p      = fs::u8path(base.args[1]);
+        const bool        inside = p.parent_path().lexically_normal() == fs::u8path(models_dir).lexically_normal();
+        args                     = "-m\n" + (inside ? p.filename().u8string() : p.u8string()) + "\n";
+    }
+    // A free id from the name: <slug>, <slug>-2, ...
+    const std::string stem = slug(name);
+    for (int n = 1;; n++) {
+        id = n == 1 ? stem : stem + "-" + std::to_string(n);
+        std::error_code ec;
+        if (!fs::exists(fs::u8path(presets_dir) / fs::u8path(id + ".txt"), ec) &&
+            !fs::exists(fs::u8path(models_dir) / fs::u8path(id), ec)) {
+            break;
+        }
+        if (n > 999) {
+            error = "no free id for " + name;
+            return false;
+        }
+    }
+    std::string text = "# name: " + name + "\n# base: " + root + "\n";
+    if (!defaults.empty()) {
+        text += "# defaults:";
+        for (const auto & kv : defaults) {
+            text += " " + kv.first + "=" + kv.second;
+        }
+        text += "\n";
+    }
+    text += args;
+    if (!write_file(fs::u8path(presets_dir) / fs::u8path(id + ".txt"), text)) {
+        error = "could not write " + presets_dir + "/" + id + ".txt";
+        return false;
+    }
+    return true;
+}
+
+bool ModelLibrary::read_preset(const std::string & id_in, std::string & text, std::string & error) const {
+    const std::string id = trim(id_in);
+    const fs::path    p  = fs::u8path(presets_dir) / fs::u8path(id + ".txt");
+    if (!is_plain_name(id) || !is_file(p)) {
+        error = "no preset " + id;
+        return false;
+    }
+    text = read_file(p);
+    return true;
+}
+
+bool ModelLibrary::write_preset(const std::string & id_in, const std::string & text, std::string & error) const {
+    const std::string id = trim(id_in);
+    const fs::path    p  = fs::u8path(presets_dir) / fs::u8path(id + ".txt");
+    if (!is_plain_name(id) || !is_file(p)) {
+        error = "no preset " + id;
+        return false;
+    }
+    if (text.size() > 64 * 1024) {
+        error = "a preset is at most 64 KB";
+        return false;
+    }
+    if (parse_preset(id, text).files.empty()) {
+        error = "the preset names no model (-m, --diffusion-model, ...)";
+        return false;
+    }
+    if (!write_file(p, text)) {
+        error = "could not write " + p.u8string();
+        return false;
+    }
+    return true;
+}
+
+bool ModelLibrary::remove_variant(const std::string & id_in, std::string & error) const {
+    const std::string id = trim(id_in);
+    std::string       text;
+    if (!read_preset(id, text, error)) {
+        return false;
+    }
+    if (parse_preset(id, text).base.empty()) {
+        error = id + " is a model, not a saved preset; delete it on the Models tab";
+        return false;
+    }
+    std::error_code ec;
+    if (!fs::remove(fs::u8path(presets_dir) / fs::u8path(id + ".txt"), ec) || ec) {
+        error = "could not delete " + id + (ec ? ": " + ec.message() : "");
+        return false;
+    }
     return true;
 }
 
@@ -323,6 +530,7 @@ std::string models_json(const ModelLibrary & library, const std::string & active
                          { "bytes", e.bytes },
                          { "files", e.files },
                          { "missing", e.missing },
+                         { "base", e.base },
                          { "defaults", defaults } });
     }
     nlohmann::json out = { { "active", active }, { "loaded", loaded }, { "switching", switching }, { "standby", standby }, { "models", list } };
@@ -430,6 +638,52 @@ std::string info_json(const std::string & version, const std::string & sd_versio
     return out.dump(-1, ' ', false, nlohmann::json::error_handler_t::replace);
 }
 
+std::string api_key_from_bytes(const unsigned char * bytes, size_t n) {
+    static const char kAlphabet[] = "abcdefghijklmnopqrstuvwxyz234567";
+    std::string       out;
+    unsigned          buffer = 0;
+    int               bits   = 0;
+    for (size_t i = 0; i < n; i++) {
+        buffer = (buffer << 8) | bytes[i];
+        bits += 8;
+        while (bits >= 5) {
+            out.push_back(kAlphabet[(buffer >> (bits - 5)) & 31]);
+            bits -= 5;
+        }
+    }
+    if (bits > 0) {
+        out.push_back(kAlphabet[(buffer << (5 - bits)) & 31]);
+    }
+    return out;
+}
+
+std::string api_key_groups(const std::string & key) {
+    std::string out;
+    for (size_t i = 0; i < key.size(); i++) {
+        if (i > 0 && i % 4 == 0) {
+            out.push_back(' ');
+        }
+        out.push_back(key[i]);
+    }
+    return out;
+}
+
+bool valid_api_key(const std::string & key) {
+    if (key.empty()) {
+        return false;
+    }
+    for (char c : key) {
+        if (!((c >= 'a' && c <= 'z') || (c >= '2' && c <= '7'))) {
+            return false;
+        }
+    }
+    return true;
+}
+
+std::string auth_json(const std::string & key) {
+    return nlohmann::json{ { "enabled", !key.empty() }, { "key", key } }.dump();
+}
+
 std::string error_json(const std::string & message) {
     return nlohmann::json{ { "error", message } }.dump(-1, ' ', false, nlohmann::json::error_handler_t::replace);
 }
@@ -443,7 +697,7 @@ std::string id_from_json(const std::string & body) {
 }
 
 std::string settings_json(const AppSettings & settings) {
-    return nlohmann::json{ { "tv_images", settings.tv_images } }.dump();
+    return nlohmann::json{ { "tv_images", settings.tv_images }, { "tv_api_key", settings.tv_api_key } }.dump();
 }
 
 bool apply_settings(const std::string & body, AppSettings & settings, std::string & error) {
@@ -459,6 +713,13 @@ bool apply_settings(const std::string & body, AppSettings & settings, std::strin
             return false;
         }
         next.tv_images = j["tv_images"].get<bool>();
+    }
+    if (j.contains("tv_api_key")) {
+        if (!j["tv_api_key"].is_boolean()) {
+            error = "tv_api_key must be true or false";
+            return false;
+        }
+        next.tv_api_key = j["tv_api_key"].get<bool>();
     }
     settings = next;
     return true;

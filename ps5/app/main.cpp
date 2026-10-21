@@ -67,8 +67,10 @@
 #include "ggml-backend.h"
 #include "download_core.hpp"
 #include "downloader.hpp"
+#include "https_client.hpp"
 #include "upload.hpp"
 #include "models.hpp"
+#include "json.hpp"
 #include "server_hooks.h"
 #include "stable-diffusion.h"
 #include "version.hpp"
@@ -124,6 +126,8 @@ int sceVideoOutOpen(int32_t user_id, int32_t bus_type, int32_t index, const void
 // sd-server-lib (patches/sdcpp/0050): serves until sd_server_terminate().
 int  sd_server(int argc, char ** argv);
 void sd_server_terminate(void);
+// patches/sdcpp/0060 (auth.h): the key every request needs; "" for none.
+void sd_server_set_api_key(const char * key);
 }
 
 namespace {
@@ -138,6 +142,7 @@ constexpr const char * kModel   = "/data/PS5SD/model.txt";
 constexpr const char * kEnv     = "/data/PS5SD/env.txt";  // driver and ggml switches, for measuring
 constexpr const char * kQuit    = "/data/PS5SD/quit";
 constexpr const char * kSettings = "/data/PS5SD/settings.json";  // GET/POST settings (AppSettings)
+constexpr const char * kApiKey  = "/data/PS5SD/api-key.txt";  // the API key, one line; no file: no key
 constexpr const char * kDocs    = "/app0/docs";  // the Help tab's docs (scripts/build-app.sh)
 constexpr const char * kOutputs = "/data/PS5SD/outputs";
 constexpr const char * kLoras   = "/data/PS5SD/loras";
@@ -156,6 +161,8 @@ AppStatus g_status;
 const ModelLibrary g_library{ kModels, kPresets };
 std::mutex         g_settings_mutex;  // the HTTP threads read and change g_settings
 AppSettings        g_settings;
+std::mutex         g_key_mutex;  // the HTTP threads read and change g_api_key
+std::string        g_api_key;
 
 // The server's life, for the quit request and the "ready" announcement:
 // started just before sd_server() is called, done once it has returned (its
@@ -801,6 +808,28 @@ int ask_switch(const std::string & id, std::string & out) {
         out = models_json(g_library, entry.id, entry.id, false);
         return 200;
     }
+    // A preset with the same arguments as the loaded model (a variant with
+    // other defaults): the server has it ready, so no restart.
+    {
+        ModelEntry  loaded;
+        std::string ignored;
+        const std::string current = loaded_id();
+        if (!current.empty() && !g_standby && g_library.find(current, loaded, ignored) && loaded.args == entry.args) {
+            if (!write_active_model(entry.id)) {
+                out = error_json("could not write /data/PS5SD/model.txt");
+                return 500;
+            }
+            {
+                std::lock_guard<std::mutex> lock(g_model_mutex);
+                g_loaded_id = entry.id;
+                g_good_id   = entry.id;
+            }
+            g_status.set_model(entry.name);
+            std::printf("ps5sd: %s uses the loaded model; no restart\n", entry.id.c_str());
+            out = models_json(g_library, entry.id, entry.id, false);
+            return 200;
+        }
+    }
     if (!write_active_model(entry.id)) {
         out = error_json("could not write /data/PS5SD/model.txt");
         return 500;
@@ -883,6 +912,65 @@ bool save_settings(const AppSettings & settings) {
     return std::rename(tmp.c_str(), kSettings) == 0;
 }
 
+// The API key the TV shows: the key, unless there is none or the setting
+// hides it. Called with the key and the settings as they are now.
+void show_api_key(const std::string & key, const AppSettings & settings) {
+    g_status.set_api_key(settings.tv_api_key ? api_key_groups(key) : std::string());
+}
+
+// The key from api-key.txt, read once at the start; no file: no key.
+void load_api_key() {
+    const auto lines = read_lines(kApiKey);
+    const std::string key = lines.empty() ? std::string() : lines[0];
+    {
+        std::lock_guard<std::mutex> lock(g_key_mutex);
+        g_api_key = key;
+    }
+    sd_server_set_api_key(key.c_str());
+    std::printf("ps5sd: API key %s\n", key.empty() ? "off" : "on");
+    show_api_key(key, g_settings);
+}
+
+// A new key in api-key.txt (written to a temporary file and renamed), or
+// none (the file deleted); the server needs it from the next request on.
+// False with an error when the key cannot be made or written.
+bool set_api_key(bool on, std::string & error) {
+    std::string key;
+    if (on) {
+        unsigned char bytes[32];
+        if (!random_bytes(bytes, sizeof(bytes))) {
+            error = "no random source for a key";
+            return false;
+        }
+        key = api_key_from_bytes(bytes, sizeof(bytes));
+        const std::string tmp = std::string(kApiKey) + ".tmp";
+        {
+            std::ofstream out(tmp, std::ios::binary | std::ios::trunc);
+            out << key << "\n";
+            if (!out.good()) {
+                error = std::string("could not write ") + kApiKey;
+                return false;
+            }
+        }
+        if (std::rename(tmp.c_str(), kApiKey) != 0) {
+            error = std::string("could not write ") + kApiKey + ": " + std::strerror(errno);
+            return false;
+        }
+    } else if (::unlink(kApiKey) != 0 && errno != ENOENT) {
+        error = std::string("could not delete ") + kApiKey + ": " + std::strerror(errno);
+        return false;
+    }
+    {
+        std::lock_guard<std::mutex> lock(g_key_mutex);
+        g_api_key = key;
+    }
+    sd_server_set_api_key(key.c_str());
+    std::printf("ps5sd: API key %s\n", on ? "set to a new one" : "off");
+    std::lock_guard<std::mutex> lock(g_settings_mutex);
+    show_api_key(key, g_settings);
+    return true;
+}
+
 // The app's routes under /ps5sd/v1/app/ (patches/sdcpp/0054), on the
 // server's HTTP threads:
 //   GET  models         the library, the active model and the loaded one
@@ -899,7 +987,12 @@ bool save_settings(const AppSettings & settings) {
 //   catalog, downloads, downloads/<id>, hf/search: the model downloader
 //                       (downloader.hpp), which runs on its own threads and
 //                       keeps going while the server restarts.
-//   settings (GET, POST) the app's settings (AppSettings): {"tv_images": bool}.
+//   settings (GET, POST) the app's settings (AppSettings): {"tv_images": bool,
+//                       "tv_api_key": bool}.
+//   auth (GET), auth/enable, auth/disable (POST): the API key; enable makes
+//                       a new one (also when there is one).
+//   presets (POST), presets/<id> (GET, POST, DELETE): saved presets, the
+//                       variants of a model (ModelLibrary::create_preset).
 // GET docs/<name>: docs/MODELS.md or docs/API.md, which the title carries,
 // for the web UI's Help tab.
 int doc_request(const std::string & name, char ** out_body, size_t * out_len, const char ** content_type) {
@@ -1036,7 +1129,96 @@ extern "C" int sd_app_request(const char * method, const char * path, const char
         } else {
             g_settings = next;
             g_status.set_tv_images(next.tv_images);
+            std::lock_guard<std::mutex> key_lock(g_key_mutex);
+            show_api_key(g_api_key, next);
             out    = settings_json(next);
+            status = 200;
+        }
+    } else if (m == "GET" && p == "auth") {
+        std::lock_guard<std::mutex> lock(g_key_mutex);
+        out    = auth_json(g_api_key);
+        status = 200;
+    } else if (m == "POST" && (p == "auth/enable" || p == "auth/disable")) {
+        std::string error;
+        if (set_api_key(p == "auth/enable", error)) {
+            std::lock_guard<std::mutex> lock(g_key_mutex);
+            out    = auth_json(g_api_key);
+            status = 200;
+        } else {
+            out    = error_json(error);
+            status = 500;
+        }
+    } else if (m == "POST" && p == "presets") {
+        // {"name", "base", "defaults": {"steps": "10", ...}}: a variant of base
+        // (the loaded model when base is left out).
+        const nlohmann::json j = nlohmann::json::parse(body != nullptr ? std::string(body, body_len) : std::string(),
+                                                       nullptr, false);
+        std::vector<std::pair<std::string, std::string>> defaults;
+        std::string                                      error, id;
+        std::string base = j.is_object() && j.contains("base") && j["base"].is_string() ? j["base"].get<std::string>()
+                                                                                       : loaded_id();
+        if (j.is_object() && j.contains("defaults") && j["defaults"].is_object()) {
+            for (const auto & kv : j["defaults"].items()) {
+                defaults.emplace_back(kv.key(), kv.value().is_string() ? kv.value().get<std::string>() : kv.value().dump());
+            }
+        }
+        if (!j.is_object() || !j.contains("name") || !j["name"].is_string()) {
+            out    = error_json("the body must be {\"name\": \"...\", \"base\": \"<model id>\", \"defaults\": {...}}");
+            status = 400;
+        } else if (base.empty()) {
+            out    = error_json("no model is loaded; name the model as base");
+            status = 400;
+        } else if (!g_library.create_preset(j["name"].get<std::string>(), base, defaults, id, error)) {
+            out    = error_json(error);
+            status = error.rfind("no model", 0) == 0 ? 404 : 400;
+        } else {
+            std::printf("ps5sd: saved preset %s (base %s)\n", id.c_str(), base.c_str());
+            const auto active = read_lines(kModel);
+            nlohmann::json o  = nlohmann::json::parse(
+                models_json(g_library, active.empty() ? "" : active[0], loaded_id(), g_switching, g_standby && !g_switching));
+            o["id"] = id;
+            out     = o.dump(-1, ' ', false, nlohmann::json::error_handler_t::replace);
+            status  = 201;
+        }
+    } else if (p.rfind("presets/", 0) == 0 && (m == "GET" || m == "POST" || m == "DELETE")) {
+        const std::string id = p.substr(8);
+        std::string       error, text;
+        const auto        active = read_lines(kModel);
+        if (m == "GET") {
+            if (g_library.read_preset(id, text, error)) {
+                out    = nlohmann::json{ { "id", id }, { "text", text } }.dump(-1, ' ', false,
+                                                                            nlohmann::json::error_handler_t::replace);
+                status = 200;
+            } else {
+                out    = error_json(error);
+                status = 404;
+            }
+        } else if (m == "POST") {
+            // {"text": "..."}: the preset's file, as GET gives it. A change to
+            // the loaded model's arguments counts from its next load.
+            const nlohmann::json j = nlohmann::json::parse(body != nullptr ? std::string(body, body_len) : std::string(),
+                                                           nullptr, false);
+            if (!j.is_object() || !j.contains("text") || !j["text"].is_string()) {
+                out    = error_json("the body must be {\"text\": \"<the preset file>\"}");
+                status = 400;
+            } else if (!g_library.write_preset(id, j["text"].get<std::string>(), error)) {
+                out    = error_json(error);
+                status = error.rfind("no preset", 0) == 0 ? 404 : 400;
+            } else {
+                out    = models_json(g_library, active.empty() ? "" : active[0], loaded_id(), g_switching,
+                                     g_standby && !g_switching);
+                status = 200;
+            }
+        } else if ((!active.empty() && id == active[0]) || id == loaded_id()) {
+            out    = error_json(id + " is in use; switch to another model or preset first");
+            status = 409;
+        } else if (!g_library.remove_variant(id, error)) {
+            out    = error_json(error);
+            status = error.rfind("no preset", 0) == 0 ? 404 : 409;
+        } else {
+            std::printf("ps5sd: deleted preset %s\n", id.c_str());
+            out    = models_json(g_library, active.empty() ? "" : active[0], loaded_id(), g_switching,
+                                 g_standby && !g_switching);
             status = 200;
         }
     } else if (m == "GET" && p == "loras") {
@@ -1085,11 +1267,15 @@ extern "C" int sd_app_request(const char * method, const char * path, const char
         const auto        active = g_standby ? std::vector<std::string>() : read_lines(kModel);
         const std::string loaded = loaded_id();
         std::vector<std::string> keep, deleted, kept;
+        std::string              in_use_base;  // the base of the preset in use, if it is a variant
         for (const std::string & in_use : { active.empty() ? std::string() : active[0], loaded }) {
             ModelEntry  entry;
             std::string ignored;
             if (!in_use.empty() && g_library.find(in_use, entry, ignored)) {
                 keep.insert(keep.end(), entry.files.begin(), entry.files.end());
+                if (!entry.base.empty()) {
+                    in_use_base = entry.base;
+                }
             }
         }
         std::string error;
@@ -1098,6 +1284,9 @@ extern "C" int sd_app_request(const char * method, const char * path, const char
             status = 409;
         } else if ((!active.empty() && id == active[0]) || id == loaded) {
             out    = error_json(id + " is the model in use; switch to another one first");
+            status = 409;
+        } else if (in_use_base == id) {
+            out    = error_json("a preset of " + id + " is in use; switch to another model first");
             status = 409;
         } else if (!g_library.remove(id, keep, deleted, kept, error)) {
             out    = error_json(error);
@@ -1157,6 +1346,7 @@ int main(int, char **) {
     }
     std::printf("ps5sd: version " PS5SD_VERSION ", stable-diffusion.cpp %s (%s)\n", sd_version(), sd_commit());
     load_settings();
+    load_api_key();
     // One device-local heap over the whole pool (RADV splits an APU's 2/3 to
     // 1/3), and a HOME, which a title lacks and libraries look up.
     setenv("radv_enable_unified_heap_on_apu", "true", 1);

@@ -285,5 +285,12 @@ int main(int argc, char ** argv) {
     dashboard.toggle_log();
     frames(30);
     ok = capture("08-log", 0, 18.6) && ok;
+
+    // 9. With an API key, which the server tile shows under the address.
+    dashboard.toggle_log();
+    status.set_address("10.0.0.101");
+    status.set_api_key("t3xq 7mfa k2pz vw4d nh6e y5cr ub2s gk7j qa3m xe4t wd6p hz2n rf5v");
+    frames(30);
+    ok = capture("09-api-key", 0, 18.6) && ok;
     return ok ? 0 : 1;
 }

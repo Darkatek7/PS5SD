@@ -5,7 +5,7 @@
 #
 # What it does:
 #   1. copies third_party/stable-diffusion.cpp to a scratch directory (the
-#      submodule checkout stays clean) and applies patches/sdcpp/005*.patch
+#      submodule checkout stays clean) and applies patches/sdcpp/005*.patch and later
 #      (PATCHES=all applies every patches/sdcpp/*.patch)
 #   2. embeds ps5/webui/index.html with scripts/embed-file.sh
 #   3. builds it twice:
@@ -119,7 +119,7 @@ run rsync -a --delete --exclude .git --exclude assets --exclude docs --exclude e
 if [ "${PATCHES:-}" = all ]; then
     PATCH_GLOB=("$PS5SD_ROOT"/patches/sdcpp/0*.patch)
 else
-    PATCH_GLOB=("$PS5SD_ROOT"/patches/sdcpp/005*.patch)
+    PATCH_GLOB=("$PS5SD_ROOT"/patches/sdcpp/00[5-9]*.patch)
 fi
 for p in "${PATCH_GLOB[@]}"; do
     [ -f "$p" ] || continue

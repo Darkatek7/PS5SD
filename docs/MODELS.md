@@ -135,8 +135,34 @@ The options that matter on the PS5:
 | `--vae-tiling --vae-tile-size 512` | Decodes the image in tiles. At 1024×1024 the VAE otherwise needs about 6 GB at once and pushes the model out of memory. |
 | `--cache-mode ucache --cache-option threshold=1.5` | Skips steps that change little: SDXL at 25 steps runs about 40% faster, with small changes in detail. |
 
-The `# defaults:` keys are `steps`, `cfg`, `width`, `height`, `sampler` and `scheduler`. The samplers
+The `# defaults:` keys are `steps`, `cfg`, `width`, `height`, `sampler`, `scheduler` and `loras`
+(`path:strength`, several with commas: `loras=detail.safetensors:0.8,styles/ink.gguf:1`). The samplers
 are listed by `GET /sdapi/v1/samplers`, for example `euler`, `euler_a`, `dpm++2m` or `lcm`.
+
+### Saved presets: a model with your settings
+
+The same model with other settings, say a portrait size and a fast sampler, is a preset with
+`# base:`, the id of the model it belongs to:
+
+```text
+# name: iLustMix portrait (fast)
+# base: ilustmix_v111.safetensors
+# defaults: width=832 height=1216 steps=10 cfg=6 sampler=dpm++2m scheduler=ays
+-m
+ilustmix_v111.safetensors
+```
+
+The web UI makes these: set up the Create tab, then **Presets**, **Save the current settings**. It
+copies the model's own options (VAE, tiling, `--type`) into the preset. On the Presets tab:
+
+- **Use** switches to the preset. When it loads the same files with the same options as the model that is
+  loaded (a preset saved from it), the switch is at once, without loading anything.
+- **Edit** shows the preset file to change.
+- **Delete** removes the preset file only, never the model.
+
+The Models tab lists the models only, not their saved presets. Deleting a model there deletes its saved
+presets too. A preset without `# base:` (the catalog's, or your own of a model in several files) is a
+model: it is on the Models tab, and the checkpoint it loads is not listed again apart from it.
 
 The catalog's presets in [ps5/app/catalog.hpp](../ps5/app/catalog.hpp) are working examples for SDXL,
 FLUX.3 Klein and Z-Image Turbo.

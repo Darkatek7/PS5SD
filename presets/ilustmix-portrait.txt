@@ -1,4 +1,5 @@
 # name: iLustMix v11.1, portrait 832x1216 (fast)
+# base: ilustmix_v111.safetensors
 # defaults: width=832 height=1216 steps=10 cfg=6 sampler=dpm++2m scheduler=ays
 -m
 ilustmix_v111.safetensors

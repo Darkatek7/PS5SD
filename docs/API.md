@@ -11,10 +11,117 @@ PS5SD runs stable-diffusion.cpp's `sd-server` inside the title. One server on po
 | `/sdcpp/v1/` | sd-server's own API, with async jobs |
 | `/ps5sd/v1/` | PS5SD's routes: the gallery, the job queue, the model library and the downloader |
 
-Every route allows any origin (CORS), so a page on a PC can call the console directly. There is no
-authentication: keep port 7860 on your own network.
+Every route allows any origin (CORS, without credentials), so a page on a PC can call the console
+directly. Until you turn on the [API key](#the-api-key), there is no authentication: anyone who reaches
+port 7860 can use the console, so keep it on your own network.
+
+A request body is at most 64 MB (`413` above that); uploads (`PUT .../uploads/...`) have no limit.
 
 The examples use `<console>` for the PS5's address.
+
+## The API key
+
+With an API key, every request needs it. The key is 32 random bytes the console makes, written as 52
+letters and digits (`a-z`, `2-7`). It is kept in `/data/PS5SD/api-key.txt` and shown on the TV, under the
+address, in groups of four.
+
+Turn it on in the web UI: Create, Settings, **API key**, **Turn on**. The same place shows the key, makes
+a new one (the old one stops working at once), turns it off and signs the browser out. A browser signs in
+with the key once; it keeps a cookie for a year. Lost the key and cannot see the TV? Delete
+`/data/PS5SD/api-key.txt` over FTP and start the title again: the key is off.
+
+A client sends the key in one of these:
+
+| | For |
+|---|---|
+| `Authorization: Bearer <key>` | OpenAI clients: the key is their API key |
+| `Authorization: Basic` with the key as the password, any user name | A1111 clients with an API login (`--api-auth`) |
+| `X-API-Key: <key>` | anything else |
+
+```sh
+curl -H "Authorization: Bearer <key>" http://<console>:7860/sdapi/v1/sd-models
+curl -u any:<key> http://<console>:7860/sdapi/v1/sd-models
+```
+
+- Without the key: `401 {"error": "...", "auth_required": true}`.
+- Five wrong keys in a row from one client lock it out for 1 s, then 2, 4, ... up to 60 s: `429` with
+  `Retry-After`. Each wrong key is in the log (`app.log` and the TV's log). Behind a proxy the client is
+  the address in `CF-Connecting-IP` or `X-Forwarded-For`.
+- Open without the key: `GET /` (the web UI, which then asks for the key), `GET /ps5sd/v1/health`
+  (`{"status": "ok"}`, for a proxy or a monitor) and the routes below.
+
+| Route | |
+|---|---|
+| `GET /ps5sd/v1/auth` | `{"required": bool, "authenticated": bool}`: whether a key is needed, and whether this request has it |
+| `POST /ps5sd/v1/auth/login` | `{"key": "..."}` (spaces and dashes are left out): sets the cookie `ps5sd_key` (`HttpOnly`, `SameSite=Strict`, `Secure` behind HTTPS); `401` for a wrong key |
+| `POST /ps5sd/v1/auth/logout` | deletes the cookie |
+| `GET /ps5sd/v1/app/auth` | `{"enabled": bool, "key": "..."}` (needs the key, of course) |
+| `POST /ps5sd/v1/app/auth/enable` | makes a new key, also when there is one: `{"enabled": true, "key": "..."}` |
+| `POST /ps5sd/v1/app/auth/disable` | no key any more |
+
+A `POST`, `PUT` or `DELETE` that carries the key only as the cookie also needs the header
+`X-PS5SD-Request` (any value; the web UI sends it). A page of another site cannot add that header, so it
+cannot use the cookie of a signed-in browser.
+
+### From outside your network
+
+Do not forward port 7860 on your router: the console speaks plain HTTP, so the key would cross the
+internet readable. Put HTTPS in front of it, on another machine in your network (a PC, a Raspberry Pi, a
+NAS), and turn the key on first.
+
+The key protects port 7860 only. The console's other homebrew services (ftpsrv on 2121, elfldr on 9021,
+and so on) have no password: never make them reachable from the internet. Anyone on your own network can
+read the key over FTP (`/data/PS5SD/api-key.txt`), as they can every other file.
+
+**Cloudflare Tunnel** (a domain on Cloudflare, nothing opened on the router). On the machine in your
+network, with [cloudflared](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/):
+
+```sh
+cloudflared tunnel login
+cloudflared tunnel create ps5sd
+cloudflared tunnel route dns ps5sd sd.example.com
+```
+
+`~/.cloudflared/config.yml`:
+
+```yaml
+tunnel: ps5sd
+credentials-file: /home/<you>/.cloudflared/<tunnel id>.json
+ingress:
+  - hostname: sd.example.com
+    service: http://<console>:7860
+  - service: http_status:404
+```
+
+Then `cloudflared tunnel run ps5sd` (or `cloudflared service install`), and open
+`https://sd.example.com`. For a quick test without a domain, `cloudflared tunnel --url
+http://<console>:7860` prints a temporary `trycloudflare.com` address.
+
+Cloudflare's limits, on the free plan:
+
+- A request body is at most 100 MB, so model uploads through the tunnel fail. Upload in your network, or
+  let the console download the model (Models, Add by link).
+- Cloudflare gives up on a response after 100 s (`524`). The web UI uses jobs (`/sdcpp/v1/img_gen`), which
+  answer at once. A client of the synchronous routes (`/sdapi/v1/txt2img`, `/v1/images/generations`)
+  fails on images that take longer; use `img_gen` and poll the job instead.
+- Cloudflare Access can ask for a login in front of the console as well. API clients then also need an
+  Access service token.
+
+**A VPN** (Tailscale, WireGuard, your router's VPN) keeps the console off the internet altogether: the phone
+or laptop joins your network and uses `http://<console>:7860` as at home. Tailscale on a machine in your
+network as a subnet router (`tailscale up --advertise-routes=<your network>/24`, then approve the route
+in Tailscale's admin page) reaches the console without installing anything on it.
+
+**Your own reverse proxy**, for example [Caddy](https://caddyserver.com) with a domain pointing at your
+router and port 443 forwarded to it (Caddy gets the certificate itself):
+
+```text
+sd.example.com {
+    reverse_proxy <console>:7860
+}
+```
+
+The web UI works at the root of a host name, not under a path (`https://example.com/sd/` does not).
 
 ## One model at a time
 
@@ -56,7 +163,7 @@ loads a model and ends standby.
 
 | Route | |
 |---|---|
-| `GET /ps5sd/v1/app/info` | `{"name": "PS5SD", "version": "0.3.0", "sd_cpp": {"version", "commit"}}` |
+| `GET /ps5sd/v1/app/info` | `{"name": "PS5SD", "version": "0.3.1", "sd_cpp": {"version", "commit"}}` |
 | `GET /ps5sd/v1/app/docs/<name>` | `MODELS.md` or `API.md` as the title carries them (`text/markdown`), for the web UI's Help tab; any other name is a 404 |
 | `GET /ps5sd/v1/app/models` | the library; see below |
 | `POST /ps5sd/v1/app/models/active` | `{"id": "<id>"}`: switch to that entry; the responses are below |
@@ -69,9 +176,11 @@ loads a model and ends standby.
 ```json
 {"active": "flux3-klein-q4", "loaded": "flux3-klein-q4", "switching": false, "standby": false,
  "models": [{"id": "flux3-klein-q4", "name": "FLUX.3 Image Klein (Q4_K)", "kind": "preset",
-             "bytes": 4912345678, "files": ["..."], "missing": [],
+             "bytes": 4912345678, "files": ["..."], "missing": [], "base": "",
              "defaults": {"steps": "16", "cfg": "1", "width": "1024", "height": "1024", "sampler": "euler"}}]}
 ```
+
+- `base` is set for a saved preset (below): the id of the model it is a preset of.
 
 - `active` is the entry `model.txt` names.
 - `loaded` is the entry the server has ready. It is `""` while a model loads and in standby.
@@ -84,7 +193,7 @@ loads a model and ends standby.
 | Status | Meaning |
 |---|---|
 | `202` | the switch has started; poll `GET models` until `loaded` is the new id |
-| `200` | that entry is loaded already |
+| `200` | that entry is loaded already, or it loads with the same arguments as the loaded one (a saved preset of it): the switch is done, without a restart |
 | `400` | the body is not `{"id": "..."}` |
 | `404` | there is no such entry |
 | `409` | a switch is already running, or the title is stopping |
@@ -97,8 +206,21 @@ loads a model and ends standby.
 - **A checkpoint:** the file is deleted. A checkpoint that a preset names cannot be deleted; delete the
   preset instead.
 
-The answer is the library, plus `"deleted"` (the deleted files) and `"kept"` (the files that stayed).
-`409` means the entry is in use or a switch is running, `404` that there is no such entry.
+The saved presets of the entry (`base` is its id) are deleted with it. The answer is the library, plus
+`"deleted"` (the deleted files) and `"kept"` (the files that stayed). `409` means the entry or a preset of
+it is in use, or a switch is running; `404` that there is no such entry.
+
+### Saved presets
+
+A saved preset is a model with other settings: a preset file with `# base: <id>` (see
+[MODELS.md](MODELS.md#presets-models-of-several-files-and-options)). The web UI's Presets tab uses these.
+
+| Route | |
+|---|---|
+| `POST /ps5sd/v1/app/presets` | `{"name": "Portrait fast", "base": "<model id>", "defaults": {"width": "832", "height": "1216", "steps": "10", "cfg": "6", "sampler": "dpm++2m", "scheduler": "ays", "loras": "detail.safetensors:0.8"}}`: `201`, the library plus `"id"` of the new preset. It takes the model's arguments from `base` (the loaded model when it is left out; the base's own base when that is a saved preset too). The id comes from the name. `400` for a name of more than one line or 100 characters, a key that is not one of these, or a value with a space |
+| `GET /ps5sd/v1/app/presets/<id>` | `{"id", "text"}`: the preset file as it is |
+| `POST /ps5sd/v1/app/presets/<id>` | `{"text": "..."}`: replaces the file (at most 64 KB, it must name a model); the answer is the library. Changed options count from the next load of that preset |
+| `DELETE /ps5sd/v1/app/presets/<id>` | deletes a saved preset's file, never a model file. `409` when it is in use, or when the preset is a model itself (no `base`; delete it with `DELETE models/<id>`) |
 
 ```sh
 curl http://<console>:7860/ps5sd/v1/app/models
@@ -237,8 +359,10 @@ restart.
 
 | Route | |
 |---|---|
-| `GET /ps5sd/v1/app/settings` | `{"tv_images": true}` |
+| `GET /ps5sd/v1/app/settings` | `{"tv_images": true, "tv_api_key": true}` |
 | `POST /ps5sd/v1/app/settings` | change what the body sets, like `{"tv_images": false}`; the answer is the settings as `GET` gives them, 400 for a field of the wrong type |
 
 `tv_images` false: the dashboard on the TV shows no images (no live preview, no last image, no
 thumbnails) and no prompts. The web UI's switch is in Settings, "Show images and prompts on the TV".
+
+`tv_api_key` false: the TV does not show the API key. The switch is in Settings, under API key.
