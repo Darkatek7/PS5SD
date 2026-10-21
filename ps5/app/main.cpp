@@ -482,7 +482,11 @@ struct ServerPlan {
 // sd-server's command line: the active model's arguments (model.txt's entry
 // in the library), the app's defaults, then server-args.txt (one argument a
 // line). With an entry, server-args.txt's own model options are left out;
-// without model.txt, server-args.txt must name the model. sd-server appends
+// without model.txt, server-args.txt must name the model. The entry's own
+// settings ("# defaults:": steps, cfg, sampler, scheduler, size) become the
+// server's defaults for requests that do not name them, and a request that
+// names one overrides it; they win over the same options in server-args.txt,
+// which stay the defaults of a model without settings. sd-server appends
 // to a string option given twice (--backend Vulkan --backend CPU would be
 // "Vulkan,CPU"), so a default is only added when no argument names that
 // option itself.
@@ -490,6 +494,7 @@ bool server_plan(ServerPlan & plan, std::string & error) {
     std::vector<std::string> extra  = read_lines(kServerArgs);
     const auto               active = read_lines(kModel);
     std::vector<std::string> model_args;
+    std::vector<std::string> preset_defaults;  // the entry's settings as sd-server options
     if (!active.empty()) {
         ModelEntry entry;
         if (!g_library.find(active[0], entry, error)) {
@@ -506,10 +511,17 @@ bool server_plan(ServerPlan & plan, std::string & error) {
             }
             kept.push_back(extra[i]);
         }
-        extra      = kept;
-        model_args = entry.args;
-        plan.id    = entry.id;
-        plan.name  = entry.name;
+        extra           = kept;
+        model_args      = entry.args;
+        preset_defaults = defaults_to_args(entry.defaults);
+        std::vector<std::string> dropped;
+        extra = without_options(extra, preset_defaults, dropped);
+        for (const std::string & option : dropped) {
+            std::printf("ps5sd: server-args.txt: %s left out, the settings of %s have it\n", option.c_str(),
+                        entry.id.c_str());
+        }
+        plan.id   = entry.id;
+        plan.name = entry.name;
     }
     std::vector<std::string> given = model_args;
     given.insert(given.end(), extra.begin(), extra.end());
@@ -568,6 +580,7 @@ bool server_plan(ServerPlan & plan, std::string & error) {
     if (!names({ "--hires-upscalers-dir" })) {
         args.insert(args.end(), { "--hires-upscalers-dir", kUpscalers });
     }
+    args.insert(args.end(), preset_defaults.begin(), preset_defaults.end());
     args.insert(args.end(), extra.begin(), extra.end());
     for (size_t i = 0; i + 1 < args.size(); i++) {
         if (args[i] == "--listen-port") {
@@ -814,13 +827,16 @@ int ask_switch(const std::string & id, std::string & out) {
         out = models_json(g_library, entry.id, entry.id, false);
         return 200;
     }
-    // A preset with the same arguments as the loaded model (a variant with
-    // other defaults): the server has it ready, so no restart.
+    // A preset with the same model arguments and the same server defaults as
+    // the loaded one: the server has it ready, so no restart. A variant with
+    // other defaults restarts, since they are the server's defaults for the
+    // requests that name none.
     {
         ModelEntry  loaded;
         std::string ignored;
         const std::string current = loaded_id();
-        if (!current.empty() && !g_standby && g_library.find(current, loaded, ignored) && loaded.args == entry.args) {
+        if (!current.empty() && !g_standby && g_library.find(current, loaded, ignored) && loaded.args == entry.args &&
+            defaults_to_args(loaded.defaults) == defaults_to_args(entry.defaults)) {
             if (!write_active_model(entry.id)) {
                 out = error_json("could not write /data/PS5SD/model.txt");
                 return 500;

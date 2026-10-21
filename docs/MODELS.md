@@ -91,7 +91,10 @@ A single-file checkpoint loads with the server's default options. A preset is a 
 `/data/PS5SD/presets`. Its file name without `.txt` is the model's id. It holds:
 
 - `# name:` the name shown in the web UI;
-- `# defaults:` the settings the web UI applies when you press **Use**;
+- `# defaults:` the settings the web UI applies when you press **Use**, and, with the preset loaded, the
+  server's defaults for a request that names none of them (`steps`, `cfg`, `sampler`, `scheduler`,
+  `width`, `height`; a request's own values override them, and they win over the same options in
+  `server-args.txt`);
 - the server's options, one per line, with the option and its value on separate lines.
 
 Paths are relative to `/data/PS5SD/models` unless they start with `/`.
@@ -156,14 +159,19 @@ ilustmix_v111.safetensors
 The web UI makes these: set up the Create tab, then **Presets**, **Save the current settings**. It
 copies the model's own options (VAE, tiling, `--type`) into the preset. On the Presets tab:
 
-- **Use** switches to the preset. When it loads the same files with the same options as the model that is
-  loaded (a preset saved from it), the switch is at once, without loading anything.
+- **Use** switches to the preset. When it loads the same files with the same options and the same
+  settings as the model that is loaded, the switch is at once, without loading anything. Other settings
+  restart the server (the model loads again, about a minute for SDXL), because they are the defaults of
+  the API.
 - **Edit** shows the preset file to change.
 - **Delete** removes the preset file only, never the model.
 
 The Models tab lists the models only, not their saved presets. Deleting a model there deletes its saved
 presets too. A preset without `# base:` (the catalog's, or your own of a model in several files) is a
-model: it is on the Models tab, and the checkpoint it loads is not listed again apart from it.
+model: it is on the Models tab, and the checkpoint it loads is not listed again apart from it. The model
+lists of the A1111 and OpenAI APIs count the same way: models only, never a saved preset. A client can
+still ask for a saved preset by its id. Deleting a saved preset, in the web UI or with
+`DELETE /ps5sd/v1/app/models/<id>`, removes its file only.
 
 The catalog's presets in [ps5/app/catalog.hpp](../ps5/app/catalog.hpp) are working examples for SDXL,
 FLUX.3 Klein and Z-Image Turbo.

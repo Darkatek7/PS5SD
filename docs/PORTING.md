@@ -192,7 +192,16 @@ instead of trapping, so `main.cpp` reports an out-of-memory load or generation a
   `# defaults: steps=25 cfg=6 ...` comment lines. A relative path after a model option (`-m`, `--vae`,
   `--llm`, ...) is taken from the models directory, so the parts of a model can sit in subdirectories
   without being listed as checkpoints. With an entry, the model options of `server-args.txt` are left
-  out (logged), the rest of it still applies. Without `model.txt`, `server-args.txt` must name the
+  out (logged), the rest of it still applies. The entry's own `# defaults:` (`steps`, `cfg`, `sampler`,
+  `scheduler`, `width`, `height`) become `--steps`, `--cfg-scale`, `--sampling-method`, `--scheduler`,
+  `--width` and `--height` (`defaults_to_args`, which leaves out a value that cannot be one) and win over
+  the same options of `server-args.txt` (`without_options`, logged), so a request that names none of them
+  gets the preset's settings and one that names them overrides them. Because they are command-line
+  options, a switch to a variant with other settings restarts the server (`ask_switch`).
+  `patches/sdcpp/0062` makes `/sdapi/v1/txt2img` take the server's default size, not 512x512. The model
+  lists of the A1111 and OpenAI APIs skip a saved preset (`# base:`) and a checkpoint that a preset
+  without a base stands for, and `ModelLibrary::remove` deletes a saved preset's own file only.
+  Without `model.txt`, `server-args.txt` must name the
   model itself. `models.cpp` uses only the `error_code` overloads of `std::filesystem` (the `EINVAL`
   above) and dumps JSON with invalid UTF-8 replaced, since it runs on the server's HTTP threads.
 - The app's routes (`patches/sdcpp/0054`, `sd_app_request` in `main.cpp`): `GET /ps5sd/v1/app/models`

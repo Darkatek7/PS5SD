@@ -21,8 +21,14 @@
 //
 //     "# base: <id>" makes a preset a variant of another entry: the same
 //     model with other settings, as the web UI's "Save as preset" writes it.
-//     Deleting a variant deletes only its file; deleting its base deletes the
-//     variants with it.
+//     A variant is settings on a model, never a model of its own: the model
+//     lists of the APIs leave it out. Deleting a variant deletes only its
+//     file, never a model file; deleting its base deletes the variants with
+//     it.
+//
+//     The settings of the loaded preset ("# defaults:": steps, cfg, sampler,
+//     scheduler, width, height) are the server's defaults for requests that do
+//     not name them (defaults_to_args), over those of server-args.txt.
 //
 // /data/PS5SD/model.txt says which entry is active: an id, or (as before
 // presets) the absolute path of a checkpoint.
@@ -98,6 +104,23 @@ struct ModelLibrary {
 
 // The model options whose value is a path (-m, --vae, --llm, ...).
 bool is_model_path_option(const std::string & option);
+
+// The sd-server options a preset's "# defaults:" stand for: --steps,
+// --cfg-scale, --sampling-method, --scheduler, --width, --height. With the
+// preset loaded they are the server's defaults: a request that names none of
+// them gets the preset's values, and a request that names one overrides it.
+// A value that cannot be one (not a number, out of range, an odd name, a
+// size that is not a multiple of 8, "default") is left out; the other
+// settings of "# defaults:" (loras, hires_*) are for the web UI only.
+std::vector<std::string> defaults_to_args(const std::vector<std::pair<std::string, std::string>> & defaults);
+
+// `lines` (server-args.txt, one argument a line) without the options
+// preset_args sets, each with its value, so that the preset's default wins
+// over the global one. -W and --width (-H and --height) are the same option.
+// The names of the options it left out go to `dropped`.
+std::vector<std::string> without_options(const std::vector<std::string> & lines,
+                                         const std::vector<std::string> & preset_args,
+                                         std::vector<std::string> &       dropped);
 
 // The library as JSON for GET /ps5sd/v1/app/models: {"active", "loaded",
 // "switching", "standby", "models": [{"id", "name", "kind", "bytes", "files",
