@@ -1,0 +1,203 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: ps5sd <ps5sd@localhost>
+Date: Wed, 21 Oct 2026 15:17:18 +0200
+Subject: [PATCH] server: request defaults the application sets at run time
+ (sd_server_set_request_defaults)
+
+---
+ examples/server/routes_openai.cpp |  9 ++---
+ examples/server/routes_sdapi.cpp  | 11 +++---
+ examples/server/routes_sdcpp.cpp  |  6 ++--
+ examples/server/runtime.cpp       | 56 +++++++++++++++++++++++++++++++
+ examples/server/runtime.h         |  7 ++++
+ 5 files changed, 77 insertions(+), 12 deletions(-)
+
+diff --git a/examples/server/routes_openai.cpp b/examples/server/routes_openai.cpp
+index 69e7e9b..fea7b41 100644
+--- a/examples/server/routes_openai.cpp
++++ b/examples/server/routes_openai.cpp
+@@ -27,6 +27,7 @@ static bool build_openai_generation_request(const httplib::Request& req,
+                                             ServerRuntime& runtime,
+                                             ImgGenJobRequest& request,
+                                             std::string& error_message) {
++    const SDGenerationParams defaults = request_defaults(runtime);
+     if (req.body.empty()) {
+         error_message = "empty body";
+         return false;
+@@ -38,8 +39,8 @@ static bool build_openai_generation_request(const httplib::Request& req,
+     std::string size          = j.value("size", "");
+     std::string output_format = j.value("output_format", "png");
+     int output_compression    = j.value("output_compression", 100);
+-    int width                 = runtime.default_gen_params->width > 0 ? runtime.default_gen_params->width : 512;
+-    int height                = runtime.default_gen_params->width > 0 ? runtime.default_gen_params->height : 512;
++    int width                 = defaults.width > 0 ? defaults.width : 512;
++    int height                = defaults.width > 0 ? defaults.height : 512;
+     if (!size.empty()) {
+         auto pos = size.find('x');
+         if (pos != std::string::npos) {
+@@ -56,7 +57,7 @@ static bool build_openai_generation_request(const httplib::Request& req,
+         return false;
+     }
+ 
+-    request.gen_params = *runtime.default_gen_params;
++    request.gen_params = defaults;
+     if (!assign_output_options(request, output_format, output_compression, true, error_message)) {
+         return false;
+     }
+@@ -150,7 +151,7 @@ static bool build_openai_edit_request(const httplib::Request& req,
+     } catch (...) {
+     }
+ 
+-    request.gen_params = *runtime.default_gen_params;
++    request.gen_params = request_defaults(runtime);
+     if (!assign_output_options(request, output_format, output_compression, false, error_message)) {
+         return false;
+     }
+diff --git a/examples/server/routes_sdapi.cpp b/examples/server/routes_sdapi.cpp
+index 3667772..5b758a7 100644
+--- a/examples/server/routes_sdapi.cpp
++++ b/examples/server/routes_sdapi.cpp
+@@ -87,16 +87,17 @@ static bool build_sdapi_img_gen_request(const json& j,
+                                         bool img2img,
+                                         ImgGenJobRequest& request,
+                                         std::string& error_message) {
++    const SDGenerationParams defaults = request_defaults(runtime);
+     std::string prompt          = j.value("prompt", "");
+     std::string negative_prompt = j.value("negative_prompt", "");
+     // The server's default size (-W/-H, a preset's settings) when the request names none;
+     // img2img keeps the size of its image then.
+-    const int default_width     = img2img ? 512 : runtime.default_gen_params->get_resolved_width();
+-    const int default_height    = img2img ? 512 : runtime.default_gen_params->get_resolved_height();
++    const int default_width     = img2img ? 512 : defaults.get_resolved_width();
++    const int default_height    = img2img ? 512 : defaults.get_resolved_height();
+     int width                   = j.value("width", default_width);
+     int height                  = j.value("height", default_height);
+-    int steps                   = j.value("steps", runtime.default_gen_params->sample_params.sample_steps);
+-    float cfg_scale             = j.value("cfg_scale", runtime.default_gen_params->sample_params.guidance.txt_cfg);
++    int steps                   = j.value("steps", defaults.sample_params.sample_steps);
++    float cfg_scale             = j.value("cfg_scale", defaults.sample_params.guidance.txt_cfg);
+     int64_t seed                = j.value("seed", -1);
+     int batch_size              = j.value("batch_size", 1);
+     int clip_skip               = j.value("clip_skip", -1);
+@@ -113,7 +114,7 @@ static bool build_sdapi_img_gen_request(const json& j,
+         return false;
+     }
+ 
+-    request.gen_params = *runtime.default_gen_params;
++    request.gen_params = defaults;
+ 
+     request.gen_params.prompt                         = prompt;
+     request.gen_params.negative_prompt                = negative_prompt;
+diff --git a/examples/server/routes_sdcpp.cpp b/examples/server/routes_sdcpp.cpp
+index 8fdb80f..2059d42 100644
+--- a/examples/server/routes_sdcpp.cpp
++++ b/examples/server/routes_sdcpp.cpp
+@@ -239,7 +239,7 @@ static json make_capabilities_json(ServerRuntime& runtime) {
+     refresh_upscaler_cache(runtime);
+ 
+     AsyncJobManager& manager  = *runtime.async_job_manager;
+-    const auto& defaults      = *runtime.default_gen_params;
++    const SDGenerationParams defaults = request_defaults(runtime);
+     const fs::path model_path = resolve_display_model_path(runtime);
+     const bool supports_img   = runtime_supports_generation_mode(runtime, IMG_GEN);
+     const bool supports_vid   = runtime_supports_generation_mode(runtime, VID_GEN);
+@@ -416,7 +416,7 @@ static bool parse_img_gen_request(const json& body,
+                                   ServerRuntime& runtime,
+                                   ImgGenJobRequest& request,
+                                   std::string& error_message) {
+-    request.gen_params = *runtime.default_gen_params;
++    request.gen_params = request_defaults(runtime);
+ 
+     refresh_lora_cache(runtime);
+     if (!request.gen_params.from_json_str(body.dump(), [&](const std::string& path) {
+@@ -445,7 +445,7 @@ static bool parse_vid_gen_request(const json& body,
+                                   ServerRuntime& runtime,
+                                   VidGenJobRequest& request,
+                                   std::string& error_message) {
+-    request.gen_params = *runtime.default_gen_params;
++    request.gen_params = request_defaults(runtime);
+ 
+     refresh_lora_cache(runtime);
+     if (!request.gen_params.from_json_str(body.dump(), [&](const std::string& path) {
+diff --git a/examples/server/runtime.cpp b/examples/server/runtime.cpp
+index b17cd6c..460a42f 100644
+--- a/examples/server/runtime.cpp
++++ b/examples/server/runtime.cpp
+@@ -421,3 +421,59 @@ int64_t unix_timestamp_now() {
+                std::chrono::system_clock::now().time_since_epoch())
+         .count();
+ }
++
++// PS5SD: the defaults the application sets at run time, see sd_server_set_request_defaults.
++namespace {
++struct RequestDefaults {
++    int steps    = -1;
++    float cfg    = -1.0f;
++    std::string sampler;
++    std::string scheduler;
++    int width    = -1;
++    int height   = -1;
++};
++
++std::mutex g_request_defaults_mutex;
++RequestDefaults g_request_defaults;
++}  // namespace
++
++extern "C" void sd_server_set_request_defaults(int steps, float cfg, const char* sampler, const char* scheduler, int width, int height) {
++    std::lock_guard<std::mutex> lock(g_request_defaults_mutex);
++    g_request_defaults.steps     = steps;
++    g_request_defaults.cfg       = cfg;
++    g_request_defaults.sampler   = sampler != nullptr ? sampler : "";
++    g_request_defaults.scheduler = scheduler != nullptr ? scheduler : "";
++    g_request_defaults.width     = width;
++    g_request_defaults.height    = height;
++}
++
++SDGenerationParams request_defaults(const ServerRuntime& runtime) {
++    SDGenerationParams params = *runtime.default_gen_params;
++
++    std::lock_guard<std::mutex> lock(g_request_defaults_mutex);
++    if (g_request_defaults.steps > 0) {
++        params.sample_params.sample_steps = g_request_defaults.steps;
++    }
++    if (g_request_defaults.cfg >= 0) {
++        params.sample_params.guidance.txt_cfg = g_request_defaults.cfg;
++    }
++    if (!g_request_defaults.sampler.empty()) {
++        const sample_method_t method = str_to_sample_method(g_request_defaults.sampler.c_str());
++        if (method != SAMPLE_METHOD_COUNT) {
++            params.sample_params.sample_method = method;
++        }
++    }
++    if (!g_request_defaults.scheduler.empty()) {
++        const scheduler_t scheduler = str_to_scheduler(g_request_defaults.scheduler.c_str());
++        if (scheduler != SCHEDULER_COUNT) {
++            params.sample_params.scheduler = scheduler;
++        }
++    }
++    if (g_request_defaults.width > 0) {
++        params.width = g_request_defaults.width;
++    }
++    if (g_request_defaults.height > 0) {
++        params.height = g_request_defaults.height;
++    }
++    return params;
++}
+diff --git a/examples/server/runtime.h b/examples/server/runtime.h
+index 7946f3f..39e4ee5 100644
+--- a/examples/server/runtime.h
++++ b/examples/server/runtime.h
+@@ -108,3 +108,10 @@ void refresh_lora_cache(ServerRuntime& rt);
+ std::string get_lora_full_path(ServerRuntime& rt, const std::string& path);
+ void refresh_upscaler_cache(ServerRuntime& rt);
+ int64_t unix_timestamp_now();
++
++// PS5SD: the embedding application sets the defaults of API requests at run time (the settings
++// of a preset). A value of -1 (steps, width, height), a negative cfg, or a NULL or empty name
++// means "not set": the command line's value stays.
++extern "C" void sd_server_set_request_defaults(int steps, float cfg, const char* sampler, const char* scheduler, int width, int height);
++// A copy of the command line's defaults with the run-time ones (sd_server_set_request_defaults) applied.
++SDGenerationParams request_defaults(const ServerRuntime& runtime);
+-- 
+2.56.0
+

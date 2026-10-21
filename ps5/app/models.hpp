@@ -28,7 +28,10 @@
 //
 //     The settings of the loaded preset ("# defaults:": steps, cfg, sampler,
 //     scheduler, width, height) are the server's defaults for requests that do
-//     not name them (defaults_to_args), over those of server-args.txt.
+//     not name them. The application sets them at run time (preset_settings,
+//     sd_server_set_request_defaults, patches/sdcpp/0063), over those of
+//     server-args.txt, so switching between presets of one model needs no
+//     restart.
 //
 // /data/PS5SD/model.txt says which entry is active: an id, or (as before
 // presets) the absolute path of a checkpoint.
@@ -106,21 +109,25 @@ struct ModelLibrary {
 bool is_model_path_option(const std::string & option);
 
 // The sd-server options a preset's "# defaults:" stand for: --steps,
-// --cfg-scale, --sampling-method, --scheduler, --width, --height. With the
-// preset loaded they are the server's defaults: a request that names none of
-// them gets the preset's values, and a request that names one overrides it.
-// A value that cannot be one (not a number, out of range, an odd name, a
-// size that is not a multiple of 8, "default") is left out; the other
-// settings of "# defaults:" (loras, hires_*) are for the web UI only.
+// --cfg-scale, --sampling-method, --scheduler, --width, --height. A value that
+// cannot be one (not a number, out of range, an odd name, a size that is not a
+// multiple of 8, "default") is left out; the other settings of "# defaults:"
+// (loras, hires_*) are for the web UI only.
 std::vector<std::string> defaults_to_args(const std::vector<std::pair<std::string, std::string>> & defaults);
 
-// `lines` (server-args.txt, one argument a line) without the options
-// preset_args sets, each with its value, so that the preset's default wins
-// over the global one. -W and --width (-H and --height) are the same option.
-// The names of the options it left out go to `dropped`.
-std::vector<std::string> without_options(const std::vector<std::string> & lines,
-                                         const std::vector<std::string> & preset_args,
-                                         std::vector<std::string> &       dropped);
+// The settings of a preset's "# defaults:" as the server's request defaults
+// (sd_server_set_request_defaults): what defaults_to_args gives, as numbers
+// and names. A field that is not set keeps its -1 (or "").
+struct PresetSettings {
+    int         steps = -1;
+    float       cfg   = -1;
+    std::string sampler;
+    std::string scheduler;
+    int         width  = -1;
+    int         height = -1;
+};
+
+PresetSettings preset_settings(const std::vector<std::pair<std::string, std::string>> & defaults);
 
 // The library as JSON for GET /ps5sd/v1/app/models: {"active", "loaded",
 // "switching", "standby", "models": [{"id", "name", "kind", "bytes", "files",

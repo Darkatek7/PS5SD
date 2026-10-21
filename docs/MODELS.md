@@ -159,10 +159,10 @@ ilustmix_v111.safetensors
 The web UI makes these: set up the Create tab, then **Presets**, **Save the current settings**. It
 copies the model's own options (VAE, tiling, `--type`) into the preset. On the Presets tab:
 
-- **Use** switches to the preset. When it loads the same files with the same options and the same
-  settings as the model that is loaded, the switch is at once, without loading anything. Other settings
-  restart the server (the model loads again, about a minute for SDXL), because they are the defaults of
-  the API.
+- **Use** switches to the preset. When it loads the same files with the same options as the model that
+  is loaded, the switch is at once, without loading anything. Its settings take effect at once too: they
+  are the defaults of the API, set without a restart. Other files or options restart the server (the
+  model loads again, about a minute for SDXL).
 - **Edit** shows the preset file to change.
 - **Delete** removes the preset file only, never the model.
 

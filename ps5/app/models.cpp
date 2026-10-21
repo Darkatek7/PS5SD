@@ -120,22 +120,6 @@ bool is_model_path_option(const std::string & o) {
 
 namespace {
 
-// The long name of an option a preset default can set; "" for any other.
-std::string default_option(const std::string & o) {
-    if (o == "-W" || o == "--width") {
-        return "--width";
-    }
-    if (o == "-H" || o == "--height") {
-        return "--height";
-    }
-    for (const char * k : { "--steps", "--cfg-scale", "--sampling-method", "--scheduler" }) {
-        if (o == k) {
-            return o;
-        }
-    }
-    return {};
-}
-
 bool whole_int(const std::string & v, long lo, long hi, long & out) {
     if (v.empty() || v.size() > 6 || v.find_first_not_of("0123456789") != std::string::npos) {
         return false;
@@ -203,27 +187,27 @@ std::vector<std::string> defaults_to_args(const std::vector<std::pair<std::strin
     return out;
 }
 
-std::vector<std::string> without_options(const std::vector<std::string> & lines,
-                                         const std::vector<std::string> & preset_args,
-                                         std::vector<std::string> &       dropped) {
-    std::vector<std::string> set;  // the long names the preset sets
-    for (const std::string & a : preset_args) {
-        const std::string name = default_option(a);
-        if (!name.empty()) {
-            set.push_back(name);
+PresetSettings preset_settings(const std::vector<std::pair<std::string, std::string>> & defaults) {
+    PresetSettings                 settings;
+    const std::vector<std::string> args = defaults_to_args(defaults);
+    for (size_t i = 0; i + 1 < args.size(); i += 2) {
+        const std::string & option = args[i];
+        const std::string & value  = args[i + 1];
+        if (option == "--steps") {
+            settings.steps = std::atoi(value.c_str());
+        } else if (option == "--cfg-scale") {
+            settings.cfg = static_cast<float>(std::atof(value.c_str()));
+        } else if (option == "--sampling-method") {
+            settings.sampler = value;
+        } else if (option == "--scheduler") {
+            settings.scheduler = value;
+        } else if (option == "--width") {
+            settings.width = std::atoi(value.c_str());
+        } else if (option == "--height") {
+            settings.height = std::atoi(value.c_str());
         }
     }
-    std::vector<std::string> out;
-    for (size_t i = 0; i < lines.size(); i++) {
-        const std::string name = default_option(lines[i]);
-        if (!name.empty() && std::find(set.begin(), set.end(), name) != set.end()) {
-            dropped.push_back(lines[i]);
-            i++;  // its value
-            continue;
-        }
-        out.push_back(lines[i]);
-    }
-    return out;
+    return settings;
 }
 
 ModelEntry ModelLibrary::parse_preset(const std::string & id, const std::string & text) const {

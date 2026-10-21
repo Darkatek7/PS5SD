@@ -198,7 +198,7 @@ loads a model and ends standby.
 | Status | Meaning |
 |---|---|
 | `202` | the switch has started; poll `GET models` until `loaded` is the new id |
-| `200` | that entry is loaded already, or it loads with the same arguments and the same settings as the loaded one (a saved preset of it): the switch is done, without a restart. Other settings restart the server, since they are its defaults |
+| `200` | that entry is loaded already, or it loads with the same arguments as the loaded one (a saved preset of it): the switch is done, without a restart, and its settings become the server's defaults |
 | `400` | the body is not `{"id": "..."}` |
 | `404` | there is no such entry |
 | `409` | a switch is already running, or the title is stopping |

@@ -193,11 +193,11 @@ instead of trapping, so `main.cpp` reports an out-of-memory load or generation a
   `--llm`, ...) is taken from the models directory, so the parts of a model can sit in subdirectories
   without being listed as checkpoints. With an entry, the model options of `server-args.txt` are left
   out (logged), the rest of it still applies. The entry's own `# defaults:` (`steps`, `cfg`, `sampler`,
-  `scheduler`, `width`, `height`) become `--steps`, `--cfg-scale`, `--sampling-method`, `--scheduler`,
-  `--width` and `--height` (`defaults_to_args`, which leaves out a value that cannot be one) and win over
-  the same options of `server-args.txt` (`without_options`, logged), so a request that names none of them
-  gets the preset's settings and one that names them overrides them. Because they are command-line
-  options, a switch to a variant with other settings restarts the server (`ask_switch`).
+  `scheduler`, `width`, `height`; a value that cannot be one is left out, `defaults_to_args`) are applied
+  at run time with `sd_server_set_request_defaults` (`patches/sdcpp/0063`, with the values of
+  `preset_settings`), over the same options of `server-args.txt`: a request that names none of them gets
+  the preset's settings and one that names them overrides them. They are not command-line options, so a
+  switch between presets of one model needs no restart (`ask_switch`).
   `patches/sdcpp/0062` makes `/sdapi/v1/txt2img` take the server's default size, not 512x512. The model
   lists of the A1111 and OpenAI APIs skip a saved preset (`# base:`) and a checkpoint that a preset
   without a base stands for, and `ModelLibrary::remove` deletes a saved preset's own file only.

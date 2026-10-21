@@ -128,6 +128,8 @@ int  sd_server(int argc, char ** argv);
 void sd_server_terminate(void);
 // patches/sdcpp/0060 (auth.h): the key every request needs; "" for none.
 void sd_server_set_api_key(const char * key);
+// patches/sdcpp/0063 (runtime.h): the defaults of API requests, set at run time; -1 or "" for not set.
+void sd_server_set_request_defaults(int steps, float cfg, const char * sampler, const char * scheduler, int width, int height);
 }
 
 namespace {
@@ -483,18 +485,14 @@ struct ServerPlan {
 // in the library), the app's defaults, then server-args.txt (one argument a
 // line). With an entry, server-args.txt's own model options are left out;
 // without model.txt, server-args.txt must name the model. The entry's own
-// settings ("# defaults:": steps, cfg, sampler, scheduler, size) become the
-// server's defaults for requests that do not name them, and a request that
-// names one overrides it; they win over the same options in server-args.txt,
-// which stay the defaults of a model without settings. sd-server appends
-// to a string option given twice (--backend Vulkan --backend CPU would be
-// "Vulkan,CPU"), so a default is only added when no argument names that
-// option itself.
+// settings ("# defaults:") are not on the command line: apply_preset_settings
+// sets them at run time. sd-server appends to a string option given twice
+// (--backend Vulkan --backend CPU would be "Vulkan,CPU"), so a default is only
+// added when no argument names that option itself.
 bool server_plan(ServerPlan & plan, std::string & error) {
     std::vector<std::string> extra  = read_lines(kServerArgs);
     const auto               active = read_lines(kModel);
     std::vector<std::string> model_args;
-    std::vector<std::string> preset_defaults;  // the entry's settings as sd-server options
     if (!active.empty()) {
         ModelEntry entry;
         if (!g_library.find(active[0], entry, error)) {
@@ -511,17 +509,10 @@ bool server_plan(ServerPlan & plan, std::string & error) {
             }
             kept.push_back(extra[i]);
         }
-        extra           = kept;
-        model_args      = entry.args;
-        preset_defaults = defaults_to_args(entry.defaults);
-        std::vector<std::string> dropped;
-        extra = without_options(extra, preset_defaults, dropped);
-        for (const std::string & option : dropped) {
-            std::printf("ps5sd: server-args.txt: %s left out, the settings of %s have it\n", option.c_str(),
-                        entry.id.c_str());
-        }
-        plan.id   = entry.id;
-        plan.name = entry.name;
+        extra      = kept;
+        model_args = entry.args;
+        plan.id    = entry.id;
+        plan.name  = entry.name;
     }
     std::vector<std::string> given = model_args;
     given.insert(given.end(), extra.begin(), extra.end());
@@ -580,7 +571,6 @@ bool server_plan(ServerPlan & plan, std::string & error) {
     if (!names({ "--hires-upscalers-dir" })) {
         args.insert(args.end(), { "--hires-upscalers-dir", kUpscalers });
     }
-    args.insert(args.end(), preset_defaults.begin(), preset_defaults.end());
     args.insert(args.end(), extra.begin(), extra.end());
     for (size_t i = 0; i + 1 < args.size(); i++) {
         if (args[i] == "--listen-port") {
@@ -622,6 +612,18 @@ bool write_active_model(const std::string & id) {
         }
     }
     return std::rename(tmp.c_str(), kModel) == 0;
+}
+
+// The entry's settings ("# defaults:") as the server's request defaults, set
+// at run time, so a switch needs no restart; nullptr clears them (standby).
+void apply_preset_settings(const ModelEntry * entry) {
+    if (entry == nullptr) {
+        sd_server_set_request_defaults(-1, -1, "", "", -1, -1);
+        return;
+    }
+    const PresetSettings settings = preset_settings(entry->defaults);
+    sd_server_set_request_defaults(settings.steps, settings.cfg, settings.sampler.c_str(), settings.scheduler.c_str(),
+                                   settings.width, settings.height);
 }
 
 // The server, on the worker thread, until a quit request stops it; started
@@ -682,6 +684,15 @@ void run_server() {
                 return;  // the quit came between two starts
             }
             ++g_generation;
+            // The settings of the entry being started (none in standby, or when
+            // server-args.txt names the model itself).
+            ModelEntry  entry;
+            std::string ignored;
+            if (!standby && !plan.id.empty() && g_library.find(plan.id, entry, ignored)) {
+                apply_preset_settings(&entry);
+            } else {
+                apply_preset_settings(nullptr);
+            }
             rc = sd_server((int) plan.args.size(), argv.data());
         }
         std::printf("ps5sd: sd_server returned %d\n", rc);
@@ -827,20 +838,19 @@ int ask_switch(const std::string & id, std::string & out) {
         out = models_json(g_library, entry.id, entry.id, false);
         return 200;
     }
-    // A preset with the same model arguments and the same server defaults as
-    // the loaded one: the server has it ready, so no restart. A variant with
-    // other defaults restarts, since they are the server's defaults for the
-    // requests that name none.
+    // A preset with the same model arguments as the loaded one: the server has
+    // the model ready, so no restart. Its settings become the server's request
+    // defaults at run time (apply_preset_settings).
     {
         ModelEntry  loaded;
         std::string ignored;
         const std::string current = loaded_id();
-        if (!current.empty() && !g_standby && g_library.find(current, loaded, ignored) && loaded.args == entry.args &&
-            defaults_to_args(loaded.defaults) == defaults_to_args(entry.defaults)) {
+        if (!current.empty() && !g_standby && g_library.find(current, loaded, ignored) && loaded.args == entry.args) {
             if (!write_active_model(entry.id)) {
                 out = error_json("could not write /data/PS5SD/model.txt");
                 return 500;
             }
+            apply_preset_settings(&entry);
             {
                 std::lock_guard<std::mutex> lock(g_model_mutex);
                 g_loaded_id = entry.id;

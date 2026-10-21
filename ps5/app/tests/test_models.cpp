@@ -333,17 +333,25 @@ int main() {
               "the last valid value wins; an invalid one does not replace it");
         check(ps5sd::defaults_to_args({}).empty(), "no defaults, no options");
 
-        const Args global = { "--type",   "q8_0", "--sampling-method", "euler_a", "--steps", "10",
-                              "-W",       "512",  "--cfg-scale",       "5",       "-H",      "768",
-                              "--eager-load" };
-        Args dropped;
-        check(ps5sd::without_options(global, { "--steps", "20", "--width", "832", "--height", "1216" }, dropped) ==
-                      Args{ "--type", "q8_0", "--sampling-method", "euler_a", "--cfg-scale", "5", "--eager-load" } &&
-                  dropped == Args{ "--steps", "-W", "-H" },
-              "the preset's options replace server-args.txt's, -W is --width");
-        dropped.clear();
-        check(ps5sd::without_options(global, {}, dropped) == global && dropped.empty(), "nothing set, nothing left out");
-        check(ps5sd::without_options({ "--steps" }, { "--steps", "5" }, dropped).empty(), "an option without a value at the end");
+        // The same settings as the server's request defaults, set at run time.
+        const ps5sd::PresetSettings full = ps5sd::preset_settings(Defaults{ { "steps", "10" },
+                                                                            { "cfg", "6" },
+                                                                            { "sampler", "dpm++2m" },
+                                                                            { "scheduler", "ays" },
+                                                                            { "width", "832" },
+                                                                            { "height", "1216" },
+                                                                            { "loras", "a.safetensors:1" } });
+        check(full.steps == 10 && full.cfg == 6 && full.sampler == "dpm++2m" && full.scheduler == "ays" && full.width == 832 &&
+                  full.height == 1216,
+              "a preset's settings become the request defaults");
+        const ps5sd::PresetSettings invalid = ps5sd::preset_settings(Defaults{ { "steps", "abc" } });
+        check(invalid.steps == -1 && invalid.cfg == -1 && invalid.sampler.empty() && invalid.scheduler.empty() &&
+                  invalid.width == -1 && invalid.height == -1,
+              "an invalid value stays unset");
+        const ps5sd::PresetSettings unset = ps5sd::preset_settings({});
+        check(unset.steps == -1 && unset.cfg == -1 && unset.sampler.empty() && unset.scheduler.empty() && unset.width == -1 &&
+                  unset.height == -1,
+              "no defaults, all unset");
 
         // A saved preset (# base:) is deleted alone, even when it is the only one of its model.
         const fs::path m2 = root / "m2", p2 = root / "p2";
