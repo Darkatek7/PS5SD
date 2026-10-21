@@ -292,7 +292,7 @@
   .initbar button { flex: none; min-height: 2.75rem; margin-right: 0.8rem; }
   .initbar .hint { margin: 0; }
   .initrow { display: flex; align-items: center; }
-  #init-thumb { flex: none; width: 7rem; height: 7rem; object-fit: contain; background: var(--field); border: 1px solid var(--border);
+  #init-thumb, #cn-thumb { flex: none; width: 7rem; height: 7rem; object-fit: contain; background: var(--field); border: 1px solid var(--border);
     border-radius: 10px; margin-right: 1rem; }
   .initmain { flex: 1; min-width: 0; }
   .initbtns { display: flex; flex-wrap: wrap; margin: 0.4rem -0.25rem 0; }
@@ -391,6 +391,33 @@
       <label class="opt" id="init-crop-row" style="display:none"><input type="checkbox" id="init-crop" checked> Only the masked area, at full resolution</label>
       <p class="hint" id="init-hint"></p>
     </div>
+    <div id="cn-sect" style="display:none">
+      <div class="initbar" id="cn-bar">
+        <button type="button" id="cn-pick">Guide image (ControlNet)</button>
+        <span class="hint">or Guide on any image of the gallery</span>
+      </div>
+      <input id="cn-file" type="file" accept="image/*" style="display:none">
+      <div id="cn-box" style="display:none">
+        <div class="lbl">Guide image</div>
+        <div class="initrow">
+          <img id="cn-thumb" alt="guide image">
+          <div class="initmain">
+            <div class="mmeta" id="cn-meta"></div>
+            <div class="initbtns">
+              <button type="button" id="cn-drop">Remove</button>
+            </div>
+          </div>
+        </div>
+        <div class="row">
+          <div>
+            <div class="lbl">Strength (how closely it follows)</div>
+            <div class="step"><button type="button" id="cn-str-">&minus;</button><input id="cn-str" type="number" min="0.1" max="1.5" step="0.1" value="0.6" aria-label="ControlNet strength"><button type="button" id="cn-str+">+</button></div>
+          </div>
+        </div>
+        <label class="opt"><input type="checkbox" id="cn-canny" checked> Find the edges first (Canny); off for an image that is an edge map already</label>
+        <p class="hint" id="cn-hint"></p>
+      </div>
+    </div>
 
     <div class="gorow">
       <button type="button" class="go" id="go">Generate</button>
@@ -480,7 +507,7 @@
             <div class="step"><button type="button" id="fps-">&minus;</button><input id="fps" type="number" min="4" max="30" step="1" value="16" aria-label="Frames per second"><button type="button" id="fps+">+</button></div>
           </div>
         </div>
-        <p class="hint">Wan makes 4n+1 frames: 33 are 2 seconds at 16 per second. On the console, 33 frames at 832×480 with 20 steps take about 15 minutes.</p>
+        <p class="hint">Wan makes 4n+1 frames: 33 are 2 seconds at 16 per second. On the console, 33 frames at 832×480 take about 15 minutes with 20 steps, under 4 minutes with the CausVid LoRA (Models tab, LoRAs) at 4 steps and CFG 1.</p>
       </div>
       <p class="hint"><span id="presetnote"></span><button type="button" id="resetpreset">Use defaults</button><button type="button" id="savepreset" style="display:none">Save as preset</button></p>
 
@@ -543,7 +570,7 @@
       <div class="ph"><h2>LoRAs</h2></div>
       <div id="llist"></div>
       <div id="lsugg"></div>
-      <p class="hint">A LoRA adds a style, a character or a look to a model. It works only with models of the family it was made for (SD 1.5, SDXL, FLUX…). Pick them on the Create tab, under Settings. DMD2 (anime) and SDXL-Lightning (photos) make SDXL models fast: CFG 1, 4 to 8 steps, sampler LCM for DMD2 and Euler for Lightning.</p>
+      <p class="hint">A LoRA adds a style, a character or a look to a model. It works only with models of the family it was made for (SD 1.5, SDXL, FLUX…). Pick them on the Create tab, under Settings. DMD2 (anime) and SDXL-Lightning (photos) make SDXL models fast: CFG 1, 4 to 8 steps, sampler LCM for DMD2 and Euler for Lightning. CausVid does the same for Wan 2.1 1.3B videos: CFG 1, 4 steps.</p>
     </section>
     <section class="panel" id="pnl-ups" style="display:none">
       <div class="ph"><h2>Upscalers</h2></div>
@@ -635,6 +662,7 @@
     <a id="lb-open" href="#" target="_blank">Open full size</a>
     <button type="button" id="lb-up" style="display:none">Upscale</button>
     <button type="button" id="lb-edit" title="Use as the start image on the Create tab">Edit</button>
+    <button type="button" id="lb-guide" title="Use as the guide image (ControlNet) on the Create tab">Guide</button>
     <button type="button" class="danger" id="lb-del">Delete</button>
     <button type="button" id="lb-close">Close</button>
   </div>
@@ -748,7 +776,9 @@
     audio: null,         // AudioContext for the done sound (made on a click)
     title: '',           // the page title without the done mark
     known: null,         // gallery names before the current run
-    lb: -1
+    lb: -1,
+    cn: null,            // the guide image (ControlNet): {canvas, name}
+    cnModel: ''          // the loaded entry's ControlNet file, '' for none
   };
 
   // ---------- small helpers ----------
@@ -1111,6 +1141,7 @@
       ' · seed ' + (isNaN(seed) || seed < 0 ? 'random' : seed) +
       (loraSel.length ? ' · ' + loraSel.length + (loraSel.length === 1 ? ' LoRA' : ' LoRAs') : '') +
       (!st.video && batchCount() > 1 ? ' · ' + batchCount() + ' images' : '') +
+      (st.cn && st.cnModel && !st.video ? ' · ControlNet' : '') +
       (st.video ? ' · video' : st.init ? (st.init.mask ? ' · inpainting' : ' · from an image') : ($('hr-on').checked ? ' · hires ×' + num('hr-scale', 1.5, 1.25, 4) : '')));
     drawHires();
     if (st.view === 'presets') drawSaveBox();
@@ -1128,6 +1159,8 @@
     st.mid = entry ? entry.id : '';
     st.preset = presetFor(name, entry);
     text($('presetnote'), presetNote(st.preset));
+    st.cnModel = entry && entry.control_net ? entry.control_net : '';
+    drawGuide();
     if (!changed) return;
     var saved = null;
     try { saved = JSON.parse(load('set.' + (key || '_'))); } catch (e) {}
@@ -1255,15 +1288,18 @@
     persist();
   }
 
-  // Two LoRAs that make SDXL models fast (a few steps at CFG 1), one click away on the LoRAs panel.
-  // Both were tried on the console: DMD2 on an Illustrious model, Lightning on SDXL base.
+  // Fast LoRAs for SDXL and for Wan video (a few steps at CFG 1), one click away on the LoRAs panel.
+  // Tried on the console: DMD2 on an Illustrious model, Lightning on SDXL base, CausVid on Wan 2.1 1.3B.
   var FEATURED_LORAS = [
     { file: 'dmd2_sdxl_4step_lora_fp16.safetensors', label: 'DMD2 (SDXL, anime)',
       note: 'For anime and Illustrious or Pony models. Sampler LCM, 4 to 8 steps, CFG 1. 394 MB, non-commercial licence',
       url: 'https://huggingface.co/tianweiy/DMD2/resolve/main/dmd2_sdxl_4step_lora_fp16.safetensors' },
     { file: 'sdxl_lightning_8step_lora.safetensors', label: 'SDXL-Lightning 8-step',
       note: 'For SDXL base and photo models. Sampler Euler, scheduler sgm_uniform, 8 steps, CFG 1. 394 MB',
-      url: 'https://huggingface.co/ByteDance/SDXL-Lightning/resolve/main/sdxl_lightning_8step_lora.safetensors' }
+      url: 'https://huggingface.co/ByteDance/SDXL-Lightning/resolve/main/sdxl_lightning_8step_lora.safetensors' },
+    { file: 'Wan21_CausVid_bidirect2_T2V_1_3B_lora_rank32.safetensors', label: 'CausVid (Wan 2.1 1.3B video)',
+      note: 'Makes Wan 2.1 1.3B videos 4 times faster: CFG 1, 4 steps, Euler. 91 MB, non-commercial licence',
+      url: 'https://huggingface.co/Kijai/WanVideo_comfy/resolve/main/Wan21_CausVid_bidirect2_T2V_1_3B_lora_rank32.safetensors' }
   ];
 
   function drawLoraList() {
@@ -1397,6 +1433,7 @@
         box.appendChild(ub);
       }
       if (!st.video) box.appendChild(actionButton('Edit', function () { setInit(r && r.url ? r.url : href, r ? r.name : ''); }));
+      if (!st.video && st.cnModel) box.appendChild(actionButton('Guide', function () { setGuide(r && r.url ? r.url : href, r ? r.name : ''); }));
     }
   }
 
@@ -1820,6 +1857,12 @@
       body.height = p.req.h;
     } else if (p.hr.on) {
       body.hires = { enabled: true, upscaler: p.hr.up, scale: p.hr.scale, steps: p.hr.steps, denoising_strength: p.hr.den };
+    }
+    // the guide image (ControlNet), at the final size of the request
+    if (st.cn && st.cnModel && !st.video) {
+      body.control_image = guideData(body.width, body.height);
+      body.control_strength = num('cn-str', 0.6, 0.1, 1.5);
+      if ($('cn-canny').checked) body.image_preprocess = 'target=control,canny=true';
     }
     begin(null);
     var token = st.token;
@@ -2440,6 +2483,7 @@
     }
     // Upscale and Edit take images only
     $('lb-edit').style.display = isVideo(it) ? 'none' : '';
+    $('lb-guide').style.display = isVideo(it) ? 'none' : '';
     show('lb-up', !isVideo(it) && upModels.length > 0, 'inline-block');
     var dl = $('lb-dl');
     dl.href = it.url;
@@ -2536,7 +2580,7 @@
       if (k === 46) { askDeleteImage(); return false; }
       if (k === 9) {
         // keep Tab inside the viewer
-        var ring = [$('lb-prev'), $('lb-dl'), $('lb-open'), $('lb-up'), $('lb-edit'), $('lb-del'), $('lb-close'), $('lb-next')];
+        var ring = [$('lb-prev'), $('lb-dl'), $('lb-open'), $('lb-up'), $('lb-edit'), $('lb-guide'), $('lb-del'), $('lb-close'), $('lb-next')];
         var live = [];
         for (var i = 0; i < ring.length; i++) if (!ring[i].disabled && ring[i].style.display !== 'none') live.push(ring[i]);
         var at = -1;
@@ -3675,6 +3719,66 @@
     summary();
   }
 
+  // ---- the guide image (ControlNet): its edges or pose steer the layout of the new image
+  function drawGuide() {
+    var g = st.cn;
+    show('cn-sect', !!st.cnModel && !st.video);
+    show('cn-box', !!g);
+    show('cn-bar', !g, 'flex');
+    if (g) {
+      var k = Math.min(1, 240 / Math.max(g.canvas.width, g.canvas.height));
+      var t = canvasOf(Math.max(1, Math.round(g.canvas.width * k)), Math.max(1, Math.round(g.canvas.height * k)));
+      t.getContext('2d').drawImage(g.canvas, 0, 0, t.width, t.height);
+      $('cn-thumb').src = t.toDataURL('image/png');
+      text($('cn-meta'), g.canvas.width + '×' + g.canvas.height + ' · ' + st.cnModel);
+    }
+    text($('cn-hint'), 'The new image follows the guide\'s layout: its edges with Canny on, the image itself with it off. 0.5 is loose, 1 close.');
+    summary();
+  }
+
+  // The size of the form stays as it is; the guide is scaled to it when the image is made.
+  function setGuide(src, name) {
+    var img = new Image();
+    img.onload = function () {
+      var w = img.naturalWidth || img.width, h = img.naturalHeight || img.height;
+      var k = Math.min(1, INIT_MAX / Math.max(w, h));
+      var c = canvasOf(Math.max(1, Math.round(w * k)), Math.max(1, Math.round(h * k)));
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      st.cn = { canvas: c, name: name || 'image' };
+      setView('create');
+      drawGuide();
+      toast(st.cnModel ? 'Guide image set.' : 'Guide image set. It is used with a model that has a ControlNet (Models tab: SDXL + Canny ControlNet).', 6000);
+    };
+    img.onerror = function () { toast('Could not read that image.', 6000); };
+    img.src = src;
+  }
+
+  function dropGuide() {
+    st.cn = null;
+    drawGuide();
+  }
+
+  function guideFile() {
+    var input = $('cn-file');
+    var f = input.files && input.files[0];
+    input.value = '';
+    if (!f) return;
+    var r = new FileReader();
+    r.onload = function () { setGuide(r.result, f.name); };
+    r.onerror = function () { toast('Could not read ' + f.name + '.', 6000); };
+    r.readAsDataURL(f);
+  }
+
+  // The guide covering w x h: aspect kept, the overflow cut off at the middle; a PNG data URL.
+  function guideData(w, h) {
+    var g = st.cn.canvas;
+    var k = Math.max(w / g.width, h / g.height);
+    var dw = g.width * k, dh = g.height * k;
+    var c = canvasOf(w, h);
+    c.getContext('2d').drawImage(g, (w - dw) / 2, (h - dh) / 2, dw, dh);
+    return c.toDataURL('image/png');
+  }
+
   // ---- the mask editor
   function openMask() {
     var i = st.init;
@@ -4130,6 +4234,7 @@
     show('batch-col', !st.video);
     show('vid-sect', st.video);
     show('init-bar', !st.video && !st.init, 'flex');
+    drawGuide();
     if (st.video && vid) {
       if (typeof vid.video_frames === 'number') $('frames').value = frames4k1(vid.video_frames);
       if (typeof vid.fps === 'number') $('fps').value = Math.max(4, Math.min(30, Math.round(vid.fps)));
@@ -4286,6 +4391,13 @@
     $('init-str').onchange = persist;
     $('init-str-').onclick = function () { stepper('init-str', -0.05, 0.05, 1, 2); };
     $('init-str+').onclick = function () { stepper('init-str', 0.05, 0.05, 1, 2); };
+    $('cn-pick').onclick = function () { $('cn-file').click(); };
+    $('cn-file').onchange = guideFile;
+    $('cn-drop').onclick = dropGuide;
+    $('cn-str').onchange = persist;
+    $('cn-str-').onclick = function () { stepper('cn-str', -0.1, 0.1, 1.5, 1); };
+    $('cn-str+').onclick = function () { stepper('cn-str', 0.1, 0.1, 1.5, 1); };
+    $('cn-canny').onchange = function () { summary(); };
     $('me-size-').onclick = function () { me.brush = Math.max(8, me.brush - 8); text($('me-size'), 'Brush ' + me.brush); };
     $('me-size+').onclick = function () { me.brush = Math.min(240, me.brush + 8); text($('me-size'), 'Brush ' + me.brush); };
     $('me-mode').onclick = function () { me.erase = !me.erase; text($('me-mode'), me.erase ? 'Paint' : 'Erase'); };
@@ -4303,6 +4415,7 @@
       window.addEventListener('resize', sizeMask);
     }
     $('lb-edit').onclick = function () { var it = galleryList[st.lb]; if (it) { closeLb(); setInit(it.url, it.name); } };
+    $('lb-guide').onclick = function () { var it = galleryList[st.lb]; if (it) { closeLb(); setGuide(it.url, it.name); } };
     $('lb-up').onclick = function () { var it = galleryList[st.lb]; if (it) upscale(it.url, $('lb-up')); };
     $('auth-on').onclick = newKey;
     $('auth-new').onclick = newKey;

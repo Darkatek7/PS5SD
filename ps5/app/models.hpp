@@ -131,7 +131,8 @@ PresetSettings preset_settings(const std::vector<std::pair<std::string, std::str
 
 // The library as JSON for GET /ps5sd/v1/app/models: {"active", "loaded",
 // "switching", "standby", "models": [{"id", "name", "kind", "bytes", "files",
-// "missing", "defaults": {...}}]}. standby: the server runs without a model.
+// "missing", "base", "control_net", "defaults": {...}}]}. control_net: the file
+// name of the preset's --control-net, or "". standby: the server runs without a model.
 std::string models_json(const ModelLibrary & library, const std::string & active, const std::string & loaded,
                         bool switching, bool standby = false);
 

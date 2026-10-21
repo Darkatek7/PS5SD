@@ -91,6 +91,16 @@ void add_files(ModelEntry & e) {
     }
 }
 
+// The ControlNet a preset loads (--control-net): its file name, or "".
+std::string control_net_name(const ModelEntry & e) {
+    for (size_t i = 0; i + 1 < e.args.size(); i++) {
+        if (e.args[i] == "--control-net") {
+            return fs::u8path(e.args[i + 1]).filename().u8string();
+        }
+    }
+    return {};
+}
+
 ModelEntry file_entry(const std::string & id, const std::string & path) {
     ModelEntry e;
     e.id   = id;
@@ -640,6 +650,7 @@ std::string models_json(const ModelLibrary & library, const std::string & active
                          { "files", e.files },
                          { "missing", e.missing },
                          { "base", e.base },
+                         { "control_net", control_net_name(e) },
                          { "defaults", defaults } });
     }
     nlohmann::json out = { { "active", active }, { "loaded", loaded }, { "switching", switching }, { "standby", standby }, { "models", list } };

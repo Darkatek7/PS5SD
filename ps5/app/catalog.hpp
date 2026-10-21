@@ -15,6 +15,7 @@
 // Z-Image Turbo Q4_K with Qwen3-4B Q4_K_M and the FLUX.1 VAE is 6.7 GB.
 // Wan 2.1 T2V 1.3B (f16) with umt5-xxl Q4_K_M and the Wan 2.1 VAE is 6.7 GB;
 // the VAE decode of 33 frames needs 128 px tiles (256 px ran out of memory).
+// SDXL Q8_0 with the Canny ControlNet (2.5 GB more) left 2.7 GiB free after a 1024x1024 image.
 //
 // Included by download_core.cpp only.
 //
@@ -160,6 +161,34 @@ inline std::vector<CatalogEntry> entries() {
             "stable-diffusion-xl-base-1.0-Q8_0.gguf\n"
             "--vae\n"
             "vae/sdxl_vae_fp16_fix.safetensors\n"
+            "--vae-tiling\n"
+            "--vae-tile-size\n"
+            "512\n",
+            false,
+            "",
+        },
+        {
+            "sdxl-canny",
+            "SDXL Base 1.0 (Q8_0) + Canny ControlNet",
+            "SDXL with a ControlNet: the edges of a guide image (Canny) set the layout of the new one. 7.9 GB.",
+            {
+                { "https://huggingface.co/gpustack/stable-diffusion-xl-base-1.0-GGUF/resolve/main/"
+                  "stable-diffusion-xl-base-1.0-Q8_0.gguf",
+                  "stable-diffusion-xl-base-1.0-Q8_0.gguf", 5040957760ull, 0 },
+                PS5SD_SDXL_VAE,
+                // xinsir's Canny ControlNet for SDXL, V2 (Apache 2.0), in the diffusers layout sd.cpp reads.
+                { "https://huggingface.co/xinsir/controlnet-canny-sdxl-1.0/resolve/main/"
+                  "diffusion_pytorch_model_V2.safetensors",
+                  "controlnet/xinsir-canny-sdxl-v2.safetensors", 2502139104ull, 0 },
+            },
+            "# name: SDXL Base 1.0 (Q8_0) + Canny ControlNet\n"
+            "# defaults: steps=25 cfg=6 width=1024 height=1024 sampler=euler_a\n"
+            "-m\n"
+            "stable-diffusion-xl-base-1.0-Q8_0.gguf\n"
+            "--vae\n"
+            "vae/sdxl_vae_fp16_fix.safetensors\n"
+            "--control-net\n"
+            "controlnet/xinsir-canny-sdxl-v2.safetensors\n"
             "--vae-tiling\n"
             "--vae-tile-size\n"
             "512\n",

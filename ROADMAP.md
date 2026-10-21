@@ -89,15 +89,24 @@ VAE), and LTX-Video 2B is not in this sd.cpp.
 - [ ] **Flow shift in the web UI**: set in the preset only for now (3 for Wan 2.1).
 - [ ] **Image to video**: a start image for a Wan model (Wan 2.1 T2V is text only).
 - [ ] **Longer clips (49 and 81 frames)**: measure memory and time.
-- [ ] **Faster video**: a step-distilled Wan LoRA (CausVid or lightx2v) for 4 to 8 steps at CFG 1.
 
-## 0.7.0: ControlNet (#3)
+## 0.7.0: faster video, done
 
-- [ ] A ControlNet model in a preset (`--control-net`), a control image on the Create tab (the image input
-  of 0.5.0), the strength, and sd.cpp's built-in Canny preprocessing.
-- [ ] **Measure first**: an SDXL ControlNet is about 2.5 GB on top of the model; with an SDXL model
-  loaded, about 3.9 GiB of the console's pool is free. Whether SDXL + ControlNet fits, or it is SD 1.5
-  only, decides how this is offered.
+- [x] **CausVid**: a LoRA for Wan 2.1 1.3B, one click away on the LoRAs panel; 4 steps at CFG 1 make 33
+  frames in 3 minutes 40 s instead of about 14.5 minutes.
+
+## 0.7.0: ControlNet ([#3](https://github.com/Darkatek7/PS5SD/issues/3)), done
+
+- [x] **ControlNet in a preset and on the Create tab**: a ControlNet loads with its model (`--control-net`),
+  sd.cpp's Canny is built in, and the Create tab takes a guide image (a file, or **Guide** on a gallery
+  image or a result) with the strength and the Canny switch. The API takes `control_image`. The catalog
+  has SDXL Base 1.0 (Q8_0) + Canny ControlNet.
+- [x] **Measure first**: SDXL fits with its Canny ControlNet: 6.2 GiB of the 11.44 GiB pool free after
+  loading, 2.7 GiB after a 1024x1024 image. 20 steps at 1024x1024 took 130 s (about 4.6 s a step; about
+  3 s without the ControlNet).
+- [ ] **More ControlNets in the catalog**: OpenPose and depth for SDXL (they need a pose or depth image;
+  no preprocessor on the console).
+- [ ] **Guide image with the hires fix**: not measured yet.
 
 ## Later, if needed
 

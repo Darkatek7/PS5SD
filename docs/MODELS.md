@@ -13,7 +13,7 @@ It reads `.safetensors`, `.gguf`, `.ckpt` and `.sft` files. Everything lives und
 | Folder | What goes there |
 |---|---|
 | `/data/PS5SD/models` | model files; a single-file checkpoint directly here shows up in the library by itself |
-| `/data/PS5SD/models/diffusion_models`, `text_encoders`, `vae` | the parts of multi-file models (FLUX, Z-Image); any subfolder works, these are the catalog's |
+| `/data/PS5SD/models/diffusion_models`, `text_encoders`, `vae`, `controlnet` | the parts of multi-file models (FLUX, Z-Image) and ControlNets (see **ControlNet** below); any subfolder works, these are the catalog's |
 | `/data/PS5SD/presets` | one `<id>.txt` per multi-file model, or per checkpoint that needs its own options |
 | `/data/PS5SD/loras` | LoRAs; see **LoRAs** below |
 | `/data/PS5SD/embeddings` | textual inversions |
@@ -200,17 +200,19 @@ Getting one onto the console:
   to the loras folder by itself.
 - **FTP**: into `/data/PS5SD/loras`; subfolders work.
 
-The LoRAs panel offers two with one click. Both make an SDXL model fast: use CFG 1 and the steps and
-sampler of the table.
+The LoRAs panel offers three with one click. DMD2 and SDXL-Lightning make an SDXL model fast, CausVid a
+Wan 2.1 1.3B video model: use CFG 1 and the steps and sampler of the table.
 
 | | For | Settings | Size |
 |---|---|---|---|
 | [DMD2](https://huggingface.co/tianweiy/DMD2) | anime, Illustrious and Pony models | LCM, 4 to 8 steps, CFG 1 | 394 MB |
 | [SDXL-Lightning 8-step](https://huggingface.co/ByteDance/SDXL-Lightning) | SDXL base and photo models | Euler, sgm_uniform, 8 steps, CFG 1 | 394 MB |
+| [CausVid](https://github.com/tianweiy/CausVid) (Kijai's conversion) | Wan 2.1 T2V 1.3B videos | Euler, 4 to 8 steps, CFG 1 | 91 MB |
 
-DMD2 is under CC BY-NC 4.0 (no commercial use); SDXL-Lightning under the OpenRAIL++ licence. On the
-console, an 832x1216 image with DMD2 at 6 steps took 20 s, a 1024x1024 image with Lightning at 8 steps
-25 s.
+DMD2 is under CC BY-NC 4.0 (no commercial use); SDXL-Lightning under the OpenRAIL++ licence; CausVid under
+CC BY-NC-SA 4.0 (no commercial use). On the console, an 832x1216 image with DMD2 at 6 steps took 20 s, a
+1024x1024 image with Lightning at 8 steps 25 s. A 33-frame video at 832x480 with CausVid at 4 steps took
+3 minutes 40 s instead of about 14.5 minutes.
 
 The Models tab lists the LoRAs, with their size and a Delete button.
 
@@ -291,6 +293,11 @@ step, 12 minutes of sampling and 2 minutes to decode the video. The model loads 
 files are cached. The progress shows the steps, then "Decoding the video…". Longer clips are not measured
 yet.
 
+It is faster with the CausVid LoRA. Pick it on the Models tab's LoRAs panel (one click), then on the Create
+tab under **Settings**, **LoRAs**, at strength 1. With CFG 1 and 4 steps, the same 33 frames took 3 minutes
+40 s: 1.3 minutes of sampling, and the 2-minute decode stays. 8 steps took 5 minutes and looked no better.
+CausVid has a non-commercial licence.
+
 The model, the text encoder and the VAE fit in the console's memory; after the run, 4.0 of 11.44 GiB
 were free. The VAE decode ran out of memory with 256 px tiles, so the preset decodes in 128 px tiles
 (`--vae-tile-size 128`). Keep them at 128 when you change the preset.
@@ -317,6 +324,80 @@ gpustack's GGUF conversions:
 An inpainting checkpoint from elsewhere (a Civitai model whose name ends in "inpainting") works too; sd.cpp
 recognises it by its weights.
 
+## ControlNet
+
+A ControlNet makes the new image follow a guide image. The Canny kind takes the edges of the guide, so the
+layout stays and the prompt sets the rest. sd.cpp loads ControlNets for SD 1.5, SD 2 and SDXL, in the
+original or the diffusers layout.
+
+The catalog has one for SDXL, **SDXL Base 1.0 (Q8_0) + Canny ControlNet**, on the Models tab, not featured.
+One click installs it, 7.9 GB in all. A file that is there already (the SDXL GGUF or the VAE, from another
+entry) is not fetched again.
+
+| File | Size | From |
+|---|---|---|
+| `stable-diffusion-xl-base-1.0-Q8_0.gguf` | 5.0 GB | [gpustack/stable-diffusion-xl-base-1.0-GGUF](https://huggingface.co/gpustack/stable-diffusion-xl-base-1.0-GGUF) |
+| `vae/sdxl_vae_fp16_fix.safetensors` | 0.33 GB | [madebyollin/sdxl-vae-fp16-fix](https://huggingface.co/madebyollin/sdxl-vae-fp16-fix) |
+| `controlnet/xinsir-canny-sdxl-v2.safetensors` | 2.5 GB | [xinsir/controlnet-canny-sdxl-1.0](https://huggingface.co/xinsir/controlnet-canny-sdxl-1.0), V2, Apache 2.0 |
+
+Its preset:
+
+```text
+# name: SDXL Base 1.0 (Q8_0) + Canny ControlNet
+# defaults: steps=25 cfg=6 width=1024 height=1024 sampler=euler_a
+-m
+stable-diffusion-xl-base-1.0-Q8_0.gguf
+--vae
+vae/sdxl_vae_fp16_fix.safetensors
+--control-net
+controlnet/xinsir-canny-sdxl-v2.safetensors
+--vae-tiling
+--vae-tile-size
+512
+```
+
+On the Create tab, with a ControlNet loaded, the **Guide image (ControlNet)** part appears. Pick a file for
+the guide, or press **Guide** on a gallery image or under a result.
+
+- **Strength** (0.1 to 1.5, default 0.6): how closely the result follows the guide. 0.5 is loose, 1 is close.
+  A guide with many edges (trees, grass) looks painted at 0.8 and up; 0.5 to 0.65 kept the layout and
+  looked natural.
+- **Find the edges first (Canny)**: on by default. Turn it off when the guide is already an edge map, or a
+  pose or depth image for a ControlNet of that kind.
+- The guide is scaled to the image size and cropped to fit. It works with LoRAs, batches and a start image.
+
+The ControlNet stays in memory with its model; its weights are about 2.4 GB. After loading, 6.2 of the
+console's 11.44 GiB were free; after a 1024x1024 image, 2.7 GiB. Measured at 1024x1024 with strength 0.8,
+20 steps of euler_a at CFG 6 took 130 s, about 4.6 s a step (about 3 s a step without a ControlNet). With the
+SDXL-Lightning LoRA, 8 steps at CFG 1 took 55 s. The layout follows the guide: in one test, a house by a
+lake stayed where it was when the prompt asked for winter.
+
+To use the ControlNet with another SDXL model, an Illustrious or Pony finetune for example, add these two
+lines to that model's preset, among its other options:
+
+```text
+--control-net
+controlnet/xinsir-canny-sdxl-v2.safetensors
+```
+
+Edit the preset on the Presets tab, or in `/data/PS5SD/presets`. A checkpoint with no preset of its own
+needs one first: set up the Create tab, then press **Presets**, **Save the current settings**, which copies
+the model's VAE and tiling options. Changed settings count from the next load of the preset, so press
+**Use** on it.
+
+A ControlNet works only with models of its family: an SDXL ControlNet with SDXL models and their finetunes,
+not with SD 1.5 or FLUX. With a model that has no ControlNet, the guide image is ignored.
+
+Other SDXL ControlNets work the same way, for example OpenPose or depth
+(`xinsir/controlnet-openpose-sdxl-1.0`). PS5SD has only Canny built in, so the guide for those must already
+be a pose or depth image: make it elsewhere, use it as the guide, and turn **Find the edges first (Canny)**
+off. Put the model file in `/data/PS5SD/models/controlnet/`, by FTP into that folder, or with
+`POST /ps5sd/v1/app/downloads` and `{"url": "...", "dest": "controlnet/<name>.safetensors"}`
+([API.md](API.md)). The subfolder matters: a `.safetensors` file directly in `models` shows up in the library
+as a checkpoint. Then add it to a preset as above.
+
+The hires fix with a guide image is not measured yet.
+
 ## How big a model can be
 
 The console gives the title about 11.4 GiB of GPU memory. The model, its text encoders and the VAE
@@ -326,6 +407,7 @@ must fit together, plus the working memory for one image.
 |---|---|---|
 | SDXL `.safetensors` f16 (6.9 GB) | with `--type q8_0` | yes, about 2.5 s per step at 1024×1024 |
 | SDXL Q8_0 `.gguf` (5.0 GB) | as is | yes |
+| SDXL Q8_0 + Canny ControlNet (fp16) | 7.9 GB | yes, 2.7 GiB free after a 1024x1024 image |
 | FLUX.3 Klein Q4_K / Q6_K + Qwen3-VL-4B Q4_K_M | 6.4 / 7.7 GB | yes |
 | Z-Image Turbo Q4_K + Qwen3-4B Q4_K_M | 6.7 GB | yes |
 | Wan 2.1 T2V 1.3B (video) fp16 + umt5-xxl Q4_K_M + VAE | 6.7 GB | yes, 33 frames at 832×480 with 128 px VAE tiles; 256 px ran out of memory |

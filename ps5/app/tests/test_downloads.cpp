@@ -143,6 +143,12 @@ int main() {
     check(ids.size() == catalog().size() && ids.count("sdxs-512") && ids.count("sdxl-base") && ids.count("sd-turbo"),
           "catalog ids are unique, the starters are there");
     check(find_catalog("sdxs-512") != nullptr && find_catalog("nope") == nullptr, "find_catalog");
+    {
+        const CatalogEntry * canny = find_catalog("sdxl-canny");
+        check(canny != nullptr && !canny->featured && canny->files.size() == 3 &&
+                  std::string(canny->files[2].dest) == "controlnet/xinsir-canny-sdxl-v2.safetensors",
+              "sdxl-canny: not featured, the ControlNet is its third file");
+    }
 
     const fs::path root = fs::temp_directory_path() / "ps5sd-test-downloads";
     fs::remove_all(root);

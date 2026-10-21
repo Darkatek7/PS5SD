@@ -17,6 +17,9 @@ port 7860 can use the console, so keep it on your own network.
 
 A request body is at most 64 MB (`413` above that); uploads (`PUT .../uploads/...`) have no limit.
 
+Send a JSON body with `Content-Type: application/json`. curl's `-d` otherwise sends form data, which the
+server reads only up to 8 KB, so a larger body (a base64 image, say) needs the header.
+
 The examples use `<console>` for the PS5's address.
 
 ## The API key
@@ -178,7 +181,7 @@ loads a model and ends standby.
 ```json
 {"active": "flux3-klein-q4", "loaded": "flux3-klein-q4", "switching": false, "standby": false,
  "models": [{"id": "flux3-klein-q4", "name": "FLUX.3 Image Klein (Q4_K)", "kind": "preset",
-             "bytes": 4912345678, "files": ["..."], "missing": [], "base": "",
+             "bytes": 4912345678, "files": ["..."], "missing": [], "base": "", "control_net": "",
              "defaults": {"steps": "16", "cfg": "1", "width": "1024", "height": "1024", "sampler": "euler"}}]}
 ```
 
@@ -188,6 +191,7 @@ loads a model and ends standby.
 - `loaded` is the entry the server has ready. It is `""` while a model loads and in standby.
 - `missing` lists the entry's files that are not on the console. An entry with missing files cannot be
   loaded.
+- `control_net` is the file name of the preset's `--control-net` (see [MODELS.md](MODELS.md#controlnet)), or `""`.
 - `defaults` are the settings that suit the model. The web UI applies them when you press **Use**. With
   the entry loaded, `steps`, `cfg`, `sampler`, `scheduler`, `width` and `height` are also **the server's
   defaults**: a request that names none of them gets these values, and a request that names one overrides
@@ -367,6 +371,30 @@ The video is also saved in `/data/PS5SD/outputs` as `sd_<date>_<time>_<n>.webm`,
 ```sh
 curl http://<console>:7860/sdcpp/v1/vid_gen -d '{"prompt": "a lighthouse on a cliff, waves, evening light", "width": 832, "height": 480, "video_frames": 33, "fps": 16, "sample_params": {"sample_steps": 20, "guidance": {"txt_cfg": 6}}, "output_format": "webm"}'
 ```
+
+**ControlNet**: with a model whose preset loads a ControlNet (the catalog's SDXL Canny one, see
+[MODELS.md](MODELS.md#controlnet)), `POST /sdcpp/v1/img_gen` takes a guide image. With a model that has no
+ControlNet, the guide is ignored.
+
+- `control_image`: the guide, a base64 PNG or a data URL.
+- `control_strength`: how closely the result follows the guide (the web UI offers 0.1 to 1.5). Left out, it
+  is the server's default, 0.9; the web UI sends 0.6 unless you change it.
+- `image_preprocess`: `"target=control,canny=true"` runs Canny edge detection on the guide first. Leave it out
+  when the guide is already an edge map, or a pose or depth image for a ControlNet of that kind.
+
+The body, in `request.json`:
+
+```json
+{"prompt": "a stone cottage by a lake in winter", "width": 1024, "height": 1024,
+ "control_image": "<base64 PNG>", "control_strength": 0.6,
+ "image_preprocess": "target=control,canny=true"}
+```
+
+```sh
+curl http://<console>:7860/sdcpp/v1/img_gen -H 'Content-Type: application/json' -d @request.json
+```
+
+The answer is a job, as for any `img_gen`: poll `GET /sdcpp/v1/jobs/<id>` for the image.
 
 ## Hires fix and upscaling
 

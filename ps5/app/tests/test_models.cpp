@@ -386,6 +386,33 @@ int main() {
         check(ps5sd::checkpoint_id(l3, "plain-fast") == "plain-fast", "a saved preset can still be asked for by name");
     }
 
+    // The ControlNet a preset loads: its file name in the JSON, "" without one.
+    {
+        const fs::path m4 = root / "m4", p4 = root / "p4";
+        write(m4 / "sdxl.gguf", "x");
+        write(m4 / "controlnet" / "canny.safetensors", std::string(7, 'x'));
+        write(p4 / "guided.txt", "# name: Guided\n-m\nsdxl.gguf\n--control-net\ncontrolnet/canny.safetensors\n");
+        write(p4 / "plain.txt", "# name: Plain\n-m\nsdxl.gguf\n");
+        write(p4 / "guided-2.txt", "# base: guided\n# name: Guided 2\n-m\nsdxl.gguf\n--control-net\n"
+                                   "controlnet/canny.safetensors\n");
+        ps5sd::ModelLibrary l4{ m4.u8string(), p4.u8string() };
+        const auto          j4 = nlohmann::json::parse(ps5sd::models_json(l4, "", "", false));
+        std::string         guided, plain, variant, file;
+        for (const auto & m : j4["models"]) {
+            if (m["id"] == "guided") {
+                guided = m["control_net"];
+            } else if (m["id"] == "plain") {
+                plain = m["control_net"];
+            } else if (m["id"] == "guided-2") {
+                variant = m["control_net"];
+            } else if (m["id"] == "sdxl.gguf") {
+                file = m["control_net"];
+            }
+        }
+        check(guided == "canny.safetensors" && variant == "canny.safetensors", "control_net is the file name");
+        check(plain.empty() && file.empty(), "control_net is empty without a ControlNet");
+    }
+
     fs::remove_all(root);
     std::printf("%s (%d failure(s))\n", failures == 0 ? "ok" : "FAILED", failures);
     return failures == 0 ? 0 : 1;
