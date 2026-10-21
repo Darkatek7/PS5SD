@@ -572,7 +572,14 @@ std::string download_key(const std::string & kind, const std::string & dest) {
 }
 
 bool gallery_name_ok(const std::string & name) {
-    if (name.size() <= 4 || name.size() > 200 || name[0] == '.' || lower(name).compare(name.size() - 4, 4, ".png") != 0) {
+    if (name.size() <= 4 || name.size() > 200 || name[0] == '.') {
+        return false;
+    }
+    // a PNG or a video (vid_gen): the same extensions gallery_type serves
+    const std::string n  = lower(name);
+    const bool        ext = n.compare(n.size() - 4, 4, ".png") == 0 || n.compare(n.size() - 4, 4, ".avi") == 0 ||
+                     n.compare(n.size() - 5, 5, ".webm") == 0 || n.compare(n.size() - 5, 5, ".webp") == 0;
+    if (!ext) {
         return false;
     }
     for (const char c : name) {

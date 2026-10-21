@@ -199,8 +199,9 @@ int main() {
                       "per-file installed");
             }
         }
-        check(featured == 3 && find_catalog("sdxl-full")->featured && find_catalog("z-image-turbo")->featured,
-              "SDXL full, Klein Q4 and Z-Image Turbo are featured");
+        check(featured == 4 && find_catalog("sdxl-full")->featured && find_catalog("z-image-turbo")->featured &&
+                  find_catalog("wan21-t2v-1.3b")->featured,
+              "SDXL full, Klein Q4, Z-Image Turbo and Wan 2.1 are featured");
         check(j["entries"][0]["id"] == "sdxl-full" && j["entries"][1]["id"] == "flux3-klein-q4" &&
                   j["entries"][2]["id"] == "z-image-turbo" && j["entries"][0]["good_for"].is_string(),
               "featured order and good_for");
@@ -307,6 +308,9 @@ int main() {
               !gallery_name_ok(".png") && !gallery_name_ok(".hidden.png") && !gallery_name_ok("x.txt") &&
               !gallery_name_ok("a b.png") && !gallery_name_ok(""),
           "gallery: no paths, hidden files or other files");
+    check(gallery_name_ok("sd_20261021_183000_000.webm") && gallery_name_ok("clip.WEBP") && gallery_name_ok("a.avi") &&
+              !gallery_name_ok(".webm") && !gallery_name_ok("x.mp4") && !gallery_name_ok("x.webm.txt"),
+          "gallery: video names");
     {
         std::string kind, name, e;
         check(upload_target("models/vae/my vae.safetensors", kind, name, e) && kind == "models" &&

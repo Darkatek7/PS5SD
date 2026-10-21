@@ -343,7 +343,7 @@ The `model` field of a generation request does not switch the model; the loaded 
 | `GET /sdcpp/v1/capabilities` | the defaults and what the server supports |
 | `POST /sdcpp/v1/img_gen` | queue an image job: `202 {"id", "status", ...}`; `429` when the queue is full |
 | `POST /sdcpp/v1/vid_gen` | queue a video job (video models only) |
-| `GET /sdcpp/v1/jobs/<id>` | the job: `status` is `queued`, `generating`, `completed`, `failed` or `cancelled`; the images are in `result` |
+| `GET /sdcpp/v1/jobs/<id>` | the job: `status` is `queued`, `generating`, `completed`, `failed` or `cancelled`; the images, or the video, are in `result` |
 | `POST /sdcpp/v1/jobs/<id>/cancel` | cancel it; see "Jobs" above |
 | `POST /sdcpp/v1/upscale` | upscale an image with an upscaler model; see "Hires fix and upscaling" |
 
@@ -352,6 +352,21 @@ Several images in one job: `"batch_count": n` on `img_gen` (`"batch_size"` on `/
 are made one after the other with the seeds `seed`, `seed + 1`, ...; while the job runs,
 `preview.pass` says which of them is being sampled (1 for the first). Every image is saved to the
 gallery.
+
+**Video**: `POST /sdcpp/v1/vid_gen` takes the `img_gen` fields and two more, `video_frames` (4n+1: 5 to 33
+for now) and `fps`. `output_format` is `webm` (the default), `webp` (animated WebP) or `avi` (MJPEG). Leave out `flow_shift` and `vae_tiling_params` to take the
+loaded preset's. The job runs as the images do, and a 33-frame video takes about 15 minutes (see
+[MODELS.md](MODELS.md#video)). A finished job has the video in `result`:
+
+- `b64_json`: the video, base64;
+- `mime_type`: the video's type, `video/webm` by default;
+- `fps` and `frame_count`.
+
+The video is also saved in `/data/PS5SD/outputs` as `sd_<date>_<time>_<n>.webm`, so it shows in the gallery.
+
+```sh
+curl http://<console>:7860/sdcpp/v1/vid_gen -d '{"prompt": "a lighthouse on a cliff, waves, evening light", "width": 832, "height": 480, "video_frames": 33, "fps": 16, "sample_params": {"sample_steps": 20, "guidance": {"txt_cfg": 6}}, "output_format": "webm"}'
+```
 
 ## Hires fix and upscaling
 
@@ -426,13 +441,14 @@ to the gallery through:
 
 ## Gallery
 
-Every generated image is also saved as a PNG in `/data/PS5SD/outputs`.
+Every generated image is also saved as a PNG in `/data/PS5SD/outputs`, and every video in its own format
+(see [sd-server's own API](#sd-servers-own-api)).
 
 | Route | |
 |---|---|
-| `GET /ps5sd/v1/gallery?limit=n` | the newest images first, with name, time and size |
-| `GET /ps5sd/v1/gallery/<name>` | one image as PNG |
-| `DELETE /ps5sd/v1/app/gallery/<name>` | delete one image: `{"deleted": "<name>"}`; 400 for a name the gallery does not list (folders, other files), 404 when it is gone already |
+| `GET /ps5sd/v1/gallery?limit=n` | the newest first, with name, time, size and `type`: the MIME type, `image/png`, `video/webm`, `image/webp` or `video/x-msvideo` |
+| `GET /ps5sd/v1/gallery/<name>` | one image as PNG; a video is served with its own type |
+| `DELETE /ps5sd/v1/app/gallery/<name>` | delete one image or video: `{"deleted": "<name>"}`; 400 for a name the gallery does not list (folders, other files), 404 when it is gone already |
 
 ## App settings
 

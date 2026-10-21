@@ -1,0 +1,208 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: ps5sd <ps5sd@localhost>
+Date: Wed, 21 Oct 2026 19:10:00 +0200
+Subject: [PATCH] server: a vid_gen video is saved to the gallery like an image
+
+---
+
+diff --git a/examples/server/async_jobs.cpp b/examples/server/async_jobs.cpp
+--- a/examples/server/async_jobs.cpp
++++ b/examples/server/async_jobs.cpp
+@@ -332,7 +332,6 @@
+     }
+ 
+     num_results = results.count();
+-    activity.finish(num_results > 0, "");
+     if (num_results <= 0) {
+         free_sd_audio(generated_audio);
+         error_message = "generate_video returned no results";
+@@ -351,6 +350,8 @@
+         error_message = "failed to encode generated video container";
+         return false;
+     }
++    // PS5SD: into --output-dir like an image, so the gallery lists it.
++    activity.finish(true, save_output_video(*runtime.svr_params, video_bytes, job.vid_gen.output_format));
+ 
+     output_media_b64       = base64_encode(video_bytes);
+     output_media_mime_type = video_mime_type(job.vid_gen.output_format);
+diff --git a/examples/server/gallery.cpp b/examples/server/gallery.cpp
+--- a/examples/server/gallery.cpp
++++ b/examples/server/gallery.cpp
+@@ -1,8 +1,8 @@
+ // PS5SD: --output-dir, and the gallery endpoints that list and serve what was
+ // saved there:
+ //   GET /ps5sd/v1/gallery         JSON array, newest first:
+-//                                 [{"name","url","size","created"}]  (?limit=N, default 100)
+-//   GET /ps5sd/v1/gallery/<file>  the PNG
++//                                 [{"name","url","size","created","type"}]  (?limit=N, default 100)
++//   GET /ps5sd/v1/gallery/<file>  the PNG or the video
+ 
+ #include <algorithm>
+ #include <atomic>
+@@ -22,16 +22,33 @@
+ 
+ namespace fs = std::filesystem;
+ 
+-static bool is_png_name(const std::string& name) {
++// The MIME type of a gallery file, by its extension; nullptr for anything else.
++static const char* gallery_type(const std::string& name) {
+     if (name.size() < 5 || name == "." || name == ".." || name.find("..") != std::string::npos) {
+-        return false;
++        return nullptr;
+     }
+-    std::string ext = name.substr(name.size() - 4);
++    const size_t dot = name.rfind('.');
++    if (dot == std::string::npos || dot == 0) {
++        return nullptr;
++    }
++    std::string ext = name.substr(dot);
+     std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+-    return ext == ".png";
++    if (ext == ".png") {
++        return "image/png";
++    }
++    if (ext == ".webm") {
++        return "video/webm";
++    }
++    if (ext == ".webp") {
++        return "image/webp";
++    }
++    if (ext == ".avi") {
++        return "video/x-msvideo";
++    }
++    return nullptr;
+ }
+ 
+-static std::string next_output_name(const fs::path& dir) {
++static std::string next_output_name(const fs::path& dir, const char* ext) {
+     static std::atomic<unsigned> counter{0};
+ 
+     const std::time_t now = std::time(nullptr);
+@@ -45,10 +62,10 @@
+     std::strftime(stamp, sizeof(stamp), "%Y%m%d_%H%M%S", &tm_now);
+ 
+     // The clock of a console is not always set, and restarts begin counting
+-    // again: never overwrite an earlier image.
++    // again: never overwrite an earlier file.
+     for (;;) {
+         char name[64];
+-        std::snprintf(name, sizeof(name), "sd_%s_%03u.png", stamp, counter++ % 1000u);
++        std::snprintf(name, sizeof(name), "sd_%s_%03u.%s", stamp, counter++ % 1000u, ext);
+         std::error_code ec;
+         if (!fs::exists(dir / name, ec)) {
+             return name;
+@@ -80,7 +97,7 @@
+             LOG_ERROR("could not encode the image for --output-dir");
+             continue;
+         }
+-        const fs::path path = dir / next_output_name(dir);
++        const fs::path path = dir / next_output_name(dir, "png");
+         std::ofstream file(path, std::ios::binary);
+         file.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+         file.close();
+@@ -93,6 +110,27 @@
+     return saved;
+ }
+ 
++std::string save_output_video(const SDSvrParams& svr_params, const std::vector<uint8_t>& bytes, const std::string& format) {
++    if (svr_params.output_dir.empty() || bytes.empty() ||
++        (format != "webm" && format != "webp" && format != "avi")) {
++        return "";
++    }
++
++    const fs::path dir = fs::u8path(svr_params.output_dir);
++    std::error_code ec;
++    fs::create_directories(dir, ec);
++
++    const fs::path path = dir / next_output_name(dir, format.c_str());
++    std::ofstream file(path, std::ios::binary);
++    file.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
++    file.close();
++    if (!file) {
++        LOG_ERROR("could not write %s", path.u8string().c_str());
++        return "";
++    }
++    return path.u8string();
++}
++
+ std::string saved_paths(const std::vector<std::string>& saved) {
+     std::string out;
+     for (const std::string& path : saved) {
+@@ -108,8 +146,9 @@
+ 
+ struct GalleryEntry {
+     std::string name;
+-    int64_t created = 0;
+-    uintmax_t size  = 0;
++    int64_t created  = 0;
++    uintmax_t size   = 0;
++    const char* type = nullptr;
+ };
+ 
+ }  // namespace
+@@ -291,11 +330,13 @@
+             std::error_code ec;
+             for (fs::directory_iterator it(fs::u8path(svr_params->output_dir), ec), end; !ec && it != end; it.increment(ec)) {
+                 const std::string name = it->path().filename().u8string();
+-                if (!is_png_name(name) || !it->is_regular_file(ec)) {
++                const char* type       = gallery_type(name);
++                if (type == nullptr || !it->is_regular_file(ec)) {
+                     continue;
+                 }
+                 GalleryEntry entry;
+                 entry.name = name;
++                entry.type = type;
+                 entry.size = it->file_size(ec);
+                 // file_time_type -> unix seconds, without C++20 clock_cast
+                 const auto ftime = it->last_write_time(ec);
+@@ -319,7 +360,8 @@
+             list.push_back({{"name", entry.name},
+                             {"url", "/ps5sd/v1/gallery/" + entry.name},
+                             {"size", entry.size},
+-                            {"created", entry.created}});
++                            {"created", entry.created},
++                            {"type", entry.type}});
+         }
+         res.set_header("Cache-Control", "no-store");
+         res.set_content(list.dump(), "application/json");
+@@ -328,8 +370,9 @@
+     svr.Get(R"(/ps5sd/v1/gallery/([A-Za-z0-9_.\-]+))", [svr_params](const httplib::Request& req, httplib::Response& res) {
+         const std::string name = req.matches[1];
+         const fs::path path    = fs::u8path(svr_params->output_dir) / name;
++        const char* type       = gallery_type(name);
+         std::error_code ec;
+-        if (svr_params->output_dir.empty() || !is_png_name(name) || !fs::is_regular_file(path, ec)) {
++        if (svr_params->output_dir.empty() || type == nullptr || !fs::is_regular_file(path, ec)) {
+             res.status = 404;
+             res.set_content(R"({"error":"not found"})", "application/json");
+             return;
+@@ -337,6 +380,6 @@
+         std::ifstream file(path, std::ios::binary);
+         std::string content((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+         res.set_header("Cache-Control", "public, max-age=31536000, immutable");
+-        res.set_content(content, "image/png");
++        res.set_content(content, type);
+     });
+ }
+diff --git a/examples/server/gallery.h b/examples/server/gallery.h
+--- a/examples/server/gallery.h
++++ b/examples/server/gallery.h
+@@ -1,5 +1,6 @@
+ #pragma once
+ 
++#include <cstdint>
+ #include <string>
+ #include <vector>
+ 
+@@ -12,6 +13,11 @@
+ // Does nothing, and returns an empty list, when --output-dir is not set.
+ std::vector<std::string> save_output_images(const SDSvrParams& svr_params, SDImageVec& images);
+ 
++// PS5SD: a generated video (vid_gen), into --output-dir as
++// sd_<date>_<time>_<n>.<format> (webm, webp or avi). Returns the full path,
++// or "" when nothing was written.
++std::string save_output_video(const SDSvrParams& svr_params, const std::vector<uint8_t>& bytes, const std::string& format);
++
+ // PS5SD: the saved paths one a line, in the order of the results, for
+ // sd_activity_job_end ("" when nothing was saved).
+ std::string saved_paths(const std::vector<std::string>& saved);

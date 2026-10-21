@@ -5,6 +5,7 @@ PS5SD runs the models stable-diffusion.cpp supports:
 - SD 1.x, SD 2.x, SDXL and their finetunes;
 - SD 3.x;
 - FLUX.1, FLUX.2 and FLUX.3 Klein;
+- Wan 2.1, for short videos; see **Video** below;
 - Z-Image, Qwen-Image and others; see stable-diffusion.cpp's [docs](https://github.com/leejet/stable-diffusion.cpp/tree/master/docs).
 
 It reads `.safetensors`, `.gguf`, `.ckpt` and `.sft` files. Everything lives under `/data/PS5SD` on the console:
@@ -143,6 +144,9 @@ The `# defaults:` keys are `steps`, `cfg`, `width`, `height`, `sampler`, `schedu
 (`path:strength`, several with commas: `loras=detail.safetensors:0.8,styles/ink.gguf:1`). The samplers
 are listed by `GET /sdapi/v1/samplers`, for example `euler`, `euler_a`, `dpm++2m` or `lcm`.
 
+For a video model, `--video-frames`, `--fps` and `--flow-shift` in its preset are the defaults of a video
+request, as `steps` and the others are for an image.
+
 ### Saved presets: a model with your settings
 
 The same model with other settings, say a portrait size and a fast sampler, is a preset with
@@ -174,7 +178,7 @@ still ask for a saved preset by its id. Deleting a saved preset, in the web UI o
 `DELETE /ps5sd/v1/app/models/<id>`, removes its file only.
 
 The catalog's presets in [ps5/app/catalog.hpp](../ps5/app/catalog.hpp) are working examples for SDXL,
-FLUX.3 Klein and Z-Image Turbo.
+FLUX.3 Klein, Z-Image Turbo and Wan 2.1.
 
 Put the preset in place like a model file, with FTP or the script:
 
@@ -195,6 +199,18 @@ Getting one onto the console:
 - **Download**: under **Add by link**, pick **LoRA** and paste the link. A Civitai link to a LoRA goes
   to the loras folder by itself.
 - **FTP**: into `/data/PS5SD/loras`; subfolders work.
+
+The LoRAs panel offers two with one click. Both make an SDXL model fast: use CFG 1 and the steps and
+sampler of the table.
+
+| | For | Settings | Size |
+|---|---|---|---|
+| [DMD2](https://huggingface.co/tianweiy/DMD2) | anime, Illustrious and Pony models | LCM, 4 to 8 steps, CFG 1 | 394 MB |
+| [SDXL-Lightning 8-step](https://huggingface.co/ByteDance/SDXL-Lightning) | SDXL base and photo models | Euler, sgm_uniform, 8 steps, CFG 1 | 394 MB |
+
+DMD2 is under CC BY-NC 4.0 (no commercial use); SDXL-Lightning under the OpenRAIL++ licence. On the
+console, an 832x1216 image with DMD2 at 6 steps took 20 s, a 1024x1024 image with Lightning at 8 steps
+25 s.
 
 The Models tab lists the LoRAs, with their size and a Delete button.
 
@@ -232,6 +248,60 @@ ESRGAN or MoSR architecture): a Hugging Face or Civitai link as **Upscaler** und
 `.pth` file as **Upscaler** under **Upload**, or by FTP into `/data/PS5SD/upscalers` (no subfolders).
 Most make an image 4 times as wide and high; an Upscale of a 1024x1024 image is 4096x4096.
 
+## Video
+
+Wan 2.1 makes a short video from a text prompt. Its catalog entry is **Wan 2.1 T2V 1.3B (video)**, featured
+on the Models tab. One click installs its three files, 6.7 GB in all. Wan 2.1 is under the Apache 2.0 licence.
+
+| File | Size | From |
+|---|---|---|
+| `diffusion_models/wan2.1_t2v_1.3B_fp16.safetensors` | 2.84 GB | [Comfy-Org/Wan_2.1_ComfyUI_repackaged](https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged) |
+| `text_encoders/umt5-xxl-encoder-Q4_K_M.gguf` | 3.66 GB | [city96/umt5-xxl-encoder-gguf](https://huggingface.co/city96/umt5-xxl-encoder-gguf) |
+| `vae/wan_2.1_vae.safetensors` | 0.25 GB | Comfy-Org/Wan_2.1_ComfyUI_repackaged |
+
+The catalog's preset for it. Wan's text encoder goes in `--t5xxl`, not `--llm`:
+
+```text
+# name: Wan 2.1 T2V 1.3B (video)
+# defaults: steps=20 cfg=6 width=832 height=480 sampler=euler
+--diffusion-model
+diffusion_models/wan2.1_t2v_1.3B_fp16.safetensors
+--t5xxl
+text_encoders/umt5-xxl-encoder-Q4_K_M.gguf
+--vae
+vae/wan_2.1_vae.safetensors
+--vae-tiling
+--vae-tile-size
+128
+--flow-shift
+3
+--video-frames
+33
+--fps
+16
+```
+
+The Create tab switches to video mode when the loaded model makes videos. **Frames** and **Frames per
+second** replace **Images per run**. Frames are 4n+1 (5, 9, 13, ... 33); the web UI offers 5 to 33 for now.
+33 frames at 16 frames per second is 2 seconds of video. A video has no hires fix, no start image, and no
+Upscale or Edit.
+
+On the console, a run of 33 frames at 832x480 with 20 steps and CFG 6 took about 14.5 minutes: 36 s a
+step, 12 minutes of sampling and 2 minutes to decode the video. The model loads in a few seconds once its
+files are cached. The progress shows the steps, then "Decoding the video…". Longer clips are not measured
+yet.
+
+The model, the text encoder and the VAE fit in the console's memory; after the run, 4.0 of 11.44 GiB
+were free. The VAE decode ran out of memory with 256 px tiles, so the preset decodes in 128 px tiles
+(`--vae-tile-size 128`). Keep them at 128 when you change the preset.
+
+The video is a WebM file (VP8, about 5 MB for 33 frames). It plays on the page in Chrome, Firefox and Edge.
+Safari on iPhone may not play WebM; download the file and play it in VLC. Videos are saved in
+`/data/PS5SD/outputs` as `sd_<date>_<time>_<n>.webm`.
+
+The gallery shows a video with a ▶ mark. Its viewer plays it, and Download and Delete work as they do for
+images. The TV shows the progress of a video run, but not the video: the dashboard draws images only.
+
 ## Inpainting
 
 Inpainting changes only a part of an image: on the Create tab, **Start from an image** (or **Edit** on any
@@ -258,6 +328,7 @@ must fit together, plus the working memory for one image.
 | SDXL Q8_0 `.gguf` (5.0 GB) | as is | yes |
 | FLUX.3 Klein Q4_K / Q6_K + Qwen3-VL-4B Q4_K_M | 6.4 / 7.7 GB | yes |
 | Z-Image Turbo Q4_K + Qwen3-4B Q4_K_M | 6.7 GB | yes |
+| Wan 2.1 T2V 1.3B (video) fp16 + umt5-xxl Q4_K_M + VAE | 6.7 GB | yes, 33 frames at 832×480 with 128 px VAE tiles; 256 px ran out of memory |
 | FLUX.1 dev or schnell in f16 (24 GB) | | no; use a Q4 or Q5 `.gguf` |
 
 If a model does not load, the server goes back to the last one that worked. The reason is in

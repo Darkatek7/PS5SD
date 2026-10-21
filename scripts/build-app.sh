@@ -21,6 +21,7 @@
 #   PS5SD_DISPLAY=0               no screen: main.cpp with PS5SD_NO_DISPLAY,
 #                                 status in app.log, klog and notifications;
 #                                 no ps5-opengl, no ps5-homebrew-ui, no font
+#   PS5SD_WEBM=ON (default)       videos as WebM (libwebp, libwebm); OFF: AVI
 #
 #   scripts/build-app.sh            patch, configure, build, link and package
 set -euo pipefail
@@ -51,9 +52,13 @@ expected=$(echo "$version" | awk -F. '{ printf "%02d.%03d.%03d", $1 + 1, $2, $3 
     exit 2
 }
 
-[ -f "$sd/CMakeLists.txt" ] && [ -f "$ggml/CMakeLists.txt" ] && [ -d "$kit/src" ] && [ -f "$ftpsrv/Makefile.ps5" ] || {
+webm=${PS5SD_WEBM:-ON}
+case $webm in ON|OFF) ;; *) echo "build-app: PS5SD_WEBM is ON or OFF, not '$webm'" >&2; exit 2 ;; esac
+[ -f "$sd/CMakeLists.txt" ] && [ -f "$ggml/CMakeLists.txt" ] && [ -d "$kit/src" ] && [ -f "$ftpsrv/Makefile.ps5" ] &&
+    { [ "$webm" = OFF ] || { [ -f "$sd/thirdparty/libwebp/CMakeLists.txt" ] && [ -f "$sd/thirdparty/libwebm/CMakeLists.txt" ]; }; } || {
     echo "build-app: submodules missing; run: git submodule update --init third_party/stable-diffusion.cpp" \
-        "third_party/ps5-homebrew-ui third_party/ftpsrv && git -C third_party/stable-diffusion.cpp submodule update --init ggml" >&2
+        "third_party/ps5-homebrew-ui third_party/ftpsrv && git -C third_party/stable-diffusion.cpp submodule update --init" \
+        "ggml thirdparty/libwebp thirdparty/libwebm" >&2
     exit 2
 }
 # ps5-opengl: PS5_OPENGL_SDK (scripts/setup-deps.sh sets one up in
@@ -180,7 +185,9 @@ flags="-I$headers/include"
 cxxflags="$flags -fexceptions -fcxx-exceptions -frtti"
 # Zen 2: AVX2, FMA, F16C and BMI2, no AVX-512. One static image: no backend
 # modules (GGML_BACKEND_DL), no OpenMP (ggml's own thread pool), no libm (the
-# math functions are in Sony's libc), no WebP/WebM (thirdparty submodules).
+# math functions are in Sony's libc). WebP and WebM (thirdparty/libwebp and
+# libwebm) for the videos of vid_gen; with PS5SD_WEBM=OFF a video is an MJPEG
+# AVI, which browsers do not play.
 # The HTTP server as the library sd-server-lib (patches/sdcpp/0050, main.cpp
 # calls sd_server()), serving ps5/webui/index.html at / instead of the pnpm
 # frontend.
@@ -193,7 +200,7 @@ cmake -S "$sd" -B "$out/sd" -G Ninja \
     -DCMAKE_C_FLAGS="$flags" -DCMAKE_CXX_FLAGS="$cxxflags" \
     -DBUILD_SHARED_LIBS=OFF -DSD_BUILD_SHARED_LIBS=OFF -DSD_BUILD_EXAMPLES=ON \
     -DSD_SERVER_LIBRARY=ON -DSD_SERVER_BUILD_FRONTEND=OFF -DSD_SERVER_EMBED_INDEX="$index_h" \
-    -DSD_VULKAN=ON -DSD_WEBP=OFF -DSD_WEBM=OFF \
+    -DSD_VULKAN=ON -DSD_WEBP="$webm" -DSD_WEBM="$webm" \
     -DGGML_BACKEND_DL=OFF -DGGML_NATIVE=OFF -DGGML_CPU_ALL_VARIANTS=OFF \
     -DGGML_AVX=ON -DGGML_AVX2=ON -DGGML_FMA=ON -DGGML_F16C=ON -DGGML_BMI2=ON -DGGML_AVX512=OFF \
     -DGGML_OPENMP=OFF -DGGML_CCACHE=OFF \
@@ -468,5 +475,13 @@ printf '%s\n' "ftpsrv by John Törnblom and drakmor, GPL-3.0-or-later." \
     "Source: https://github.com/drakmor/ftpsrv at $(git -C "$ftpsrv" rev-parse HEAD) (1.16-ng-stable)," \
     "with PS5SD's patches/ftpsrv (https://github.com/Darkatek7/PS5SD): 127.0.0.1:2122 only." \
     > "$app/ftpsrv/SOURCE.txt"
+# libwebp and libwebm (BSD-3-Clause), linked for the WebM videos: their licences go with the binary.
+rm -rf "$app/licenses"
+if [ "$webm" = ON ]; then
+    mkdir -p "$app/licenses"
+    cp "$sd/thirdparty/libwebp/COPYING" "$app/licenses/libwebp-COPYING.txt"
+    cp "$sd/thirdparty/libwebp/PATENTS" "$app/licenses/libwebp-PATENTS.txt"
+    cp "$sd/thirdparty/libwebm/LICENSE.TXT" "$app/licenses/libwebm-LICENSE.txt"
+fi
 "$tool" self --inspect --file "$app/eboot.bin" > /dev/null
 echo "build-app: $app ($(stat -c %s "$app/eboot.bin") bytes, $([ "$display" = 1 ] && echo "with" || echo "without") a display)"

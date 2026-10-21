@@ -30,7 +30,7 @@ jobs:
       - name: Submodules
         run: |
           git submodule update --init third_party/stable-diffusion.cpp third_party/ps5-homebrew-ui third_party/ftpsrv
-          git -C third_party/stable-diffusion.cpp submodule update --init ggml
+          git -C third_party/stable-diffusion.cpp submodule update --init ggml thirdparty/libwebp thirdparty/libwebm
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       # RADV's build tree and the toolchain take several GiB.
@@ -167,7 +167,7 @@ jobs:
       - name: Submodules
         run: |
           git submodule update --init third_party/stable-diffusion.cpp third_party/ps5-homebrew-ui third_party/ftpsrv
-          git -C third_party/stable-diffusion.cpp submodule update --init ggml
+          git -C third_party/stable-diffusion.cpp submodule update --init ggml thirdparty/libwebp thirdparty/libwebm
 
       - name: Apply the patches
         run: |

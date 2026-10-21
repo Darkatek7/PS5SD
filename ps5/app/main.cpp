@@ -42,7 +42,9 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <atomic>
+#include <cctype>
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
@@ -1375,17 +1377,17 @@ extern "C" int sd_app_request(const char * method, const char * path, const char
             }
         }
     } else if (m == "DELETE" && p.rfind("gallery/", 0) == 0) {
-        // One image of the gallery (the PNGs in outputs); the gallery lists
+        // One file of the gallery (the PNGs and videos in outputs); the gallery lists
         // that folder on each request, so the file is all there is.
         const std::string name = p.substr(8);
         if (!gallery_name_ok(name)) {
-            out    = error_json("not a gallery image: " + name);
+            out    = error_json("not a gallery file: " + name);
             status = 400;
         } else if (::unlink((std::string(kOutputs) + "/" + name).c_str()) == 0) {
             out    = "{\"deleted\": \"" + name + "\"}";
             status = 200;
         } else if (errno == ENOENT) {
-            out    = error_json("no image " + name);
+            out    = error_json("no file " + name);
             status = 404;
         } else {
             out    = error_json("could not delete " + name + ": " + std::strerror(errno));
@@ -1440,6 +1442,16 @@ extern "C" int sd_app_request(const char * method, const char * path, const char
     return status;
 }
 
+// The dashboard draws PNGs; a video (vid_gen) is in the gallery, not on the TV.
+static bool is_png_path(const std::string & path) {
+    if (path.size() <= 4) {
+        return false;
+    }
+    std::string ext = path.substr(path.size() - 4);
+    std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    return ext == ".png";
+}
+
 extern "C" void sd_activity_job_end(int ok, const char * output_path) {
     log_memory("after a request");
     if (!ok) {
@@ -1451,7 +1463,9 @@ extern "C" void sd_activity_job_end(int ok, const char * output_path) {
     std::istringstream paths(output_path);
     for (std::string path; std::getline(paths, path);) {
         if (!path.empty()) {
-            g_status.set_result(path);
+            if (is_png_path(path)) {
+                g_status.set_result(path);
+            }
             if (first.empty()) {
                 first = path;
             }

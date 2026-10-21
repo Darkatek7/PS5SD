@@ -71,9 +71,9 @@ bool is_lora_type(const std::string & civitai_type);
 bool valid_target(const std::string & kind, const std::string & dest, std::string & error);
 std::string download_key(const std::string & kind, const std::string & dest);
 
-// A gallery image's name (DELETE /ps5sd/v1/app/gallery/<name>): a .png file
-// name of letters, digits, '_', '-' and '.', as the gallery lists them, not
-// starting with '.' and without folders.
+// A gallery file (a PNG or a video) name (DELETE /ps5sd/v1/app/gallery/<name>):
+// letters, digits, '_', '-' and '.', ending in .png, .webm, .webp or .avi, as
+// the gallery lists them, not starting with '.' and without folders.
 bool gallery_name_ok(const std::string & name);
 
 // A stable id for a destination (16 hex digits): the same file is one entry.

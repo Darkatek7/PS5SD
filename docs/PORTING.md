@@ -178,6 +178,9 @@ instead of trapping, so `main.cpp` reports an out-of-memory load or generation a
   the throwing `std::filesystem::exists` and on the console `stat("")` fails with `EINVAL` rather than
   `ENOENT`, which libc++ throws on; measured on the first server start), then the lines of `/data/PS5SD/server-args.txt` (`scripts/ps5sd-app.sh server-args <file>`). A default
   is left out when the file names that option, since sd-server appends a string option given twice.
+  `patches/sdcpp/0064` saves a `vid_gen` video into the output directory too
+  (`sd_<date>_<time>_<n>.webm`), hands its path to `sd_activity_job_end` (which keeps it off the TV,
+  the dashboard draws PNGs only), and lets the gallery list and serve videos with their type.
   The request's own settings (steps, CFG, size) win over the server's defaults, which are sd.cpp's, not
   the one-shot's SD-Turbo ones. `main.cpp` defines the activity hooks of `server_hooks.h` (in its own
   object: from an archive, lld could take the weak no-ops instead), which feed the status and the

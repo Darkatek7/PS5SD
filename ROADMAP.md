@@ -76,13 +76,18 @@ sd.cpp makes videos with Wan (`vid_gen`, `POST /sdcpp/v1/vid_gen`); sd-server ha
 presets do not load as they are (the text encoder goes in `--t5xxl`, Wan 2.2 TI2V 5B needs the Wan 2.2
 VAE), and LTX-Video 2B is not in this sd.cpp.
 
-- [ ] **A video the browser can play**: the build has WebM and WebP off, so every video comes out as
-  MJPEG AVI. Either libwebp builds for the PS5 and WebM goes on, or the web UI shows the AVI's frames
-  itself.
-- [ ] **Measure first**: Wan 2.1 T2V 1.3B (with umt5-xxl and the Wan 2.1 VAE, `--vae-tiling`) at 832x480
-  and 33 frames: memory and time. Then whether Wan 2.2 TI2V 5B fits.
-- [ ] **Web UI**: a video model switches the Create tab to frames, FPS and flow shift, with a start
-  image for image to video; a player in the result and the gallery; the models one click away.
+- [x] **A video the browser can play**: libwebp and libwebm are built for the PS5, so the default output
+  is WebM (VP8). It plays on the page in Chrome, Firefox and Edge; Safari on iPhone may need a download.
+- [x] **Measure on the console**: Wan 2.1 T2V 1.3B at 832x480, 33 frames, 20 steps: about 14.5 minutes
+  (36 s a step, 2 minutes to decode), 4.0 of 11.44 GiB free after the run; 256 px VAE tiles ran out of
+  memory, 128 px fit.
+- [x] **Web UI and gallery**: a video model switches the Create tab to frames and frames per second; the
+  result plays on the page; the gallery shows videos and plays them in the viewer. Wan 2.1 is in the catalog.
+- [ ] **Wan 2.2 TI2V 5B**: measure whether it fits (it needs the Wan 2.2 VAE).
+- [ ] **Flow shift in the web UI**: set in the preset only for now (3 for Wan 2.1).
+- [ ] **Image to video**: a start image for a Wan model (Wan 2.1 T2V is text only).
+- [ ] **Longer clips (49 and 81 frames)**: measure memory and time.
+- [ ] **Faster video**: a step-distilled Wan LoRA (CausVid or lightx2v) for 4 to 8 steps at CFG 1.
 
 ## 0.7.0: ControlNet (#3)
 

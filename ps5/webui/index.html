@@ -17,6 +17,7 @@
     GET  /sdapi/v1/sd-models  /sdapi/v1/samplers  /sdapi/v1/schedulers  /v1/models
     GET  /sdcpp/v1/capabilities                  (defaults, and "is async available")
     POST /sdcpp/v1/img_gen, GET /sdcpp/v1/jobs/<id>, POST .../cancel   (async, with previews)
+    POST /sdcpp/v1/vid_gen, the same job API                           (video models: a WebM)
     POST /sdapi/v1/txt2img + GET /sdapi/v1/progress                    (fallback: synchronous)
     GET  /sdapi/v1/progress                                            (health, every few seconds)
     GET  /ps5sd/v1/gallery, /ps5sd/v1/gallery/<file>                   (saved images, --output-dir)
@@ -136,7 +137,7 @@
   @keyframes slide { 0% { left: -30%; } 100% { left: 100%; } }
   .stage { display: flex; align-items: center; justify-content: center; min-height: 20rem; background: var(--field);
     border: 1px solid var(--border); border-radius: 12px; padding: 0.5rem; text-align: center; }
-  .stage img { display: block; max-width: 100%; max-height: 78vh; width: auto; height: auto; border-radius: 6px; }
+  .stage img, .stage video { display: block; max-width: 100%; max-height: 78vh; width: auto; height: auto; border-radius: 6px; }
   .stage .empty { color: var(--faint); padding: 3rem 1rem; font-size: 1.05rem; }
   .strip { display: flex; flex-wrap: wrap; margin: 0.6rem -0.25rem 0; }
   .strip button { position: relative; width: 4.5rem; height: 4.5rem; min-height: 0; margin: 0.25rem; padding: 0; overflow: hidden;
@@ -157,7 +158,9 @@
   .thumbs .t { box-sizing: border-box; flex: 0 0 16.666%; padding: 0.4rem; }
   .thumbs a { display: block; position: relative; padding-bottom: 100%; background: var(--field);
     border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
-  .thumbs img { position: absolute; left: 0; top: 0; width: 100%; height: 100%; object-fit: cover; }
+  .thumbs img, .thumbs video { position: absolute; left: 0; top: 0; width: 100%; height: 100%; object-fit: cover; }
+  .vbadge { position: absolute; left: 6px; bottom: 6px; background: rgba(0, 0, 0, 0.6); color: #fff; border-radius: 4px;
+    padding: 1px 6px; font-size: 12px; pointer-events: none; }
   .gal .none { color: var(--faint); padding: 2rem 0; }
   .more { text-align: center; margin-top: 1rem; }
 
@@ -197,7 +200,7 @@
   .lb-body { flex: 1; min-height: 0; display: flex; align-items: center; padding: 0 1rem 1rem; }
   .lb-body .nav { flex: none; width: 4.5rem; height: 6rem; font-size: 2.4rem; padding: 0; border-radius: 14px; }
   .lb-img { flex: 1; min-width: 0; text-align: center; }
-  .lb-img img { max-width: 100%; height: calc(100vh - 8rem); object-fit: contain; border-radius: 6px; }
+  .lb-img img, .lb-img video { max-width: 100%; height: calc(100vh - 8rem); object-fit: contain; border-radius: 6px; }
 
   #toast { position: fixed; left: 50%; bottom: 2rem; z-index: 20; display: none; max-width: 90%; background: var(--raised);
     border: 1px solid var(--accent-hi); color: var(--text); border-radius: 2rem; padding: 0.7rem 1.6rem; transform: translateX(-50%); }
@@ -430,27 +433,29 @@
       <select id="lora-add" aria-label="Add a LoRA"><option value="">Add a LoRA…</option></select>
       <p class="hint" id="lora-hint"></p>
 
-      <div class="lbl">Hires fix</div>
-      <label class="opt"><input type="checkbox" id="hr-on"> A second pass at a larger size</label>
-      <div id="hr-box" style="display:none">
-        <div class="row">
-          <div><label for="hr-up">Upscaler</label><select id="hr-up"><option value="Latent">Latent</option></select></div>
-          <div>
-            <div class="lbl">Scale</div>
-            <div class="step"><button type="button" id="hr-scale-">&minus;</button><input id="hr-scale" type="number" min="1.25" max="4" step="0.25" value="1.5" aria-label="Hires scale"><button type="button" id="hr-scale+">+</button></div>
+      <div id="hr-sect">
+        <div class="lbl">Hires fix</div>
+        <label class="opt"><input type="checkbox" id="hr-on"> A second pass at a larger size</label>
+        <div id="hr-box" style="display:none">
+          <div class="row">
+            <div><label for="hr-up">Upscaler</label><select id="hr-up"><option value="Latent">Latent</option></select></div>
+            <div>
+              <div class="lbl">Scale</div>
+              <div class="step"><button type="button" id="hr-scale-">&minus;</button><input id="hr-scale" type="number" min="1.25" max="4" step="0.25" value="1.5" aria-label="Hires scale"><button type="button" id="hr-scale+">+</button></div>
+            </div>
           </div>
+          <div class="row">
+            <div>
+              <div class="lbl">Steps (0: as the first pass)</div>
+              <div class="step"><button type="button" id="hr-steps-">&minus;</button><input id="hr-steps" type="number" min="0" max="150" step="1" value="0" aria-label="Hires steps"><button type="button" id="hr-steps+">+</button></div>
+            </div>
+            <div>
+              <div class="lbl">Denoising strength</div>
+              <div class="step"><button type="button" id="hr-den-">&minus;</button><input id="hr-den" type="number" min="0.05" max="1" step="0.05" value="0.5" aria-label="Hires denoising strength"><button type="button" id="hr-den+">+</button></div>
+            </div>
+          </div>
+          <p class="hint" id="hr-hint"></p>
         </div>
-        <div class="row">
-          <div>
-            <div class="lbl">Steps (0: as the first pass)</div>
-            <div class="step"><button type="button" id="hr-steps-">&minus;</button><input id="hr-steps" type="number" min="0" max="150" step="1" value="0" aria-label="Hires steps"><button type="button" id="hr-steps+">+</button></div>
-          </div>
-          <div>
-            <div class="lbl">Denoising strength</div>
-            <div class="step"><button type="button" id="hr-den-">&minus;</button><input id="hr-den" type="number" min="0.05" max="1" step="0.05" value="0.5" aria-label="Hires denoising strength"><button type="button" id="hr-den+">+</button></div>
-          </div>
-        </div>
-        <p class="hint" id="hr-hint"></p>
       </div>
 
       <div class="row">
@@ -458,12 +463,25 @@
           <label for="seed">Seed</label>
           <div class="seed"><input id="seed" type="number" step="1" value="-1"><button type="button" id="rnd">Random</button></div>
         </div>
-        <div>
+        <div id="batch-col">
           <div class="lbl">Images per run</div>
           <div class="step"><button type="button" id="batch-">&minus;</button><input id="batch" type="number" min="1" max="8" step="1" value="1" aria-label="Images per run"><button type="button" id="batch+">+</button></div>
         </div>
       </div>
       <p class="hint">-1 picks a random seed. Several images take the seeds one after the other (seed, seed + 1, …).</p>
+      <div id="vid-sect" style="display:none">
+        <div class="row">
+          <div>
+            <div class="lbl">Frames</div>
+            <div class="step"><button type="button" id="frames-">&minus;</button><input id="frames" type="number" min="5" max="33" step="4" value="33" aria-label="Frames"><button type="button" id="frames+">+</button></div>
+          </div>
+          <div>
+            <div class="lbl">Frames per second</div>
+            <div class="step"><button type="button" id="fps-">&minus;</button><input id="fps" type="number" min="4" max="30" step="1" value="16" aria-label="Frames per second"><button type="button" id="fps+">+</button></div>
+          </div>
+        </div>
+        <p class="hint">Wan makes 4n+1 frames: 33 are 2 seconds at 16 per second. On the console, 33 frames at 832×480 with 20 steps take about 15 minutes.</p>
+      </div>
       <p class="hint"><span id="presetnote"></span><button type="button" id="resetpreset">Use defaults</button><button type="button" id="savepreset" style="display:none">Save as preset</button></p>
 
       <div class="lbl">When an image is done</div>
@@ -524,7 +542,8 @@
     <section class="panel" id="pnl-loras" style="display:none">
       <div class="ph"><h2>LoRAs</h2></div>
       <div id="llist"></div>
-      <p class="hint">A LoRA adds a style, a character or a look to a model. It works only with models of the family it was made for (SD 1.5, SDXL, FLUX…). Pick them on the Create tab, under Settings.</p>
+      <div id="lsugg"></div>
+      <p class="hint">A LoRA adds a style, a character or a look to a model. It works only with models of the family it was made for (SD 1.5, SDXL, FLUX…). Pick them on the Create tab, under Settings. DMD2 (anime) and SDXL-Lightning (photos) make SDXL models fast: CFG 1, 4 to 8 steps, sampler LCM for DMD2 and Euler for Lightning.</p>
     </section>
     <section class="panel" id="pnl-ups" style="display:none">
       <div class="ph"><h2>Upscalers</h2></div>
@@ -621,7 +640,7 @@
   </div>
   <div class="lb-body">
     <button type="button" class="nav" id="lb-prev" aria-label="Newer">&lsaquo;</button>
-    <div class="lb-img"><img id="lb-img" alt=""></div>
+    <div class="lb-img"><img id="lb-img" alt=""><video id="lb-vid" controls loop playsinline style="display:none"></video></div>
     <button type="button" class="nav" id="lb-next" aria-label="Older">&rsaquo;</button>
   </div>
 </div>
@@ -690,6 +709,8 @@
 
   var st = {
     useJobs: false,      // /sdcpp/v1/img_gen is available (job polling with previews)
+    video: false,        // the loaded model makes videos (capabilities: vid_gen, no img_gen)
+    vidUrl: null,        // the blob URL of the video on the stage
     canCancelGen: false, // the server can stop a job that is already generating
     busy: false,
     online: false,
@@ -1089,8 +1110,8 @@
       (steps === 1 ? ' step' : ' steps') + ' · CFG ' + num('cfg', 7, 0, 30) +
       ' · seed ' + (isNaN(seed) || seed < 0 ? 'random' : seed) +
       (loraSel.length ? ' · ' + loraSel.length + (loraSel.length === 1 ? ' LoRA' : ' LoRAs') : '') +
-      (batchCount() > 1 ? ' · ' + batchCount() + ' images' : '') +
-      (st.init ? (st.init.mask ? ' · inpainting' : ' · from an image') : ($('hr-on').checked ? ' · hires ×' + num('hr-scale', 1.5, 1.25, 4) : '')));
+      (!st.video && batchCount() > 1 ? ' · ' + batchCount() + ' images' : '') +
+      (st.video ? ' · video' : st.init ? (st.init.mask ? ' · inpainting' : ' · from an image') : ($('hr-on').checked ? ' · hires ×' + num('hr-scale', 1.5, 1.25, 4) : '')));
     drawHires();
     if (st.view === 'presets') drawSaveBox();
   }
@@ -1234,14 +1255,22 @@
     persist();
   }
 
+  // Two LoRAs that make SDXL models fast (a few steps at CFG 1), one click away on the LoRAs panel.
+  // Both were tried on the console: DMD2 on an Illustrious model, Lightning on SDXL base.
+  var FEATURED_LORAS = [
+    { file: 'dmd2_sdxl_4step_lora_fp16.safetensors', label: 'DMD2 (SDXL, anime)',
+      note: 'For anime and Illustrious or Pony models. Sampler LCM, 4 to 8 steps, CFG 1. 394 MB, non-commercial licence',
+      url: 'https://huggingface.co/tianweiy/DMD2/resolve/main/dmd2_sdxl_4step_lora_fp16.safetensors' },
+    { file: 'sdxl_lightning_8step_lora.safetensors', label: 'SDXL-Lightning 8-step',
+      note: 'For SDXL base and photo models. Sampler Euler, scheduler sgm_uniform, 8 steps, CFG 1. 394 MB',
+      url: 'https://huggingface.co/ByteDance/SDXL-Lightning/resolve/main/sdxl_lightning_8step_lora.safetensors' }
+  ];
+
   function drawLoraList() {
     var box = $('llist');
     clear(box);
     var list = loraList || [];
-    if (!list.length) {
-      box.appendChild(el('div', 'empty-note', 'No LoRAs yet. Upload one, or download one by link as LoRA.'));
-      return;
-    }
+    if (!list.length) box.appendChild(el('div', 'empty-note', 'No LoRAs yet. Get one below, upload one, or download one by link as LoRA.'));
     for (var i = 0; i < list.length; i++) {
       (function (l) {
         var row = el('div', 'mrow mwrap');
@@ -1256,6 +1285,24 @@
         row.appendChild(acts);
         box.appendChild(row);
       })(list[i]);
+    }
+    var sug = $('lsugg');
+    clear(sug);
+    for (var k = 0; k < FEATURED_LORAS.length; k++) {
+      (function (c) {
+        for (var j = 0; j < list.length; j++) if (list[j].path === c.file) return;
+        var row = el('div', 'mrow mwrap');
+        var main = el('div', 'mmain');
+        main.appendChild(el('div', 'mname', c.label));
+        main.appendChild(el('div', 'mmeta', c.note));
+        row.appendChild(main);
+        var acts = el('div', 'macts');
+        var b = actionButton('Download', function () { startDownload(c.url, b, true, null, 'loras'); });
+        b.className = 'on';
+        acts.appendChild(b);
+        row.appendChild(acts);
+        sug.appendChild(row);
+      })(FEATURED_LORAS[k]);
     }
   }
 
@@ -1304,6 +1351,7 @@
     var stage = $('stage');
     var img = stage.getElementsByTagName('img')[0];
     if (!img) {
+      freeVideo();
       clear(stage);
       img = document.createElement('img');
       stage.appendChild(img);
@@ -1344,11 +1392,11 @@
       box.appendChild(actionButton('Run again', function () {
         setForm(st.last); $('prompt').value = st.last.prompt; $('neg').value = st.last.negative; generate();
       }));
-      if (upModels.length) {
+      if (upModels.length && !st.video) {
         var ub = actionButton('Upscale', function () { upscale(r && r.url ? r.url : href, ub); });
         box.appendChild(ub);
       }
-      box.appendChild(actionButton('Edit', function () { setInit(r && r.url ? r.url : href, r ? r.name : ''); }));
+      if (!st.video) box.appendChild(actionButton('Edit', function () { setInit(r && r.url ? r.url : href, r ? r.name : ''); }));
     }
   }
 
@@ -1554,6 +1602,66 @@
     });
   }
 
+  // The video on the stage: its blob URL is freed when the stage shows something else.
+  function freeVideo() {
+    try { if (st.vidUrl) URL.revokeObjectURL(st.vidUrl); } catch (e) {}
+    st.vidUrl = null;
+  }
+
+  function showVideo(src) {
+    var stage = $('stage');
+    clear(stage);
+    var v = document.createElement('video');
+    v.controls = true;
+    v.loop = true;
+    v.autoplay = true;
+    v.muted = true;
+    v.setAttribute('muted', '');
+    v.setAttribute('playsinline', '');
+    v.src = src;
+    stage.appendChild(v);
+  }
+
+  // A finished video: on the stage at once; the saved file (in the gallery) for Download and Open.
+  function succeedVideo(b64, mime, seed) {
+    var seconds = (new Date().getTime() - st.t0) / 1000;
+    var url = null;
+    try {
+      var bin = window.atob(b64);
+      var bytes = new Uint8Array(bin.length);
+      for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      url = URL.createObjectURL(new Blob([bytes], { type: mime }));
+    } catch (e) { url = null; }
+    freeVideo();
+    st.vidUrl = url;
+    st.results = null;
+    end();
+    progress(1);
+    drawStrip();
+    showVideo(url || ('data:' + mime + ';base64,' + b64));
+    var secs = clock(seconds);
+    status('Done in ' + secs);
+    signal(true, 'The video is done in ' + secs + '.');
+    var l = st.last;
+    text($('sub'), (l && l.frames ? l.w + '×' + l.h + ' · ' + l.frames + ' frames · ' + l.steps + ' steps · CFG ' + l.cfg + ' · ' : '') + 'seed ' + seed);
+    showActions(url || ('data:' + mime + ';base64,' + b64), 'sd_' + seed + '.webm', null, true);
+    var probe = document.createElement('video');
+    if (!probe.canPlayType || !probe.canPlayType(mime)) {
+      toast('This browser cannot play WebM videos. Download it and play it with VLC or a PC browser.', 8000);
+    }
+    // the server saved it to the gallery: the newest new .webm is the file to link to
+    var known = st.known;
+    loadGallery(function (list) {
+      if (!known || !list || st.known !== known) return;
+      for (var j = 0; j < list.length; j++) {
+        if (!known[list[j].name] && /\.webm$/i.test(list[j].name || '')) {
+          showActions(list[j].url, list[j].name, list[j].url, true);
+          return;
+        }
+      }
+    });
+  }
+
   function drawStrip() {
     var box = $('strip');
     clear(box);
@@ -1602,7 +1710,8 @@
     f.negative = $('neg').value;
     f.batch = batchCount();
     f.req = null;
-    if (st.init) {
+    if (st.video) { f.batch = 1; f.req = null; }
+    if (st.init && !st.video) {
       f.strength = num('init-str', 0.6, 0.05, 1);
       f.req = initRequest(f);
     }
@@ -1648,8 +1757,46 @@
     if (st.useJobs) startAsync(p); else startSync(p);
   }
 
+  // A video: the same job API, WebM out. No fallback to the synchronous route.
+  function startVideo(p) {
+    p.frames = frames4k1(num('frames', 33, 5, 33));
+    p.fps = Math.round(num('fps', 16, 4, 30));
+    var body = {
+      prompt: p.prompt,
+      negative_prompt: p.negative,
+      width: p.w,
+      height: p.h,
+      seed: p.seed,
+      video_frames: p.frames,
+      fps: p.fps,
+      sample_params: { sample_steps: p.steps, guidance: { txt_cfg: p.cfg } },
+      preview: 'proj',
+      preview_interval: 1,
+      output_format: 'webm'
+    };
+    if (p.sampler !== 'default') body.sample_params.sample_method = p.sampler;
+    if (p.scheduler !== 'default') body.sample_params.scheduler = p.scheduler;
+    if (loraBody(p).length) body.lora = loraBody(p);
+    begin(null);
+    var token = st.token;
+    req('POST', '/sdcpp/v1/vid_gen', body, function (code, data) {
+      if (token !== st.token) return;
+      if (code === 202 && data && data.id) {
+        st.job = data.id;
+        save('job', data.id + ' ' + st.t0 + ' ' + st.seed);
+        status('Queued…');
+        pollJob();
+      } else {
+        setOnline(code !== 0);
+        fail(code === 0 ? 'Cannot reach the server.' :
+          'The server refused the request' + (data && data.error ? ': ' + (data.message || data.error) : ' (' + code + ').'));
+      }
+    });
+  }
+
   // Asynchronous: the server queues a job; we poll it once a second.
   function startAsync(p) {
+    if (st.video) { startVideo(p); return; }
     var body = {
       prompt: p.prompt,
       negative_prompt: p.negative,
@@ -1717,6 +1864,11 @@
       if (!data) { setTimeout(pollJob, 1000); return; }
 
       if (data.status === 'completed') {
+        if (data.result && data.result.b64_json && /^video\//.test(data.result.mime_type || '')) {
+          succeedVideo(data.result.b64_json, data.result.mime_type, st.seed);
+          return;
+        }
+        if (data.kind === 'vid_gen') { fail('The job finished without a video.'); return; }
         var images = data.result && data.result.images;
         var list = [];
         for (var i = 0; images && i < images.length; i++) if (images[i] && images[i].b64_json) list.push(images[i].b64_json);
@@ -1734,11 +1886,16 @@
       } else {
         text($('cancel'), st.canCancelGen ? 'Cancel' : 'Stop waiting');
         var pv = data.preview;
-        if (pv && pv.total_steps > 0) {
+        if (st.video && pv && pv.total_steps > 0 && pv.step >= pv.total_steps) {
+          // the last step is done; the server decodes the video now (about 2 minutes)
+          status('Decoding the video…');
+          progress(0);
+          st.sub = '';
+        } else if (pv && pv.total_steps > 0) {
           // pass counts the sampling passes: the images of a batch, then (hires fix) the second
           // pass of each, in the same order
-          var n = (st.last && st.last.batch) || 1;
-          var hr = !!(st.last && st.last.hr && st.last.hr.on && !st.last.req);
+          var n = st.video ? 1 : ((st.last && st.last.batch) || 1);
+          var hr = !st.video && !!(st.last && st.last.hr && st.last.hr.on && !st.last.req);
           var passes = hr ? 2 * n : n;
           var pass = Math.min(passes, Math.max(1, pv.pass || 1)) - 1;
           var second = pass >= n;
@@ -2213,6 +2370,12 @@
 
   function refreshGallery() { loadGallery(null); }
 
+  // A video in the gallery: by its type (the server's), else its name.
+  function isVideo(item) {
+    if (item.type) return item.type.indexOf('video/') === 0;
+    return /\.(webm|avi)$/i.test(item.name || '');
+  }
+
   function drawGallery() {
     var box = $('thumbs');
     clear(box);
@@ -2224,10 +2387,21 @@
         var a = document.createElement('a');
         a.href = item.url;
         a.title = item.name;
-        var img = document.createElement('img');
-        img.src = item.url;
-        img.alt = item.name;
-        a.appendChild(img);
+        if (isVideo(item)) {
+          var vid = document.createElement('video');
+          vid.muted = true;
+          vid.setAttribute('muted', '');
+          vid.setAttribute('preload', 'metadata');
+          vid.setAttribute('playsinline', '');
+          vid.src = item.url;
+          a.appendChild(vid);
+          a.appendChild(el('span', 'vbadge', '▶'));
+        } else {
+          var img = document.createElement('img');
+          img.src = item.url;
+          img.alt = item.name;
+          a.appendChild(img);
+        }
         a.onclick = function () { openLb(idx, a); return false; };
         cell.appendChild(a);
         box.appendChild(cell);
@@ -2249,8 +2423,24 @@
     if (i > n - 1) i = n - 1;
     st.lb = i;
     var it = galleryList[i];
-    $('lb-img').src = it.url;
-    $('lb-img').alt = it.name;
+    var img = $('lb-img'), vid = $('lb-vid');
+    if (isVideo(it)) {
+      img.style.display = 'none';
+      img.removeAttribute('src');
+      vid.style.display = 'block';
+      if (vid.getAttribute('src') !== it.url) vid.src = it.url;
+    } else {
+      vid.pause();
+      vid.removeAttribute('src');
+      vid.load();
+      vid.style.display = 'none';
+      img.style.display = '';
+      img.src = it.url;
+      img.alt = it.name;
+    }
+    // Upscale and Edit take images only
+    $('lb-edit').style.display = isVideo(it) ? 'none' : '';
+    show('lb-up', !isVideo(it) && upModels.length > 0, 'inline-block');
     var dl = $('lb-dl');
     dl.href = it.url;
     dl.setAttribute('download', it.name);
@@ -2271,6 +2461,9 @@
     show('lb', false);
     st.lb = -1;
     $('lb-img').removeAttribute('src');
+    try { $('lb-vid').pause(); } catch (e) {}
+    $('lb-vid').removeAttribute('src');
+    $('lb-vid').load();
     if (lbFrom) { try { lbFrom.focus(); } catch (e) {} }
   }
 
@@ -2282,7 +2475,9 @@
     dlgFor = { image: it };
     dlgFrom = $('lb-del');
     text($('dlg-title'), 'Delete ' + it.name + '?');
-    text($('dlg-body'), 'The image is deleted from the console. Download it first to keep a copy.');
+    text($('dlg-body'), isVideo(it)
+      ? 'The video is deleted from the console. Download it first to keep a copy.'
+      : 'The image is deleted from the console. Download it first to keep a copy.');
     $('dlg-ok').disabled = false;
     $('dlg-cancel').disabled = false;
     text($('dlg-ok'), 'Delete');
@@ -3917,6 +4112,32 @@
     });
   }
 
+  // ---------- video models (Wan: capabilities vid_gen) ----------
+  // Frames are 4n+1, 5..33 for now (33 is the most measured on the console).
+  function frames4k1(n) {
+    return Math.max(5, Math.min(33, 4 * Math.round((n - 1) / 4) + 1));
+  }
+
+  function snapFrames() {
+    $('frames').value = frames4k1(num('frames', 33, 5, 33));
+  }
+
+  // A video model: no hires fix, no batch, no start image; frames and fps show instead.
+  function applyVideoMode(caps) {
+    var vid = caps && caps.defaults_by_mode && caps.defaults_by_mode.vid_gen;
+    if (st.video && st.init) dropInit();
+    show('hr-sect', !st.video);
+    show('batch-col', !st.video);
+    show('vid-sect', st.video);
+    show('init-bar', !st.video && !st.init, 'flex');
+    if (st.video && vid) {
+      if (typeof vid.video_frames === 'number') $('frames').value = frames4k1(vid.video_frames);
+      if (typeof vid.fps === 'number') $('fps').value = Math.max(4, Math.min(30, Math.round(vid.fps)));
+    }
+    var empty = $('stage').getElementsByClassName('empty')[0];
+    if (empty) text(empty, st.video ? 'Your video appears here.' : 'Your image appears here.');
+  }
+
   // ---------- server info ----------
   function loadInfo() {
     if (st.infoBusy) return;
@@ -3925,9 +4146,16 @@
       req('GET', '/sdapi/v1/schedulers', null, function (c2, schedulers) {
         req('GET', '/sdcpp/v1/capabilities', null, function (c3, caps) {
           st.useJobs = false;
+          st.video = false;
           if (c3 === 200 && caps) {
             var modes = caps.supported_modes || [];
-            for (var i = 0; i < modes.length; i++) if (modes[i] === 'img_gen') st.useJobs = true;
+            var hasImg = false, hasVid = false;
+            for (var i = 0; i < modes.length; i++) {
+              if (modes[i] === 'img_gen') hasImg = true;
+              if (modes[i] === 'vid_gen') hasVid = true;
+            }
+            st.useJobs = hasImg || hasVid;
+            st.video = hasVid && !hasImg;
             st.canCancelGen = !!(caps.features && caps.features.cancel_generating);
             setUpscalers(caps.upscalers || []);
             var mb = caps.limits && caps.limits.max_batch_count;
@@ -3937,6 +4165,9 @@
               batchCount();
               summary();
             }
+            applyVideoMode(caps);
+          } else {
+            applyVideoMode(null);
           }
           fill($('sampler'), names(samplers));
           fill($('scheduler'), names(schedulers));
@@ -4095,6 +4326,11 @@
     $('w').onchange = $('h').onchange = $('w').oninput = $('h').oninput = function () { markPreset(); persist(); };
     $('steps-').onclick = function () { stepper('steps', -1, 1, 150, 0); };
     $('steps+').onclick = function () { stepper('steps', 1, 1, 150, 0); };
+    $('frames-').onclick = function () { stepper('frames', -4, 5, 33, 0); snapFrames(); };
+    $('frames+').onclick = function () { stepper('frames', 4, 5, 33, 0); snapFrames(); };
+    $('frames').onchange = snapFrames;
+    $('fps-').onclick = function () { stepper('fps', -1, 4, 30, 0); };
+    $('fps+').onclick = function () { stepper('fps', 1, 4, 30, 0); };
     $('cfg-').onclick = function () { stepper('cfg', -0.5, 0, 30, 1); };
     $('cfg+').onclick = function () { stepper('cfg', 0.5, 0, 30, 1); };
     $('rnd').onclick = function () { $('seed').value = -1; persist(); };

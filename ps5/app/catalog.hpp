@@ -1,6 +1,6 @@
 // The starter catalog: models a user can install with one click. Every URL
 // and size was checked from a PC with `curl -I -L` (2026-10-19; the
-// inpainting entries 2026-10-21); the files
+// inpainting and Wan entries 2026-10-21); the files
 // are public, none needs a token. Installing an entry downloads its files
 // into /data/PS5SD/models (dest) and then writes its preset,
 // /data/PS5SD/presets/<id>.txt, so it shows in GET /ps5sd/v1/app/models.
@@ -13,6 +13,8 @@
 // sampling and a step takes 2.5 times as long); FLUX.3 Klein Q4_K, Qwen3-VL-4B
 // Q4_K_M and the FLUX.2 VAE are 6.3 GB and leave 4 GiB free after a request;
 // Z-Image Turbo Q4_K with Qwen3-4B Q4_K_M and the FLUX.1 VAE is 6.7 GB.
+// Wan 2.1 T2V 1.3B (f16) with umt5-xxl Q4_K_M and the Wan 2.1 VAE is 6.7 GB;
+// the VAE decode of 33 frames needs 128 px tiles (256 px ran out of memory).
 //
 // Included by download_core.cpp only.
 //
@@ -232,6 +234,40 @@ inline std::vector<CatalogEntry> entries() {
             "sd_turbo-f16-q8_0.gguf\n",
             false,
             "",
+        },
+        {
+            "wan21-t2v-1.3b",
+            "Wan 2.1 T2V 1.3B (video)",
+            "Short videos from a prompt: 33 frames (2 s) at 832x480 in about 15 minutes. 6.7 GB.",
+            {
+                { "https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/"
+                  "diffusion_models/wan2.1_t2v_1.3B_fp16.safetensors",
+                  "diffusion_models/wan2.1_t2v_1.3B_fp16.safetensors", 2838303560ull, 0 },
+                { "https://huggingface.co/city96/umt5-xxl-encoder-gguf/resolve/main/umt5-xxl-encoder-Q4_K_M.gguf",
+                  "text_encoders/umt5-xxl-encoder-Q4_K_M.gguf", 3655145312ull, 0 },
+                { "https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/vae/"
+                  "wan_2.1_vae.safetensors",
+                  "vae/wan_2.1_vae.safetensors", 253815318ull, 0 },
+            },
+            "# name: Wan 2.1 T2V 1.3B (video)\n"
+            "# defaults: steps=20 cfg=6 width=832 height=480 sampler=euler\n"
+            "--diffusion-model\n"
+            "diffusion_models/wan2.1_t2v_1.3B_fp16.safetensors\n"
+            "--t5xxl\n"
+            "text_encoders/umt5-xxl-encoder-Q4_K_M.gguf\n"
+            "--vae\n"
+            "vae/wan_2.1_vae.safetensors\n"
+            "--vae-tiling\n"
+            "--vae-tile-size\n"
+            "128\n"
+            "--flow-shift\n"
+            "3\n"
+            "--video-frames\n"
+            "33\n"
+            "--fps\n"
+            "16\n",
+            true,
+            "short videos",
         },
     };
 }
