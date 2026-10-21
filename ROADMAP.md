@@ -9,6 +9,10 @@ go into [issues](https://github.com/Darkatek7/PS5SD/issues); this file says what
   end), uploads from the PC, gallery, Help tab, TV dashboard.
 - **0.2.0**: LoRAs, several per model, each with its own strength; download, upload, list and delete.
 - **0.3.0**: web UI options from [#3](https://github.com/Darkatek7/PS5SD/issues/3), below.
+- **0.5.1**: a loaded preset's settings are the API's defaults too (from
+  [#4](https://github.com/Darkatek7/PS5SD/pull/4), by nikay99), set at run time so presets of one model
+  still switch at once; the A1111 and OpenAI model lists show models only; deleting a saved preset through
+  the API no longer touches the model's file; `txt2img` without a size takes the default size.
 - **0.5.0**: image to image and inpainting: a start image (a file, a gallery image, the last result), a
   mask painted in the page, only the masked area made at the model's size and put back with a soft edge;
   SDXL and SD 1.5 inpainting models in the catalog.
@@ -74,8 +78,6 @@ Image input is what ControlNet (0.6.0) needs as well.
 
 - **Tiled upscaling** (like Ultimate SD Upscale): sd.cpp has nothing like it; it would be a tile loop over
   img2img in the app. Only if hires fix plus ESRGAN (0.4.0) is not enough.
-- **Preset defaults for API clients**: presets could set the sampler, scheduler and steps for clients that
-  send none (for example `ays` for iLustMix at 10 steps; the web UI sets them already).
 - **Gallery thumbnails**: the gallery shows every image at full size, which for 4096 px upscales is
   slow on the console's own browser. Small copies made when an image is saved would fix that.
 - **Face and detail fix** (like ADetailer): sd.cpp's `sd-cli` can find faces with a YOLOv8 model and

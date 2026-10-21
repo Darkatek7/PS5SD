@@ -3,7 +3,7 @@
 stable-diffusion.cpp on the PS5 GPU — a native title running ggml-vulkan on RADV, with an
 OpenAI/A1111-compatible image API, a browser UI and a TV dashboard.
 
-> **Status: 0.5.0.** The title runs the server, the web UI, the model downloader and the TV dashboard
+> **Status: 0.5.1.** The title runs the server, the web UI, the model downloader and the TV dashboard
 > on the console. 0.2.0 added LoRAs; 0.3.0 several images per run, your own size buttons, a done sound
 > and a switch that keeps images and prompts off the TV; 0.3.1 an API key (for access from outside your
 > network) and a Presets tab; 0.4.0 the hires fix and an Upscale button. 0.5.0 adds image to image and
