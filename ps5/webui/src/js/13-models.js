@@ -143,11 +143,11 @@
     return false;
   }
 
-  // A video model: the loaded one (the capabilities say so), else by its name.
+  // A video model: the loaded one (the capabilities say so), else by its family or its name.
   function videoOf(m, d) {
     var via = d.loaded ? findModel(d.loaded) : null;
     if (st.video && d.loaded && (d.loaded === m.id || (via && via.base === m.id))) return true;
-    return videoName(((m.name || '') + ' ' + (m.files || []).join(' ')).toLowerCase());
+    return /^Wan/.test(m.family || '') || videoName(((m.name || '') + ' ' + (m.files || []).join(' ')).toLowerCase());
   }
 
   // A file name as a name: no extension, _ and - as spaces, the case kept; a quantization (Q8_0,
@@ -208,7 +208,7 @@
     if (miss) nm.appendChild(el('span', 'badge bad', 'Incomplete'));
     main.appendChild(nm);
     if (m.kind === 'file' && m.files && m.files[0]) main.appendChild(el('div', 'mfile', baseName(m.files[0])));
-    addTags(main, tagsOf(m.name || m.id, m.files, videoOf(m, d), !!m.control_net));
+    addTags(main, tagsOf(m.name || m.id, m.files, videoOf(m, d), !!m.control_net, m.family));
     main.appendChild(el('div', 'mmeta', specOf(m)));
     if (miss) {
       var lost = [];

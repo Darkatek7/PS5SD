@@ -73,7 +73,10 @@
     return '';
   }
 
+  // The server reads it from the model's tensors ("family", API.md); the names are the fallback.
   function familyOf(entry, base) {
+    if (entry && entry.family) return entry.family;
+    if (base && base.family) return base.family;
     var names = ((entry && entry.name) || '') + ' ' + ((base && base.name) || '') + ' ' + ((entry && entry.id) || '');
     var files = ((entry && entry.files) || []).concat((base && base.files) || []).join(' ');
     return familyWord(names.toLowerCase()) || familyWord(files.toLowerCase());
@@ -84,16 +87,19 @@
 
   // The family of a LoRA: its name; the fast ones without a family in the name (DMD2, Lightning,
   // LCM: SDXL; CausVid: Wan).
+  // Whether a LoRA of family a fits a model of family b: the same, or one says less ("FLUX" and "FLUX.1").
+  function sameFamily(a, b) { return a === b || a.indexOf(b) === 0 || b.indexOf(a) === 0; }
+
   function loraFamily(name) {
     var s = String(name || '').toLowerCase();
     return familyWord(s) || (/dmd2|lightning|lcm/.test(s) ? 'SDXL' : '') || (/causvid/.test(s) ? 'Wan' : '');
   }
 
   // The tags of a model or a catalog entry, as [{text, cls}] (cls: the .tag colours).
-  function tagsOf(name, files, video, cn) {
+  function tagsOf(name, files, video, cn, family) {
     var s = String(name || '').toLowerCase(), f = (files || []).join(' ').toLowerCase();
     var out = [];
-    var fam = familyWord(s) || familyWord(f);
+    var fam = family || familyWord(s) || familyWord(f);
     if (fam) out.push({ text: fam, cls: 'fam' });
     if (video || videoName(s)) out.push({ text: 'video', cls: 'vid' });
     if (cn || /control ?net|canny/.test(s)) out.push({ text: 'ControlNet', cls: 'cn' });

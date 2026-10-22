@@ -28,9 +28,14 @@ target_include_directories(test_gen_args PRIVATE ..)
 target_link_libraries(test_gen_args PRIVATE stable-diffusion)
 add_test(NAME gen_args COMMAND test_gen_args)
 
-add_executable(test_models test_models.cpp ../models.cpp)
+add_executable(test_models test_models.cpp ../models.cpp ../net_family.cpp)
 target_include_directories(test_models PRIVATE .. "${SD_DIR}/thirdparty")
 add_test(NAME models COMMAND test_models)
+
+# The network a model or LoRA is for, from its tensors (net_family.hpp).
+add_executable(test_net_family test_net_family.cpp ../net_family.cpp)
+target_include_directories(test_net_family PRIVATE .. "${SD_DIR}/thirdparty")
+add_test(NAME net_family COMMAND test_net_family)
 
 add_executable(test_sd_plan test_sd_plan.cpp ../sd_plan.cpp ../gen_args.cpp)
 target_include_directories(test_sd_plan PRIVATE ..)
@@ -54,7 +59,7 @@ if(PS5SD_NET_SMOKE)
     set(MBEDTLS_ROOT "" CACHE PATH "mbedTLS 3.6 install prefix")
     find_package(Threads REQUIRED)
     add_executable(smoke_downloader smoke_downloader.cpp ../downloader.cpp ../https_client.cpp
-                   ../download_core.cpp ../models.cpp ../ftp_writer.cpp)
+                   ../download_core.cpp ../models.cpp ../net_family.cpp ../ftp_writer.cpp)
     target_include_directories(smoke_downloader PRIVATE .. "${SD_DIR}/thirdparty" "${MBEDTLS_ROOT}/include")
     target_link_libraries(smoke_downloader PRIVATE "${MBEDTLS_ROOT}/lib/libmbedtls.a"
                           "${MBEDTLS_ROOT}/lib/libmbedx509.a" "${MBEDTLS_ROOT}/lib/libmbedcrypto.a" Threads::Threads)

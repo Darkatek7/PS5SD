@@ -12,6 +12,7 @@
 #include <sstream>
 
 #include "json.hpp"
+#include "net_family.hpp"
 
 namespace fs = std::filesystem;
 
@@ -635,6 +636,22 @@ bool ModelLibrary::remove_variant(const std::string & id_in, std::string & error
     return true;
 }
 
+namespace {
+
+// The network an entry runs (net_family.hpp): that of its diffusion model, else its checkpoint.
+std::string family_of(const ModelEntry & e) {
+    for (const char * opt : { "--diffusion-model", "-m", "--model" }) {
+        for (size_t i = 0; i + 1 < e.args.size(); i++) {
+            if (e.args[i] == opt) {
+                return net_family(e.args[i + 1]);
+            }
+        }
+    }
+    return "";
+}
+
+}  // namespace
+
 std::string models_json(const ModelLibrary & library, const std::string & active, const std::string & loaded,
                         bool switching, bool standby) {
     nlohmann::json list = nlohmann::json::array();
@@ -651,6 +668,7 @@ std::string models_json(const ModelLibrary & library, const std::string & active
                          { "missing", e.missing },
                          { "base", e.base },
                          { "control_net", control_net_name(e) },
+                         { "family", family_of(e) },
                          { "defaults", defaults } });
     }
     nlohmann::json out = { { "active", active }, { "loaded", loaded }, { "switching", switching }, { "standby", standby }, { "models", list } };
@@ -680,9 +698,12 @@ std::string loras_json(const std::string & dir) {
     std::sort(files.begin(), files.end());
     nlohmann::json list = nlohmann::json::array();
     for (const auto & f : files) {
-        list.push_back({ { "name", fs::u8path(f.first).stem().u8string() }, { "path", f.first }, { "bytes", f.second } });
+        list.push_back({ { "name", fs::u8path(f.first).stem().u8string() },
+                         { "path", f.first },
+                         { "bytes", f.second },
+                         { "family", net_family((root / fs::u8path(f.first)).u8string()) } });
     }
-    return nlohmann::json{ { "loras", list } }.dump();
+    return nlohmann::json{ { "loras", list } }.dump(-1, ' ', false, nlohmann::json::error_handler_t::replace);
 }
 
 std::string upscalers_json(const std::string & dir) {

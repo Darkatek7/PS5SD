@@ -123,6 +123,21 @@ int main() {
               "checkpoint from an options body");
     }
 
+    // A diffusion-only file in the models folder that a preset loads with --diffusion-model is the
+    // preset's, as a checkpoint behind -m is: not a model of its own in the A1111 and OpenAI lists.
+    {
+        write(models / "klein.gguf", "x");
+        write(presets / "klein.txt", "--diffusion-model\nklein.gguf\n--vae\nvae/sdxl_vae.safetensors\n");
+        bool has_file = false, has_preset = false;
+        for (const auto & m : nlohmann::json::parse(ps5sd::sd_models_json(lib))) {
+            has_file   = has_file || m["title"] == "klein.gguf";
+            has_preset = has_preset || m["title"] == "klein";
+        }
+        check(has_preset && !has_file, "a file behind --diffusion-model is not listed again");
+        fs::remove(models / "klein.gguf");
+        fs::remove(presets / "klein.txt");
+    }
+
     // remove(): a second preset shares the VAE; a lone checkpoint; a broken preset.
     write(presets / "sdxl-fast.txt", "-m\nsdxl.gguf\n--vae\nvae/sdxl_vae.safetensors\n--cache-mode\nucache\n");
     write(models / "lone.gguf", "x");

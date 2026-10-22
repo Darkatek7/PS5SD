@@ -50,10 +50,17 @@
     return m ? familyOf(m, m.base ? findModel(m.base) : null) : '';
   }
 
+  // The family of an installed LoRA: the server's (from its tensors), else its name's.
+  function loraFamilyOf(path, name) {
+    var list = loraList || [];
+    for (var i = 0; i < list.length; i++) if (list[i].path === path && list[i].family) return list[i].family;
+    return loraFamily((name || '') + ' ' + path);
+  }
+
   // A LoRA of another family than the loaded model's: its family, else ''.
   function otherFamily(path, name, fam) {
-    var lf = loraFamily((name || '') + ' ' + path);
-    return fam && lf && lf !== fam ? lf : '';
+    var lf = loraFamilyOf(path, name);
+    return fam && lf && !sameFamily(lf, fam) ? lf : '';
   }
 
   function drawLoraPicker() {
@@ -159,7 +166,8 @@
         var row = el('div', 'mrow mwrap');
         var main = el('div', 'mmain');
         main.appendChild(el('div', 'mname', readable(raw)));
-        addTags(main, loraFamily(raw) ? [{ text: loraFamily(raw), cls: 'fam' }] : []);
+        var lf = l.family || loraFamily(raw);
+        addTags(main, lf ? [{ text: lf, cls: 'fam' }] : []);
         main.appendChild(el('div', 'mfile', l.path));
         if (l.bytes > 0) main.appendChild(el('div', 'mmeta', bytes(l.bytes)));
         row.appendChild(main);

@@ -173,7 +173,7 @@ loads a model and ends standby.
 | `GET /ps5sd/v1/app/models` | the library; see below |
 | `POST /ps5sd/v1/app/models/active` | `{"id": "<id>"}`: switch to that entry; the responses are below |
 | `DELETE /ps5sd/v1/app/models/<id>` | delete an entry; see below |
-| `GET /ps5sd/v1/app/loras` | `{"loras": [{"name", "path", "bytes"}]}`: the LoRA files in `/data/PS5SD/loras` and its subfolders |
+| `GET /ps5sd/v1/app/loras` | `{"loras": [{"name", "path", "bytes", "family"}]}`: the LoRA files in `/data/PS5SD/loras` and its subfolders; `family` as for a model (below) |
 | `DELETE /ps5sd/v1/app/loras/<path>` | delete one LoRA file; the answer is the list as `GET` gives it |
 
 `GET /ps5sd/v1/app/models` returns:
@@ -182,7 +182,7 @@ loads a model and ends standby.
 {"active": "flux3-klein-q4", "loaded": "flux3-klein-q4", "switching": false, "standby": false,
  "models": [{"id": "flux3-klein-q4", "name": "FLUX.3 Image Klein (Q4_K)", "kind": "preset",
              "bytes": 4912345678, "files": ["..."], "missing": [], "base": "", "control_net": "",
-             "defaults": {"steps": "16", "cfg": "1", "width": "1024", "height": "1024", "sampler": "euler"}}]}
+             "family": "FLUX.3 Klein", "defaults": {"steps": "16", "cfg": "1", "width": "1024", "height": "1024", "sampler": "euler"}}]}
 ```
 
 - `base` is set for a saved preset (below): the id of the model it is a preset of.
@@ -192,6 +192,11 @@ loads a model and ends standby.
 - `missing` lists the entry's files that are not on the console. An entry with missing files cannot be
   loaded.
 - `control_net` is the file name of the preset's `--control-net` (see [MODELS.md](MODELS.md#controlnet)), or `""`.
+- `family` is the network the entry runs, read from the tensor names and shapes of its diffusion model
+  (not from its name or metadata): `FLUX.1`, `FLUX.2 Klein 4B`, `FLUX.2 Klein 9B`, `FLUX.2 Dev`, `FLUX.3 Klein`,
+  `SDXL`, `SD 2.1`, `SD 1.5`, `SD 3`, `Wan 1.3B`, `Wan 5B`, `Wan 14B`, `Z-Image`; `FLUX`, `FLUX.2` or `Wan` when only the
+  kind can be told, `""` when nothing can (a `.ckpt`). A LoRA's `family` (`/ps5sd/v1/app/loras`) uses the same names: a
+  LoRA works on a model of the same family.
 - `defaults` are the settings that suit the model. The web UI applies them when you press **Use**. With
   the entry loaded, `steps`, `cfg`, `sampler`, `scheduler`, `width` and `height` are also **the server's
   defaults**: a request that names none of them gets these values, and a request that names one overrides

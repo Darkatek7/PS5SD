@@ -205,9 +205,9 @@ int main() {
                       "per-file installed");
             }
         }
-        check(featured == 4 && find_catalog("sdxl-full")->featured && find_catalog("z-image-turbo")->featured &&
-                  find_catalog("wan21-t2v-1.3b")->featured,
-              "SDXL full, Klein Q4, Z-Image Turbo and Wan 2.1 are featured");
+        check(featured == 5 && find_catalog("sdxl-full")->featured && find_catalog("z-image-turbo")->featured &&
+                  find_catalog("wan21-t2v-1.3b")->featured && find_catalog("flux2-klein-4b")->featured,
+              "SDXL full, Klein Q4, FLUX.2 Klein 4B, Z-Image Turbo and Wan 2.1 are featured");
         check(j["entries"][0]["id"] == "sdxl-full" && j["entries"][1]["id"] == "flux3-klein-q4" &&
                   j["entries"][2]["id"] == "z-image-turbo" && j["entries"][0]["good_for"].is_string(),
               "featured order and good_for");
