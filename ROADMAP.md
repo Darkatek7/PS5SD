@@ -10,6 +10,9 @@ can rely on.
 
 ## Done
 
+- **0.9.0**: edit with a reference image (FLUX.2 Klein); gallery thumbnails, the settings saved in each PNG
+  with **Use these settings**, search, order and multi-select, and the gallery in pages in the API; GPU
+  memory that earlier runs freed usable again (buffers of several blocks, `patches/mesa/0010`).
 - **0.8.1**: FLUX.2 Klein 4B in the catalog; runs that do not fit in one piece run in segments (SDXL at
   2048x2048 after other images, FLUX.2 Klein 4B at 1536x1536); a hint before a run that may not fit; the
   family of a model or LoRA read from its tensors; the tabs as a sidebar on a PC.
@@ -124,7 +127,7 @@ changes how the page is built, not what it can do; every feature stays.
 - [x] **FLUX.2 Klein 4B** (Q8_0) in the catalog: 1024x1024 in 4 steps, about 30 s.
 - [x] **The tabs as a sidebar** on a PC.
 
-## 0.9.0: gallery and video
+## 0.9.0: gallery, editing by a sentence and memory, done
 
 **Gallery**
 
@@ -139,15 +142,6 @@ changes how the page is built, not what it can do; every feature stays.
 - [x] **The gallery in pages** in the API, with each image's prompt and settings (`offset`, `order`, `q`,
   `type`, and `/ps5sd/v1/gallery/info/<name>`).
 
-**Video**
-
-- [ ] **Longer clips (49 and 81 frames)**: measure memory and time with CausVid.
-- [ ] **Faster decoding**: the VAE decode is now about 2 of the 3 minutes 40 s. Try 192 px tiles, and a
-  small decoder for Wan (as TAESD is for images).
-- [ ] **Image to video**: a start image. Wan 2.1 T2V 1.3B is text only, so this means Wan 2.2 TI2V 5B; first
-  measure whether it fits with the Wan 2.2 VAE.
-- [ ] **Flow shift on the Create tab**, set in the preset only for now (3 for Wan 2.1).
-
 **Memory**
 
 - [x] **Freed GPU memory usable again**: it goes back to the pool, but the pool falls apart in pieces (after
@@ -161,6 +155,20 @@ changes how the page is built, not what it can do; every feature stays.
 - [x] **Edit with a reference image** (FLUX.2 Klein): a picture and a sentence ("make it night", "the house in
   red brick") instead of a mask. The Create tab's Edit mode sends the start image as a reference for a
   FLUX.2 model ("Edit by the prompt"), and `ref_images` does it in the API. About 65 s at 4 steps with Klein 4B.
+
+## 0.10.0: video and more
+
+**Video**
+
+- [ ] **Longer clips (49 and 81 frames)**: measure memory and time with CausVid.
+- [ ] **Faster decoding**: the VAE decode is now about 2 of the 3 minutes 40 s. Try 192 px tiles, and a
+  small decoder for Wan (as TAESD is for images).
+- [ ] **Image to video**: a start image. Wan 2.1 T2V 1.3B is text only, so this means Wan 2.2 TI2V 5B; first
+  measure whether it fits with the Wan 2.2 VAE.
+- [ ] **Flow shift on the Create tab**, set in the preset only for now (3 for Wan 2.1).
+
+**Images**
+
 - [ ] **More ControlNets**: OpenPose and depth for SDXL. Without a preprocessor on the console they need
   a pose or depth image, so only if people ask for them.
 - [ ] **Face and detail fix** (like ADetailer): sd.cpp can find faces with a YOLOv8 model; with 0.5.0's
