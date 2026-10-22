@@ -7,7 +7,8 @@
 //
 //   - the largest sizes measured on the console per model family, right after
 //     a start (kLimits in mem_fit.cpp);
-//   - GPU memory that earlier runs freed is not all usable again: a run that
+//   - GPU memory that earlier runs freed is not all usable again (it goes back
+//     to the pool in pieces, and each GPU buffer needs one block): a run that
 //     is larger than every run since the model loaded can fail where it works
 //     right after a start, while the same size or a smaller one keeps working.
 //

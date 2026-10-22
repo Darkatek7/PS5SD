@@ -150,9 +150,10 @@ changes how the page is built, not what it can do; every feature stays.
 
 **Memory**
 
-- [ ] **Freed GPU memory back to the pool**: memory that a run frees stays with the title, and the model
-  manager sees less free memory after each larger run (docs/CONSOLE.md, "Memory"). With it back, a large
-  run would not need a restart to find room.
+- [ ] **Freed GPU memory usable again**: it goes back to the pool, but the pool falls apart in pieces (after
+  the first image, 7.2 GiB free in 13 parts, the largest 4.2 GiB; docs/CONSOLE.md, "Why freed GPU memory is
+  not usable again"), and each GPU buffer needs one block. A buffer of several parts (a patch to PS5_Mesa's
+  winsys) would let a large run find room without a restart.
 
 **Images**
 

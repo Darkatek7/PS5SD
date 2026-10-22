@@ -123,7 +123,8 @@ CFG 6, euler_a.
 - The server loads the weights again for each request (the model manager keeps the context but not the
   tensors on the device). `--eager-load` has not been tried yet.
 - Pool free: 11.02 GiB before loading, 10.89 GiB with the server up, 5.61 GiB after a request (the
-  allocator keeps what it freed).
+  largest free part only; what was freed is free in smaller parts, see "Why freed GPU memory is not usable
+  again").
 - The VAE decode wanted 6.05 GB at once with 5.74 GB free, so sd.cpp fell back to 512x512 tiles by
   itself. The image shows no seams.
 
@@ -539,9 +540,8 @@ What made runs fail:
   console the estimate says "fits", the allocation goes through, and the check after it finds no room:
   `unet segment 1/1 (graph) failed during allocated capacity check`. `patches/sdcpp/0067` builds the graph
   again and runs it in segments then (`[W] unet does not fit in one piece; retrying in segments`).
-- **Memory that earlier runs freed is not all usable again.** Freed GPU memory does not go back to the
-  title's pool (`pool free` stays where it was), and the model manager sees less free memory after each
-  larger run. A size that ran once keeps running, and so does a smaller one. A larger one can fail where it
+- **Memory that earlier runs freed is not all usable again: the pool falls apart in pieces.** See the next
+  section. A size that ran once keeps running, and so does a smaller one. A larger one can fail where it
   would run right after a start.
 
 Two older measurements were such runs: FLUX.3 Klein Q6_K at 1024×1024 ("The catalog's models, one image
@@ -550,3 +550,36 @@ SDXL. SDXL at 2048×2048 ("Hires fix at x1") failed after smaller images, and it
 
 The web UI says before a run when it may not fit (`POST /ps5sd/v1/app/fit`, `ps5/app/mem_fit.cpp` has the
 sizes of this table).
+
+## Why freed GPU memory is not usable again: the pool in pieces (2026-10-22)
+
+Freed memory does go back. PS5_Mesa's winsys (`src/amd/vulkan/winsys/ps5/radv_ps5_platform.c`) makes each
+Vulkan buffer of one `sceKernelAllocateDirectMemory` block, which is physically contiguous, and a
+destroyed buffer unmaps it and gives it back with `sceKernelReleaseDirectMemory` once the GPU is done
+(`patches/mesa/0007`). What does not come back is one large free block: the weights, which load when a
+request needs them, the CPU heap (it draws from the same pool) and the compute buffers lie mixed in the
+pool, and the compute buffers leave holes between the others when they go. A buffer larger than the
+largest hole cannot be made, however much is free in all.
+
+`pool free` in app.log was `sceKernelAvailableDirectMemorySize`: one free part, the largest. ggml's
+`Vulkan0 free` is the same number (the winsys reports it as the heap's budget). Since 0.9.0 the line also
+gives the sum of the free parts, how many there are and the largest (`pool_free` in `ps5/app/main.cpp`).
+FLUX.2 Klein 4B Q8_0, right after a start, one step each:
+
+| When | Free in all | Parts | The largest |
+|---|---|---|---|
+| Before loading | 11.01 GiB | 1 | 11.01 GiB |
+| After loading (the weights load later) | 10.83 GiB | 1 | 10.83 GiB |
+| After 1024×1024 | 7.23 GiB | 13 | 4.21 GiB |
+| After 1536×1536 (in segments) | 7.13 GiB | 15 | 4.21 GiB |
+| After 1024×1024 | 7.18 GiB | 14 | 4.21 GiB |
+| After 1280×1280 (in segments: one piece needed more than 4.21 GiB) | 7.02 GiB | 15 | 4.21 GiB |
+
+About 3 GiB is free in pieces after the first image, and stays so. Two ways to use it, neither tried yet:
+
+- **A large buffer of several parts**, mapped one after the other at one GPU address (the winsys maps
+  direct memory at fixed addresses already, for sparse buffers). Buffers would no longer need one block,
+  and the budget would be the sum. A wrong mapping stops the GPU, and on the PS5 that hangs the console
+  until it is switched off, so this needs care and a console nobody else uses.
+- **Long-lived and short-lived memory apart**: weights from one end of the pool, compute buffers from the
+  other, so the holes they leave are one.

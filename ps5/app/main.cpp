@@ -311,6 +311,43 @@ void quit_if_asked() {
     sceSystemServiceLoadExec("exit", nullptr);
 }
 
+// The free parts of the direct memory pool that a buffer of 2 MiB and more can
+// use (2 MiB aligned): their sum, the largest and how many. Each GPU buffer is
+// one physically contiguous block of the pool (PS5_Mesa's radv_ps5_memory_alloc),
+// so the largest part is the largest buffer that can be made now.
+// sceKernelAvailableDirectMemorySize gives one free part of a range, so the
+// ranges left and right of it are asked again.
+struct PoolFree {
+    size_t total   = 0;
+    size_t largest = 0;
+    int    parts   = 0;
+};
+
+PoolFree pool_free(int64_t pool) {
+    constexpr size_t kAlign = 2 * 1024 * 1024;
+    PoolFree         out;
+    std::vector<std::pair<int64_t, int64_t>> ranges = { { 0, pool } };
+    while (!ranges.empty() && out.parts < 100000) {
+        const auto range = ranges.back();
+        ranges.pop_back();
+        if (range.second - range.first < static_cast<int64_t>(kAlign)) {
+            continue;
+        }
+        int64_t at   = 0;
+        size_t  size = 0;
+        if (sceKernelAvailableDirectMemorySize(range.first, range.second, kAlign, &at, &size) != 0 || size == 0 ||
+            at < range.first || at + static_cast<int64_t>(size) > range.second) {
+            continue;
+        }
+        out.total += size;
+        out.largest = std::max(out.largest, size);
+        out.parts++;
+        ranges.push_back({ range.first, at });
+        ranges.push_back({ at + static_cast<int64_t>(size), range.second });
+    }
+    return out;
+}
+
 // Where the memory is: the direct memory pool's free part (models, the GPU
 // heap and the platform's malloc all come from it), the CPU heap, and what
 // ggml says about each device.
@@ -319,10 +356,13 @@ void log_memory(const char * when) {
     size_t        free = 0;
     const int64_t pool = sceKernelGetDirectMemorySize();
     sceKernelAvailableDirectMemorySize(0, pool, 2 * 1024 * 1024, &at, &free);
+    const PoolFree parts = pool_free(pool);
     struct ps5_heap_stats heap = {};
     ps5_heap_stats(&heap);
-    std::printf("ps5sd: memory %s: pool free %.2f of %.2f GiB, cpu heap %.2f GiB (peak %.2f)", when, free / kGiB,
-                pool / kGiB, heap.mapped_bytes / kGiB, heap.peak_bytes / kGiB);
+    std::printf("ps5sd: memory %s: pool free %.2f of %.2f GiB (in %d parts: %.2f GiB, the largest %.2f), cpu heap %.2f GiB "
+                "(peak %.2f)",
+                when, free / kGiB, pool / kGiB, parts.parts, parts.total / kGiB, parts.largest / kGiB,
+                heap.mapped_bytes / kGiB, heap.peak_bytes / kGiB);
     for (size_t i = 0; i < ggml_backend_dev_count(); i++) {
         size_t dev_free = 0, dev_total = 0;
         ggml_backend_dev_memory(ggml_backend_dev_get(i), &dev_free, &dev_total);
