@@ -7,10 +7,12 @@
     f.batch = batchCount();
     f.req = null;
     if (st.video) { f.batch = 1; f.req = null; }
-    if (st.init && !st.video) {
+    // only the image of the active mode goes with the request (an Edit image waits while in Image mode)
+    if (st.mode === 'edit' && st.init && !st.video) {
       f.strength = num('init-str', 0.6, 0.05, 1);
       f.req = initRequest(f);
     }
+    f.guide = !st.video && st.mode === 'guide' && !!st.cn && !!st.cnModel;
     return f;
   }
 
@@ -25,6 +27,8 @@
     if (st.busy) return;
     if (st.sw) { toast('The model is switching. Try again in a moment.'); return; }
     if (st.mdl && st.mdl.standby) { toast('No model is loaded. Pick or download one first.'); setView('models'); return; }
+    if (st.mode === 'edit' && !st.init) { status('Pick a start image first, or press Edit on an image of the gallery.', true); return; }
+    if (st.mode === 'guide' && !st.cn) { status('Pick a guide image first, or press Guide on an image of the gallery.', true); return; }
     var p = readParams();
     if (!p.prompt.replace(/^\s+|\s+$/g, '')) {
       status('Type a prompt first.', true);
@@ -47,8 +51,9 @@
     }
     status('Sending…');
     showActions(null);
-    if (window.innerWidth < 900) {
-      try { $('stage').scrollIntoView(); } catch (e) {}
+    // on a phone the result comes into view (the settings are above it)
+    if (window.innerWidth <= 720) {
+      try { $('view-create').getElementsByClassName('result')[0].scrollIntoView(); } catch (e) {}
     }
     if (st.useJobs) startAsync(p); else startSync(p);
   }
@@ -118,7 +123,7 @@
       body.hires = { enabled: true, upscaler: p.hr.up, scale: p.hr.scale, steps: p.hr.steps, denoising_strength: p.hr.den };
     }
     // the guide image (ControlNet), at the final size of the request
-    if (st.cn && st.cnModel && !st.video) {
+    if (p.guide) {
       body.control_image = guideData(body.width, body.height);
       body.control_strength = num('cn-str', 0.6, 0.1, 1.5);
       if ($('cn-canny').checked) body.image_preprocess = 'target=control,canny=true';
@@ -203,10 +208,13 @@
           var second = pass >= n;
           var at = second ? pass - n : pass;
           var frac = (pass + pv.step / pv.total_steps) / passes;
-          status((n > 1 ? 'Image ' + (at + 1) + ' of ' + n + ' · ' : '') + (second ? 'hires step ' : (n > 1 ? 'step ' : 'Step ')) +
-            pv.step + ' of ' + pv.total_steps);
+          var lead = n > 1 ? 'Image ' + (at + 1) + ' of ' + n + ' · ' : '';
+          var what = second ? 'hires pass · step ' : 'step ';
+          if (!lead && second) what = 'Hires pass · step ';
+          else if (!lead) what = 'Step ';
+          status(lead + what + pv.step + ' of ' + pv.total_steps);
           progress(frac);
-          st.sub = eta(frac);
+          st.sub = pace(pass * pv.total_steps + pv.step, passes * pv.total_steps);
           if (pv.b64_json) showImage(dataUrl(pv.b64_json), 'preview');
         } else {
           status('Generating…');
@@ -215,6 +223,19 @@
       }
       setTimeout(pollJob, 1000);
     });
+  }
+
+  // The pace of a run, from its steps: seconds a step since the first step seen (so the model's
+  // warm-up is left out), and the time left for the steps still to do. done and all count steps.
+  function pace(done, all) {
+    var now = new Date().getTime();
+    var p = st.pace;
+    if (!p || p.t0 !== st.t0 || done < p.n0) p = st.pace = { t0: st.t0, n0: done, at: now };
+    if (done <= p.n0 || done >= all) return '';
+    var perStep = (now - p.at) / (done - p.n0) / 1000;
+    var left = perStep * (all - done);
+    var when = left < 60 ? Math.max(1, Math.round(left)) + ' s' : clock(left);
+    return perStep.toFixed(1) + ' s a step · about ' + when + ' left';
   }
 
   // frac: how much of the run is done, 0..1

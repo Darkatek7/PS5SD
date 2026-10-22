@@ -67,13 +67,65 @@
     background: var(--accent); border: 0; border-radius: 14px; }
   button.go:hover { background: var(--accent-hi); }
   button.go:disabled { background: #2a3a55; color: #8c9bb4; opacity: 1; }
-  .gorow { display: flex; margin-top: 1.1rem; }
-  .gorow .alt { flex: none; min-height: 4.25rem; margin-left: 0.7rem; border-radius: 14px; }
+  /* Create tab: generate row, mode switch, model and preset blocks, settings groups */
+  .gorow { display: flex; align-items: stretch; margin-top: 1.4rem; }
+  .gorow .go { min-height: 4.6rem; }
+  .dice { flex: none; width: 4.6rem; min-height: 4.6rem; margin-left: 0.7rem; padding: 0; border-radius: 14px; color: var(--muted); }
+  .dice svg { display: block; width: 1.8rem; height: 1.8rem; margin: 0 auto; }
+  .dice rect { fill: none; stroke: currentColor; stroke-width: 2; }
+  .dice circle { fill: currentColor; stroke: none; }
+  .dice:hover { color: var(--text); }
+  .linkbtn { display: inline-flex; align-items: center; min-height: 2.6rem; margin: 0.2rem 0 0; padding: 0 0.2rem; background: transparent;
+    border: 0; border-radius: 6px; color: var(--accent-hi); font-size: 0.95rem; }
+  .linkbtn:hover { background: transparent; color: #fff; text-decoration: underline; }
+  .linkrow { display: flex; margin-top: 0.3rem; }
 
-  .setbar { display: flex; align-items: center; margin-top: 1.1rem; }
-  .setbar button { flex: none; background: transparent; }
-  .setbar .sum { color: var(--faint); font-size: 0.875rem; margin-left: 0.9rem; min-width: 0; }
-  #settings { border-top: 1px solid var(--border); margin-top: 0.9rem; padding-top: 0.4rem; }
+  .cmblock { position: relative; }
+  .cm-tags { display: flex; flex-wrap: wrap; margin: 0.35rem 0 0; }
+  .tag { display: inline-block; font-size: 0.75rem; line-height: 1.4; padding: 0 0.6rem; margin: 0.2rem 0.4rem 0 0; border-radius: 2rem;
+    border: 1px solid var(--border); color: var(--muted); white-space: nowrap; }
+  .tag.fam { color: var(--text); border-color: #2c4a78; background: #0e1a2e; }
+  .tag.cn { color: var(--ok); border-color: var(--ok); }
+  .tag.vid { color: var(--warn); border-color: var(--warn); }
+  .cmlist { margin-top: 0.7rem; max-height: 50vh; overflow-y: auto; padding: 0.4rem 0.6rem; background: var(--field);
+    border: 1px solid var(--border); border-radius: 12px; }
+  .cmlist .mrow { margin-top: 0.4rem; }
+
+  .prblock { margin-top: 1rem; }
+  .prrow { display: flex; align-items: center; flex-wrap: wrap; }
+  .prtoggle { display: inline-flex; align-items: center; min-height: 2.8rem; max-width: 100%; padding: 0 0.9rem; background: transparent;
+    font-size: 1rem; color: var(--text); overflow: hidden; }
+  .prtoggle:hover { background: var(--raised); }
+  .prtoggle #pr-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  .prlabel { color: var(--muted); margin-right: 0.35rem; white-space: nowrap; }
+  .prtoggle .caret, .grphead .caret { flex: none; margin-left: 0.6rem; color: var(--faint); transition: transform 0.15s; }
+  .prtoggle[aria-expanded="true"] .caret, .grphead[aria-expanded="true"] .caret { transform: rotate(180deg); }
+  .prrow #savepreset { margin-left: 0.6rem; min-height: 2.8rem; }
+  .prmenu { margin-top: 0.5rem; padding: 0.5rem; background: var(--field); border: 1px solid var(--border); border-radius: 12px; }
+  .prmenu button { display: block; width: 100%; min-height: 2.9rem; margin: 0.2rem 0; text-align: left; overflow: hidden; text-overflow: ellipsis; }
+  .prmenu button.on { background: #10213a; border-color: var(--accent-hi); color: var(--text); }
+  .prmenu .prfoot { margin-top: 0.4rem; padding-top: 0.4rem; border-top: 1px solid var(--border); }
+  .prmenu .prfoot button { background: transparent; }
+
+  .modes { display: flex; margin-top: 1.1rem; padding: 0.3rem; background: var(--field); border: 1px solid var(--border); border-radius: 14px; }
+  .modes button { flex: 1 1 0; min-width: 0; min-height: 2.9rem; margin: 0; padding: 0 0.5rem; background: transparent; border: 0; border-radius: 10px; color: var(--muted); }
+  .modes button:hover { background: var(--raised); color: var(--text); }
+  .modes button.on { background: var(--accent); color: #fff; }
+  #edit-sect, #cn-sect { margin-top: 0.4rem; }
+
+  /* settings groups: a row with its title and a summary of its values; the fields open under it */
+  .groups { margin-top: 1.2rem; border-bottom: 1px solid var(--border); }
+  .grp { border-top: 1px solid var(--border); }
+  .grphead { display: flex; align-items: center; width: 100%; min-height: 3.4rem; margin: 0; padding: 0.3rem 0.2rem; background: transparent;
+    border: 0; border-radius: 8px; text-align: left; color: var(--text); }
+  .grphead:hover { background: rgba(255, 255, 255, 0.04); }
+  .grptitle { flex: none; font-size: 1rem; color: var(--text); }
+  .grpsum { flex: 1 1 auto; min-width: 0; margin-left: 1rem; text-align: right; color: var(--faint); font-size: 0.9rem;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .grpbody { padding: 0.2rem 0 1.1rem; }
+  .grpbody > .presets:first-child { margin-top: 0.2rem; }
+  .grpbody label:first-child { margin-top: 0; }
+
   .presets { display: flex; flex-wrap: wrap; margin: 0 -0.25rem; }
   .presets button { margin: 0.25rem; min-height: 2.75rem; padding: 0 0.9rem; font-size: 0.9rem; }
   .row { display: flex; flex-wrap: wrap; margin: 0 -0.5rem; }
@@ -299,7 +351,12 @@
     .stage { min-height: 12rem; }
     .state { display: block; }
     #cancel { margin: 0.5rem 0 0; width: 100%; }
-    .gorow .alt { display: none; }
+    /* Create tab on a phone: the result comes first once a run starts; Generate stays above the tab bar */
+    #view-create > .controls, #view-create > .result { flex: 1 1 100%; }
+    .gorow { position: sticky; bottom: calc(4.6rem + env(safe-area-inset-bottom)); z-index: 3; margin: 0; padding: 0.6rem 0 0.5rem;
+      background: var(--surface); }
+    .gorow .go { min-height: 4rem; }
+    .dice { width: 4rem; min-height: 4rem; }
     .mrow { flex-wrap: wrap; }
     .mmain { flex-basis: 100%; }
     .mrow > button { flex: 1; margin: 0.7rem 0 0; }
@@ -315,5 +372,11 @@
     .lb-title { flex-basis: 100%; margin-bottom: 0.5rem; }
     .lb-bar a, .lb-bar button { flex: 1; margin: 0 0.3rem 0 0; text-align: center; padding: 0; }
     .lb-body .nav { width: 2.6rem; height: 5rem; }
+  }
+  /* Create tab on a PC: settings on the left, the result large on the right, in view while the settings scroll */
+  @media (min-width: 721px) {
+    #view-create > .controls { flex: 0 0 min(27rem, 42%); width: min(27rem, 42%); max-width: none; }
+    #view-create > .result { flex: 1 1 0; min-width: 0; position: sticky; top: 1rem; align-self: flex-start; }
+    #view-create .stage img, #view-create .stage video { max-height: calc(100vh - 15rem); }
   }
   @media (max-width: 520px) { .thumbs .t { flex-basis: 50%; } }

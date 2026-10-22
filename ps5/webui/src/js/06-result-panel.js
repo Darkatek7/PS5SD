@@ -53,7 +53,7 @@
         $('seed').value = seed; persist(); toast('Seed ' + seed + ' is set. Open Settings to see it.');
       }));
       box.appendChild(actionButton('Run again', function () {
-        setForm(st.last); $('prompt').value = st.last.prompt; $('neg').value = st.last.negative; generate();
+        setForm(st.last); $('prompt').value = st.last.prompt; $('neg').value = st.last.negative; negSync(); generate();
       }));
       if (upModels.length && !st.video) {
         var ub = actionButton('Upscale', function () { upscale(r && r.url ? r.url : href, ub); });

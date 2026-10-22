@@ -421,5 +421,6 @@
     show('cm-sub', !!sw || standby);
     show('swbox', !!sw);
     if (sw) text($('swtext'), 'Switching to ' + sw.name + '…');
+    drawModelBlock();
   }
 

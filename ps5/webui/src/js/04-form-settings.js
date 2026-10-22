@@ -81,16 +81,20 @@
     summary();
   }
 
+  // The one-line summary on each settings group's row (the group is open or shut).
   function summary() {
     var seed = parseInt($('seed').value, 10);
     var steps = Math.round(num('steps', 20, 1, 150));
-    text($('summary'), parseInt($('w').value, 10) + '×' + parseInt($('h').value, 10) + ' · ' + steps +
-      (steps === 1 ? ' step' : ' steps') + ' · CFG ' + num('cfg', 7, 0, 30) +
-      ' · seed ' + (isNaN(seed) || seed < 0 ? 'random' : seed) +
-      (loraSel.length ? ' · ' + loraSel.length + (loraSel.length === 1 ? ' LoRA' : ' LoRAs') : '') +
-      (!st.video && batchCount() > 1 ? ' · ' + batchCount() + ' images' : '') +
-      (st.cn && st.cnModel && !st.video ? ' · ControlNet' : '') +
-      (st.video ? ' · video' : st.init ? (st.init.mask ? ' · inpainting' : ' · from an image') : ($('hr-on').checked ? (num('hr-scale', 1.5, 1, 4) === 1 ? ' · refine pass' : ' · hires ×' + num('hr-scale', 1.5, 1, 4)) : '')));
+    var n = batchCount();
+    var scale = num('hr-scale', 1.5, 1, 4);
+    text($('grp-size-s'), parseInt($('w').value, 10) + '×' + parseInt($('h').value, 10));
+    text($('grp-quality-s'), steps + (steps === 1 ? ' step' : ' steps') + ' · CFG ' + num('cfg', 7, 0, 30) +
+      ($('sampler').value !== 'default' ? ' · ' + $('sampler').value : ''));
+    text($('grp-style-s'), loraSel.length ? loraSel.length + (loraSel.length === 1 ? ' LoRA' : ' LoRAs') : 'none');
+    text($('hr-sect-s'), !$('hr-on').checked ? 'off' : scale === 1 ? 'refine pass' : '×' + scale);
+    text($('grp-seed-s'), (isNaN(seed) || seed < 0 ? 'random' : String(seed)) +
+      (st.video ? '' : ' · ' + n + (n === 1 ? ' image' : ' images')));
+    text($('vid-sect-s'), parseInt($('frames').value, 10) + ' frames · ' + parseInt($('fps').value, 10) + ' fps');
     drawHires();
     if ($('ps-box').style.display !== 'none') drawSaveBox();
   }
@@ -109,6 +113,7 @@
     text($('presetnote'), presetNote(st.preset));
     st.cnModel = entry && entry.control_net ? entry.control_net : '';
     drawGuide();
+    drawMode();
     if (!changed) return;
     var saved = null;
     try { saved = JSON.parse(load('set.' + (key || '_'))); } catch (e) {}

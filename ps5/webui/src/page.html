@@ -60,39 +60,78 @@
 
 <div class="main" id="view-create">
   <section class="panel controls">
-    <div class="lbl" style="margin-top:0">Model</div>
-    <div class="curmodel"><span class="cm-name" id="cm-name">connecting&hellip;</span><button type="button" id="cm-change">Change</button></div>
-    <div class="bar ind" id="cm-bar" style="display:none;margin:0.5rem 0 0"><div></div></div>
-    <div class="hint" id="cm-sub" style="display:none"></div>
+    <div class="cmblock" id="cm-block">
+      <div class="curmodel">
+        <span class="cm-name" id="cm-name">connecting&hellip;</span>
+        <button type="button" id="cm-change" aria-expanded="false" aria-controls="cm-list">Change</button>
+      </div>
+      <div class="cm-tags" id="cm-tags"></div>
+      <div class="bar ind" id="cm-bar" style="display:none;margin:0.5rem 0 0"><div></div></div>
+      <div class="hint" id="cm-sub" style="display:none"></div>
+      <div class="cmlist" id="cm-list" style="display:none"></div>
+    </div>
+
+    <div class="prblock" id="pr-block">
+      <div class="prrow">
+        <button type="button" class="prtoggle" id="pr-toggle" aria-expanded="false" aria-controls="pr-menu"><span class="prlabel">Preset:</span> <span id="pr-name">model defaults</span><span class="caret" aria-hidden="true">&#9662;</span></button>
+        <button type="button" id="savepreset" style="display:none">Save as preset</button>
+      </div>
+      <div class="prmenu" id="pr-menu" style="display:none">
+        <div id="pr-list"></div>
+        <div class="prfoot"><button type="button" id="resetpreset">Use defaults</button></div>
+      </div>
+      <p class="hint" id="presetnote"></p>
+      <div id="ps-box" class="hrow" style="display:none">
+        <div class="hint" id="ps-what" style="margin-top:0"></div>
+        <div class="inrow" style="margin-top:0.8rem"><input id="ps-name" type="text" maxlength="100" placeholder="Name, e.g. Portrait fast" autocomplete="off"><button type="button" id="ps-save">Save</button></div>
+        <p class="hint">The settings above are saved with the model. Its own options (VAE, tiling and so on) come along. The list is under Models.</p>
+      </div>
+    </div>
 
     <label for="prompt">Prompt</label>
-    <textarea id="prompt" class="big" rows="5" placeholder="What should it draw?"></textarea>
-
-    <div class="initbar" id="init-bar">
-      <button type="button" id="init-pick">Start from an image</button>
-      <span class="hint">or Edit on any image of the gallery</span>
+    <textarea id="prompt" class="big" rows="4" placeholder="What should it draw?"></textarea>
+    <div class="linkrow">
+      <button type="button" class="linkbtn" id="neg-toggle" aria-expanded="false" aria-controls="neg-box">+ Negative prompt</button>
     </div>
-    <input id="init-file" type="file" accept="image/*" style="display:none">
-    <div id="init-box" style="display:none">
-      <div class="lbl">Start image</div>
-      <div class="initrow">
-        <img id="init-thumb" alt="start image">
-        <div class="initmain">
-          <div class="mmeta" id="init-meta"></div>
-          <div class="initbtns">
-            <button type="button" id="init-mask">Paint a mask</button>
-            <button type="button" id="init-drop">Remove</button>
+    <div id="neg-box" style="display:none">
+      <label for="neg">Negative prompt</label>
+      <textarea id="neg" rows="2" placeholder="What to avoid (optional)"></textarea>
+    </div>
+
+    <div class="modes" id="modes" role="group" aria-label="Where the image comes from">
+      <button type="button" id="mode-image" class="on" aria-pressed="true">Image</button>
+      <button type="button" id="mode-edit" aria-pressed="false">Edit</button>
+      <button type="button" id="mode-guide" aria-pressed="false" style="display:none">Guide</button>
+      <button type="button" id="mode-video" aria-pressed="false" style="display:none">Video</button>
+    </div>
+
+    <div id="edit-sect" style="display:none">
+      <div class="initbar" id="init-bar">
+        <button type="button" id="init-pick">Start from an image</button>
+        <span class="hint">or Edit on any image of the gallery</span>
+      </div>
+      <input id="init-file" type="file" accept="image/*" style="display:none">
+      <div id="init-box" style="display:none">
+        <div class="lbl">Start image</div>
+        <div class="initrow">
+          <img id="init-thumb" alt="start image">
+          <div class="initmain">
+            <div class="mmeta" id="init-meta"></div>
+            <div class="initbtns">
+              <button type="button" id="init-mask">Paint a mask</button>
+              <button type="button" id="init-drop">Remove</button>
+            </div>
           </div>
         </div>
-      </div>
-      <div class="row">
-        <div>
-          <div class="lbl">Strength (how much changes)</div>
-          <div class="step"><button type="button" id="init-str-">&minus;</button><input id="init-str" type="number" min="0.05" max="1" step="0.05" value="0.6" aria-label="Strength"><button type="button" id="init-str+">+</button></div>
+        <div class="row">
+          <div>
+            <div class="lbl">Strength (how much changes)</div>
+            <div class="step"><button type="button" id="init-str-">&minus;</button><input id="init-str" type="number" min="0.05" max="1" step="0.05" value="0.6" aria-label="Strength"><button type="button" id="init-str+">+</button></div>
+          </div>
         </div>
+        <label class="opt" id="init-crop-row" style="display:none"><input type="checkbox" id="init-crop" checked> Only the masked area, at full resolution</label>
+        <p class="hint" id="init-hint"></p>
       </div>
-      <label class="opt" id="init-crop-row" style="display:none"><input type="checkbox" id="init-crop" checked> Only the masked area, at full resolution</label>
-      <p class="hint" id="init-hint"></p>
     </div>
     <div id="cn-sect" style="display:none">
       <div class="initbar" id="cn-bar">
@@ -122,102 +161,112 @@
       </div>
     </div>
 
-    <div class="gorow">
-      <button type="button" class="go" id="go">Generate</button>
-      <button type="button" class="alt" id="surprise">Surprise me</button>
-    </div>
-
-    <div class="setbar">
-      <button type="button" id="set-toggle" aria-expanded="false" aria-controls="settings">Settings &#9662;</button>
-      <span class="sum" id="summary"></span>
-    </div>
-    <div id="settings" style="display:none">
-      <label for="neg">Negative prompt</label>
-      <textarea id="neg" rows="2" placeholder="What to avoid (optional)"></textarea>
-
-      <div class="lbl">Size</div>
-      <div class="presets" id="presets"></div>
-      <div class="row" style="margin-top:0.5rem">
-        <div><label for="w">Width</label><input id="w" type="number" min="64" max="2048" step="64"></div>
-        <div><label for="h">Height</label><input id="h" type="number" min="64" max="2048" step="64"></div>
-      </div>
-
-      <div class="row">
-        <div>
-          <div class="lbl">Steps</div>
-          <div class="step"><button type="button" id="steps-">&minus;</button><input id="steps" type="number" min="1" max="150" step="1"><button type="button" id="steps+">+</button></div>
-        </div>
-        <div>
-          <div class="lbl">CFG scale</div>
-          <div class="step"><button type="button" id="cfg-">&minus;</button><input id="cfg" type="number" min="0" max="30" step="0.5"><button type="button" id="cfg+">+</button></div>
+    <div class="groups" id="groups">
+      <div class="grp" id="grp-size">
+        <button type="button" class="grphead" id="grp-size-h" aria-expanded="false" aria-controls="grp-size-b"><span class="grptitle">Size</span><span class="grpsum" id="grp-size-s"></span><span class="caret" aria-hidden="true">&#9662;</span></button>
+        <div class="grpbody" id="grp-size-b" style="display:none">
+          <div class="presets" id="presets"></div>
+          <div class="row" style="margin-top:0.5rem">
+            <div><label for="w">Width</label><input id="w" type="number" min="64" max="2048" step="64"></div>
+            <div><label for="h">Height</label><input id="h" type="number" min="64" max="2048" step="64"></div>
+          </div>
         </div>
       </div>
 
-      <div class="row">
-        <div><label for="sampler">Sampler</label><select id="sampler"><option value="default">default</option></select></div>
-        <div><label for="scheduler">Scheduler</label><select id="scheduler"><option value="default">default</option></select></div>
-      </div>
-
-      <div class="lbl">LoRAs</div>
-      <div id="lora-sel"></div>
-      <select id="lora-add" aria-label="Add a LoRA"><option value="">Add a LoRA…</option></select>
-      <p class="hint" id="lora-hint"></p>
-
-      <div id="hr-sect">
-        <div class="lbl">Hires fix</div>
-        <label class="opt"><input type="checkbox" id="hr-on"> A second pass at a larger size</label>
-        <div id="hr-box" style="display:none">
+      <div class="grp" id="grp-quality">
+        <button type="button" class="grphead" id="grp-quality-h" aria-expanded="false" aria-controls="grp-quality-b"><span class="grptitle">Quality</span><span class="grpsum" id="grp-quality-s"></span><span class="caret" aria-hidden="true">&#9662;</span></button>
+        <div class="grpbody" id="grp-quality-b" style="display:none">
           <div class="row">
-            <div><label for="hr-up">Upscaler</label><select id="hr-up"><option value="Latent">Latent</option></select></div>
             <div>
-              <div class="lbl">Scale</div>
-              <div class="step"><button type="button" id="hr-scale-">&minus;</button><input id="hr-scale" type="number" min="1" max="4" step="0.25" value="1.5" aria-label="Hires scale"><button type="button" id="hr-scale+">+</button></div>
+              <div class="lbl">Steps</div>
+              <div class="step"><button type="button" id="steps-">&minus;</button><input id="steps" type="number" min="1" max="150" step="1"><button type="button" id="steps+">+</button></div>
+            </div>
+            <div>
+              <div class="lbl">CFG scale</div>
+              <div class="step"><button type="button" id="cfg-">&minus;</button><input id="cfg" type="number" min="0" max="30" step="0.5"><button type="button" id="cfg+">+</button></div>
             </div>
           </div>
           <div class="row">
-            <div>
-              <div class="lbl">Steps (0: as the first pass)</div>
-              <div class="step"><button type="button" id="hr-steps-">&minus;</button><input id="hr-steps" type="number" min="0" max="150" step="1" value="0" aria-label="Hires steps"><button type="button" id="hr-steps+">+</button></div>
-            </div>
-            <div>
-              <div class="lbl">Denoising strength</div>
-              <div class="step"><button type="button" id="hr-den-">&minus;</button><input id="hr-den" type="number" min="0.05" max="1" step="0.05" value="0.5" aria-label="Hires denoising strength"><button type="button" id="hr-den+">+</button></div>
-            </div>
+            <div><label for="sampler">Sampler</label><select id="sampler"><option value="default">default</option></select></div>
+            <div><label for="scheduler">Scheduler</label><select id="scheduler"><option value="default">default</option></select></div>
           </div>
-          <p class="hint" id="hr-hint"></p>
         </div>
       </div>
 
-      <div class="row">
-        <div>
-          <label for="seed">Seed</label>
-          <div class="seed"><input id="seed" type="number" step="1" value="-1"><button type="button" id="rnd">Random</button></div>
-        </div>
-        <div id="batch-col">
-          <div class="lbl">Images per run</div>
-          <div class="step"><button type="button" id="batch-">&minus;</button><input id="batch" type="number" min="1" max="8" step="1" value="1" aria-label="Images per run"><button type="button" id="batch+">+</button></div>
+      <div class="grp" id="grp-style">
+        <button type="button" class="grphead" id="grp-style-h" aria-expanded="false" aria-controls="grp-style-b"><span class="grptitle">Style</span><span class="grpsum" id="grp-style-s"></span><span class="caret" aria-hidden="true">&#9662;</span></button>
+        <div class="grpbody" id="grp-style-b" style="display:none">
+          <div id="lora-sel"></div>
+          <select id="lora-add" aria-label="Add a LoRA"><option value="">Add a LoRA…</option></select>
+          <p class="hint" id="lora-hint"></p>
         </div>
       </div>
-      <p class="hint">-1 picks a random seed. Several images take the seeds one after the other (seed, seed + 1, …).</p>
-      <div id="vid-sect" style="display:none">
-        <div class="row">
-          <div>
-            <div class="lbl">Frames</div>
-            <div class="step"><button type="button" id="frames-">&minus;</button><input id="frames" type="number" min="5" max="33" step="4" value="33" aria-label="Frames"><button type="button" id="frames+">+</button></div>
+
+      <div class="grp" id="hr-sect">
+        <button type="button" class="grphead" id="hr-sect-h" aria-expanded="false" aria-controls="hr-sect-b"><span class="grptitle">Hires fix</span><span class="grpsum" id="hr-sect-s"></span><span class="caret" aria-hidden="true">&#9662;</span></button>
+        <div class="grpbody" id="hr-sect-b" style="display:none">
+          <label class="opt"><input type="checkbox" id="hr-on"> A second pass at a larger size</label>
+          <div id="hr-box" style="display:none">
+            <div class="row">
+              <div><label for="hr-up">Upscaler</label><select id="hr-up"><option value="Latent">Latent</option></select></div>
+              <div>
+                <div class="lbl">Scale</div>
+                <div class="step"><button type="button" id="hr-scale-">&minus;</button><input id="hr-scale" type="number" min="1" max="4" step="0.25" value="1.5" aria-label="Hires scale"><button type="button" id="hr-scale+">+</button></div>
+              </div>
+            </div>
+            <div class="row">
+              <div>
+                <div class="lbl">Steps (0: as the first pass)</div>
+                <div class="step"><button type="button" id="hr-steps-">&minus;</button><input id="hr-steps" type="number" min="0" max="150" step="1" value="0" aria-label="Hires steps"><button type="button" id="hr-steps+">+</button></div>
+              </div>
+              <div>
+                <div class="lbl">Denoising strength</div>
+                <div class="step"><button type="button" id="hr-den-">&minus;</button><input id="hr-den" type="number" min="0.05" max="1" step="0.05" value="0.5" aria-label="Hires denoising strength"><button type="button" id="hr-den+">+</button></div>
+              </div>
+            </div>
+            <p class="hint" id="hr-hint"></p>
           </div>
-          <div>
-            <div class="lbl">Frames per second</div>
-            <div class="step"><button type="button" id="fps-">&minus;</button><input id="fps" type="number" min="4" max="30" step="1" value="16" aria-label="Frames per second"><button type="button" id="fps+">+</button></div>
-          </div>
         </div>
-        <p class="hint">Wan makes 4n+1 frames: 33 are 2 seconds at 16 per second. On the console, 33 frames at 832×480 take about 15 minutes with 20 steps, under 4 minutes with the CausVid LoRA (Models tab, LoRAs) at 4 steps and CFG 1.</p>
       </div>
-      <p class="hint"><span id="presetnote"></span><button type="button" id="resetpreset">Use defaults</button><button type="button" id="savepreset" style="display:none">Save as preset</button></p>
-      <div id="ps-box" class="hrow" style="display:none">
-        <div class="hint" id="ps-what" style="margin-top:0"></div>
-        <div class="inrow" style="margin-top:0.8rem"><input id="ps-name" type="text" maxlength="100" placeholder="Name, e.g. Portrait fast" autocomplete="off"><button type="button" id="ps-save">Save</button></div>
-        <p class="hint">The settings above are saved with the model. Its own options (VAE, tiling and so on) come along. The list is under Models.</p>
+
+      <div class="grp" id="grp-seed">
+        <button type="button" class="grphead" id="grp-seed-h" aria-expanded="false" aria-controls="grp-seed-b"><span class="grptitle">Seed</span><span class="grpsum" id="grp-seed-s"></span><span class="caret" aria-hidden="true">&#9662;</span></button>
+        <div class="grpbody" id="grp-seed-b" style="display:none">
+          <div class="row">
+            <div>
+              <label for="seed">Seed</label>
+              <div class="seed"><input id="seed" type="number" step="1" value="-1"><button type="button" id="rnd">Random</button></div>
+            </div>
+            <div id="batch-col">
+              <div class="lbl">Images per run</div>
+              <div class="step"><button type="button" id="batch-">&minus;</button><input id="batch" type="number" min="1" max="8" step="1" value="1" aria-label="Images per run"><button type="button" id="batch+">+</button></div>
+            </div>
+          </div>
+          <p class="hint">-1 picks a random seed. Several images take the seeds one after the other (seed, seed + 1, …).</p>
+        </div>
       </div>
+
+      <div class="grp" id="vid-sect" style="display:none">
+        <button type="button" class="grphead" id="vid-sect-h" aria-expanded="false" aria-controls="vid-sect-b"><span class="grptitle">Video</span><span class="grpsum" id="vid-sect-s"></span><span class="caret" aria-hidden="true">&#9662;</span></button>
+        <div class="grpbody" id="vid-sect-b" style="display:none">
+          <div class="row">
+            <div>
+              <div class="lbl">Frames</div>
+              <div class="step"><button type="button" id="frames-">&minus;</button><input id="frames" type="number" min="5" max="33" step="4" value="33" aria-label="Frames"><button type="button" id="frames+">+</button></div>
+            </div>
+            <div>
+              <div class="lbl">Frames per second</div>
+              <div class="step"><button type="button" id="fps-">&minus;</button><input id="fps" type="number" min="4" max="30" step="1" value="16" aria-label="Frames per second"><button type="button" id="fps+">+</button></div>
+            </div>
+          </div>
+          <p class="hint">Wan makes 4n+1 frames: 33 are 2 seconds at 16 per second. On the console, 33 frames at 832×480 take about 15 minutes with 20 steps, under 4 minutes with the CausVid LoRA (Models tab, LoRAs) at 4 steps and CFG 1.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="gorow" id="gorow">
+      <button type="button" class="go" id="go" title="Generate (Ctrl+Enter)">Generate</button>
+      <button type="button" class="dice" id="surprise" title="Surprise me: a random prompt" aria-label="Surprise me"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="3.5" width="17" height="17" rx="3.5"/><circle cx="8.5" cy="8.5" r="1.5"/><circle cx="15.5" cy="15.5" r="1.5"/><circle cx="12" cy="12" r="1.5"/></svg></button>
     </div>
   </section>
 
@@ -442,6 +491,7 @@
 @@include js/08-done-signal.js
 @@include js/09-generation.js
 @@include js/10-controls.js
+@@include js/10b-create-layout.js
 @@include js/11-help.js
 @@include js/12-gallery.js
 @@include js/13-models.js

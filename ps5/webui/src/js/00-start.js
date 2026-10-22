@@ -57,6 +57,8 @@
     known: null,         // gallery names before the current run
     lb: -1,
     cn: null,            // the guide image (ControlNet): {canvas, name}
-    cnModel: ''          // the loaded entry's ControlNet file, '' for none
+    cnModel: '',         // the loaded entry's ControlNet file, '' for none
+    mode: 'image',       // what the request is made from: image, edit (st.init), guide (st.cn), video
+    pace: null           // the step timing of the run on screen (see pace() in 09-generation.js)
   };
 

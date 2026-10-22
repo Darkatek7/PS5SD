@@ -36,6 +36,7 @@
       markPreset();
       persist();
       setView('create');
+      setMode('edit');
       drawInit();
       toast('Start image set; the size is ' + f.w + '×' + f.h + ' now. Paint a mask to change only a part of it.', 6000);
     };
@@ -90,7 +91,6 @@
   // ---- the guide image (ControlNet): its edges or pose steer the layout of the new image
   function drawGuide() {
     var g = st.cn;
-    show('cn-sect', !!st.cnModel && !st.video);
     show('cn-box', !!g);
     show('cn-bar', !g, 'flex');
     if (g) {
@@ -114,6 +114,7 @@
       c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
       st.cn = { canvas: c, name: name || 'image' };
       setView('create');
+      setMode('guide');
       drawGuide();
       toast(st.cnModel ? 'Guide image set.' : 'Guide image set. It is used with a model that has a ControlNet (Models tab: SDXL + Canny ControlNet).', 6000);
     };

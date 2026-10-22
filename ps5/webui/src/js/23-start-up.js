@@ -70,6 +70,7 @@
     $('cn-str-').onclick = function () { stepper('cn-str', -0.1, 0.1, 1.5, 1); };
     $('cn-str+').onclick = function () { stepper('cn-str', 0.1, 0.1, 1.5, 1); };
     $('cn-canny').onchange = function () { summary(); };
+    initCreateLayout();
     $('me-size-').onclick = function () { me.brush = Math.max(8, me.brush - 8); text($('me-size'), 'Brush ' + me.brush); };
     $('me-size+').onclick = function () { me.brush = Math.min(240, me.brush + 8); text($('me-size'), 'Brush ' + me.brush); };
     $('me-mode').onclick = function () { me.erase = !me.erase; text($('me-mode'), me.erase ? 'Paint' : 'Erase'); };
@@ -125,13 +126,6 @@
       $('prompt').value = SURPRISE[Math.floor(Math.random() * SURPRISE.length)];
       persist();
     };
-    $('prompt').onkeydown = function (e) {
-      e = e || window.event;
-      if (e.keyCode === 13 && (e.ctrlKey || e.metaKey)) { generate(); return false; }
-      return true;
-    };
-    $('set-toggle').onclick = toggleSettings;
-    if (load('open') === '1') toggleSettings();
     $('resetpreset').onclick = function () {
       var seed = $('seed').value;
       setForm(st.preset);
@@ -161,7 +155,6 @@
     $('doc').onclick = onDocClick;
     // The model name in the header and Change on the Create tab open the same model list.
     $('model').onclick = function () { if (st.app !== false) setView('models'); };
-    $('cm-change').onclick = function () { setView('models'); };
     $('m-refresh').onclick = enterModels;
     $('dl-go').onclick = addByUrl;
     $('lora-add').onchange = addLora;

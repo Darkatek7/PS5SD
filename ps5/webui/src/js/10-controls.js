@@ -127,14 +127,6 @@
     return out;
   }
 
-  function toggleSettings() {
-    var open = $('settings').style.display === 'none';
-    show('settings', open);
-    $('set-toggle').setAttribute('aria-expanded', open ? 'true' : 'false');
-    text($('set-toggle'), open ? 'Settings ▴' : 'Settings ▾');
-    save('open', open ? '1' : '0');
-  }
-
   // The five tabs, in the order of the bar. The last one open is remembered for the next visit.
   function setView(name) {
     var tabs = ['create', 'gallery', 'models', 'settings', 'help'];
