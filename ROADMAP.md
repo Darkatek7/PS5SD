@@ -10,6 +10,9 @@ can rely on.
 
 ## Done
 
+- **0.7.1**: the hires fix at ×1 (a refine pass at the same size), a reason for every failed run (out of
+  memory, the last error, cancelled) in the web UI, the API and on the TV, whole error lines in `app.log`,
+  and no sideways scrolling on a phone.
 - **0.7.0**: ControlNet with SDXL (a guide image on the Create tab, Canny on the console, SDXL + Canny in
   the catalog), and the CausVid LoRA: a 2-second video in 3 minutes 40 s instead of about 14.5 minutes.
 - **0.6.0**: video with Wan 2.1 T2V 1.3B (WebM, played in the page and the gallery; in the catalog),
@@ -30,7 +33,7 @@ can rely on.
 - **0.1.0**: the title with server, web UI, model downloader, uploads from the PC, gallery, Help tab, TV
   dashboard.
 
-## 0.7.1: what [#3](https://github.com/Darkatek7/PS5SD/issues/3) asked for
+## 0.7.1: what [#3](https://github.com/Darkatek7/PS5SD/issues/3) asked for, done
 
 Small, and promised in the issue.
 
