@@ -180,7 +180,7 @@
   .doc strong { color: var(--text); font-weight: 600; }
   .doc a { color: var(--accent-hi); }
   .doc code { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 0.88em; color: var(--text);
-    background: var(--field); border-radius: 4px; padding: 0.05rem 0.3rem; word-break: break-word; }
+    background: var(--field); border-radius: 4px; padding: 0.05rem 0.3rem; overflow-wrap: anywhere; }
   .doc pre { background: var(--field); border: 1px solid var(--border); border-radius: 10px; padding: 0.8rem 1rem;
     overflow-x: auto; }
   .doc pre code { background: none; padding: 0; word-break: normal; white-space: pre; }
@@ -311,8 +311,11 @@
     .top { padding: 0 1rem; flex-wrap: wrap; padding-top: 0.5rem; padding-bottom: 0.25rem; }
     .model { order: 3; flex-basis: 100%; margin-top: 0.1rem; }
     .pill { margin-left: auto; }
-    .tabs { padding: 0.25rem 1rem 0; }
-    .tabs button { flex: 1; margin-right: 0.4rem; padding: 0 0.3rem; white-space: nowrap; }
+    /* The tab bar scrolls sideways inside itself, so the page never gets wider than the phone.
+       The padding leaves room for the white focus frame, which the overflow would cut off. */
+    .tabs { padding: 0.5rem 1rem 0.4rem; overflow-x: auto; scrollbar-width: none; }
+    .tabs::-webkit-scrollbar { display: none; }
+    .tabs button { flex: 0 0 auto; margin-right: 0.3rem; padding: 0 0.85rem; white-space: nowrap; }
     .panel { margin: 0.5rem 0; padding: 1.1rem; }
     .main { padding: 0.25rem 0.75rem 1.5rem; }
     .gal { padding: 0.5rem 0.75rem 2rem; }
@@ -468,7 +471,7 @@
             <div><label for="hr-up">Upscaler</label><select id="hr-up"><option value="Latent">Latent</option></select></div>
             <div>
               <div class="lbl">Scale</div>
-              <div class="step"><button type="button" id="hr-scale-">&minus;</button><input id="hr-scale" type="number" min="1.25" max="4" step="0.25" value="1.5" aria-label="Hires scale"><button type="button" id="hr-scale+">+</button></div>
+              <div class="step"><button type="button" id="hr-scale-">&minus;</button><input id="hr-scale" type="number" min="1" max="4" step="0.25" value="1.5" aria-label="Hires scale"><button type="button" id="hr-scale+">+</button></div>
             </div>
           </div>
           <div class="row">
@@ -1066,7 +1069,7 @@
       loras: loraSel.slice(),
       hr: {
         on: $('hr-on').checked, up: $('hr-up').value || 'Latent',
-        scale: num('hr-scale', 1.5, 1.25, 4), steps: Math.round(num('hr-steps', 0, 0, 150)), den: num('hr-den', 0.5, 0.05, 1)
+        scale: num('hr-scale', 1.5, 1, 4), steps: Math.round(num('hr-steps', 0, 0, 150)), den: num('hr-den', 0.5, 0.05, 1)
       }
     };
   }
@@ -1092,6 +1095,12 @@
     show('hr-box', on);
     if (!on) return;
     var t = hiresSize(), big = Math.max(t.w, t.h);
+    // At ×1 the second pass keeps the size: it only redoes the details.
+    if (num('hr-scale', 1.5, 1, 4) === 1) {
+      text($('hr-hint'), 'A second pass at the same size (' + t.w + '×' + t.h + '): it refines the details without making the image larger. ' +
+        'A denoising strength of 0.3 to 0.4 keeps the picture as it is.');
+      return;
+    }
     text($('hr-hint'), 'The image comes out at about ' + t.w + '×' + t.h + '. ' +
       (big > 4096 ? 'That is larger than the server allows (4096).'
         : big > 2048 ? 'Over 2048 px is not measured on the console yet; with SDXL it may not fit in memory.'
@@ -1142,7 +1151,7 @@
       (loraSel.length ? ' · ' + loraSel.length + (loraSel.length === 1 ? ' LoRA' : ' LoRAs') : '') +
       (!st.video && batchCount() > 1 ? ' · ' + batchCount() + ' images' : '') +
       (st.cn && st.cnModel && !st.video ? ' · ControlNet' : '') +
-      (st.video ? ' · video' : st.init ? (st.init.mask ? ' · inpainting' : ' · from an image') : ($('hr-on').checked ? ' · hires ×' + num('hr-scale', 1.5, 1.25, 4) : '')));
+      (st.video ? ' · video' : st.init ? (st.init.mask ? ' · inpainting' : ' · from an image') : ($('hr-on').checked ? (num('hr-scale', 1.5, 1, 4) === 1 ? ' · refine pass' : ' · hires ×' + num('hr-scale', 1.5, 1, 4)) : '')));
     drawHires();
     if (st.view === 'presets') drawSaveBox();
   }
@@ -2211,6 +2220,16 @@
     save('open', open ? '1' : '0');
   }
 
+  // On a phone the tab bar scrolls sideways: bring the chosen tab into it. The page itself
+  // must not move, so its position is put back if the scroll changed it.
+  function showTab(name) {
+    var b = $('tab-' + name), bar = b && b.parentNode;
+    if (!bar || bar.scrollWidth <= bar.clientWidth) return;
+    var x = window.pageXOffset, y = window.pageYOffset;
+    try { b.scrollIntoView({ block: 'nearest', inline: 'nearest' }); } catch (e) {}
+    if (window.pageXOffset !== x || window.pageYOffset !== y) window.scrollTo(x, y);
+  }
+
   function setView(name) {
     st.view = name;
     show('view-create', name === 'create', 'flex');
@@ -2223,6 +2242,7 @@
     $('tab-presets').className = name === 'presets' ? 'on' : '';
     $('tab-gallery').className = name === 'gallery' ? 'on' : '';
     $('tab-help').className = name === 'help' ? 'on' : '';
+    showTab(name);
     if (name === 'gallery') refreshGallery();
     if (name === 'help') showDoc(docName);
     if (name === 'presets') { loadModels(null); loadLoras(null); drawSaveBox(); }
@@ -2832,7 +2852,7 @@
     if (d.sampler) parts.push(d.sampler);
     if (d.scheduler) parts.push(d.scheduler);
     if (d.loras) parts.push(d.loras.split(',').length + (d.loras.split(',').length === 1 ? ' LoRA' : ' LoRAs'));
-    if (d.hires_scale) parts.push('hires ×' + d.hires_scale);
+    if (d.hires_scale) parts.push(d.hires_scale === '1' ? 'refine pass' : 'hires ×' + d.hires_scale);
     text($('ps-what'), 'Model: ' + (root ? root.name || root.id : st.mid) + ' · ' + parts.join(' · '));
     if (!$('ps-name').value) $('ps-name').placeholder = 'Name, e.g. ' + (root ? root.name || root.id : 'My preset') + ' ' + d.width + '×' + d.height;
   }
@@ -4376,8 +4396,8 @@
     $('hr-on').onchange = function () { drawHires(); persist(); };
     $('hr-up').onchange = function () { save('hrup', this.value); persist(); };
     $('hr-scale').onchange = $('hr-steps').onchange = $('hr-den').onchange = persist;
-    $('hr-scale-').onclick = function () { stepper('hr-scale', -0.25, 1.25, 4, 2); };
-    $('hr-scale+').onclick = function () { stepper('hr-scale', 0.25, 1.25, 4, 2); };
+    $('hr-scale-').onclick = function () { stepper('hr-scale', -0.25, 1, 4, 2); };
+    $('hr-scale+').onclick = function () { stepper('hr-scale', 0.25, 1, 4, 2); };
     $('hr-steps-').onclick = function () { stepper('hr-steps', -1, 0, 150, 0); };
     $('hr-steps+').onclick = function () { stepper('hr-steps', 1, 0, 150, 0); };
     $('hr-den-').onclick = function () { stepper('hr-den', -0.05, 0.05, 1, 2); };

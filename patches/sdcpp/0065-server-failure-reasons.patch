@@ -1,0 +1,317 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: ps5sd <ps5sd@localhost>
+Date: Thu, 22 Oct 2026 12:00:00 +0200
+Subject: [PATCH] server: a failed generation says why
+
+---
+ examples/server/async_jobs.cpp    |   4 +-
+ examples/server/gallery.cpp       |   2 +
+ examples/server/main.cpp          |   3 +
+ examples/server/routes_openai.cpp |   2 +-
+ examples/server/routes_sdapi.cpp  |   3 +-
+ examples/server/routes_sdcpp.cpp  |   2 +
+ examples/server/server_activity.h |  22 ++++++-
+ examples/server/server_hooks.cpp  | 106 ++++++++++++++++++++++++++++++
+ examples/server/server_hooks.h    |   8 ++-
+ 9 files changed, 144 insertions(+), 8 deletions(-)
+
+diff --git a/examples/server/async_jobs.cpp b/examples/server/async_jobs.cpp
+index 148ec5e..050b82d 100644
+--- a/examples/server/async_jobs.cpp
++++ b/examples/server/async_jobs.cpp
+@@ -258,7 +258,7 @@ bool execute_img_gen_job(ServerRuntime& runtime,
+     const std::vector<std::string> saved = save_output_images(*runtime.svr_params, results);
+     activity.finish(num_results > 0, saved_paths(saved));
+     if (num_results <= 0) {
+-        error_message = "generate_image returned no results";
++        error_message = sd_server_failure_reason("generate_image returned no results");
+         return false;
+     }
+ 
+@@ -334,7 +334,7 @@ bool execute_vid_gen_job(ServerRuntime& runtime,
+     num_results = results.count();
+     if (num_results <= 0) {
+         free_sd_audio(generated_audio);
+-        error_message = "generate_video returned no results";
++        error_message = sd_server_failure_reason("generate_video returned no results");
+         return false;
+     }
+ 
+diff --git a/examples/server/gallery.cpp b/examples/server/gallery.cpp
+index 030aebb..3ba106e 100644
+--- a/examples/server/gallery.cpp
++++ b/examples/server/gallery.cpp
+@@ -18,6 +18,7 @@
+ #include "gallery.h"
+ #include "routes.h"
+ #include "async_jobs.h"
++#include "server_activity.h"
+ #include "server_hooks.h"
+ 
+ namespace fs = std::filesystem;
+@@ -261,6 +262,7 @@ static bool interrupt_generation(ServerRuntime& rt) {
+             }
+         }
+     }
++    sd_server_failure_log_cancelled();
+     sd_cancel_generation(rt.sd_ctx, SD_CANCEL_ALL);
+     return async_job;
+ }
+diff --git a/examples/server/main.cpp b/examples/server/main.cpp
+index 38b55a2..1519810 100644
+--- a/examples/server/main.cpp
++++ b/examples/server/main.cpp
+@@ -16,6 +16,7 @@
+ #include "common/common.h"
+ #include "common/resource_owners.hpp"
+ #include "routes.h"
++#include "server_activity.h"
+ #include "server_hooks.h"
+ #include "runtime.h"
+ 
+@@ -89,6 +90,8 @@ static void sd_progress_cb(int step, int steps, float secs, void*) {
+ }
+ 
+ void sd_log_cb(enum sd_log_level_t level, const char* log, void* data) {
++    // PS5SD: kept for the reason a failed generation gives (server_activity.h).
++    sd_server_failure_log_add(level, log);
+     SDSvrParams* svr_params = (SDSvrParams*)data;
+     log_print(level, log, svr_params->log_level, svr_params->color);
+ }
+diff --git a/examples/server/routes_openai.cpp b/examples/server/routes_openai.cpp
+index fea7b41..f22c2c1 100644
+--- a/examples/server/routes_openai.cpp
++++ b/examples/server/routes_openai.cpp
+@@ -250,7 +250,7 @@ static bool execute_sync_img_gen_request(ServerRuntime& runtime,
+     activity.finish(!results.empty(), saved_paths(saved));
+ 
+     if (results.empty()) {
+-        error_message = "generate_image returned no results";
++        error_message = sd_server_failure_reason("generate_image returned no results");
+         return false;
+     }
+     return true;
+diff --git a/examples/server/routes_sdapi.cpp b/examples/server/routes_sdapi.cpp
+index 5b758a7..f207ef7 100644
+--- a/examples/server/routes_sdapi.cpp
++++ b/examples/server/routes_sdapi.cpp
+@@ -433,7 +433,8 @@ void register_sdapi_endpoints(httplib::Server& svr, ServerRuntime& rt) {
+ 
+             if (results.empty()) {
+                 res.status = 500;
+-                res.set_content(R"({"error":"generate_image returned no results"})", "application/json");
++                res.set_content(json({{"error", sd_server_failure_reason("generate_image returned no results")}}).dump(),
++                                "application/json");
+                 return;
+             }
+ 
+diff --git a/examples/server/routes_sdcpp.cpp b/examples/server/routes_sdcpp.cpp
+index 2059d42..8d16b8c 100644
+--- a/examples/server/routes_sdcpp.cpp
++++ b/examples/server/routes_sdcpp.cpp
+@@ -10,6 +10,7 @@
+ #include "common/media_io.h"
+ #include "common/resource_owners.hpp"
+ #include "gallery.h"
++#include "server_activity.h"
+ #include "server_hooks.h"
+ 
+ namespace fs = std::filesystem;
+@@ -849,6 +850,7 @@ void register_sdcpp_api_endpoints(httplib::Server& svr, ServerRuntime& rt) {
+         // worker marks it cancelled once generate_image() has returned.
+         if (job.status == AsyncJobStatus::Generating) {
+             job.cancel_requested = true;
++            sd_server_failure_log_cancelled();
+             sd_cancel_generation(runtime->sd_ctx, SD_CANCEL_ALL);
+             res.status = 202;
+             res.set_content(make_async_job_json(manager, job).dump(), "application/json");
+diff --git a/examples/server/server_activity.h b/examples/server/server_activity.h
+index e344cf6..4926849 100644
+--- a/examples/server/server_activity.h
++++ b/examples/server/server_activity.h
+@@ -5,6 +5,20 @@
+ #include "common/common.h"
+ #include "server_hooks.h"
+ 
++// PS5SD: why a generation failed. sd_log_cb feeds the WARN and ERROR lines of
++// the log in as they come; ActivityJob::begin() forgets the older ones.
++// sd_server_failure_reason() reads them back when a job has failed.
++void sd_server_failure_log_begin();
++void sd_server_failure_log_add(sd_log_level_t level, const char* text);
++// A client stopped the generation that runs now (sd_cancel_generation); the
++// reason is then "Cancelled", not the error the stop caused.
++void sd_server_failure_log_cancelled();
++// The reason for a failed job, as a person should read it: "Cancelled" after a
++// stop, a memory message
++// when the log says the console ran out of memory, else the last ERROR line,
++// else fallback.
++std::string sd_server_failure_reason(const std::string& fallback);
++
+ // One generation as seen by the activity hooks: begin() when the generation
+ // starts, finish() when it is over. If finish() is never reached (an early
+ // return, an exception) the destructor reports the job as failed.
+@@ -27,6 +41,7 @@ public:
+     void begin() {
+         if (!begun_) {
+             begun_ = true;
++            sd_server_failure_log_begin();
+             sd_activity_job_begin(kind_, prompt_.c_str(), width_, height_, steps_);
+         }
+     }
+@@ -34,7 +49,12 @@ public:
+     void finish(bool ok, const std::string& output_path) {
+         if (begun_ && !finished_) {
+             finished_ = true;
+-            sd_activity_job_end(ok ? 1 : 0, output_path.c_str());
++            if (ok) {
++                sd_activity_job_end(1, output_path.c_str());
++            } else {
++                const std::string reason = sd_server_failure_reason("");
++                sd_activity_job_end(0, reason.c_str());
++            }
+         }
+     }
+ 
+diff --git a/examples/server/server_hooks.cpp b/examples/server/server_hooks.cpp
+index 816af9b..6d42a04 100644
+--- a/examples/server/server_hooks.cpp
++++ b/examples/server/server_hooks.cpp
+@@ -6,6 +6,14 @@
+ 
+ #include "server_hooks.h"
+ 
++#include <algorithm>
++#include <cctype>
++#include <deque>
++#include <mutex>
++#include <string>
++
++#include "server_activity.h"
++
+ #if defined(__GNUC__) || defined(__clang__)
+ #define SD_SERVER_WEAK __attribute__((weak))
+ #else
+@@ -26,3 +34,101 @@ SD_SERVER_WEAK int sd_app_upload(const char*, uint64_t, sd_app_reader, void*, ch
+ }
+ 
+ }
++
++// PS5SD: the reason a generation failed. The WARN and ERROR lines of the log
++// are kept while a job runs, so a failed job can say why, not only that it
++// failed. Only the last few lines are kept.
++
++namespace {
++
++constexpr size_t k_failure_lines_kept = 16;
++
++struct FailureLine {
++    sd_log_level_t level;
++    std::string text;
++};
++
++std::mutex g_failure_mutex;
++std::deque<FailureLine> g_failure_lines;
++bool g_failure_cancelled = false;
++
++// Case-insensitive substring test.
++bool contains_ci(const std::string& text, const char* needle) {
++    const std::string n(needle);
++    const auto same = [](char a, char b) {
++        return std::tolower(static_cast<unsigned char>(a)) == std::tolower(static_cast<unsigned char>(b));
++    };
++    return std::search(text.begin(), text.end(), n.begin(), n.end(), same) != text.end();
++}
++
++// The log line without its line break and without the " --- <file>:<line>" tail
++// that sd.cpp adds to its lines.
++std::string failure_line_text(const char* log) {
++    std::string text = log ? log : "";
++    while (!text.empty() && (text.back() == '\n' || text.back() == '\r')) {
++        text.pop_back();
++    }
++    const std::string sep = " --- ";
++    const size_t at       = text.rfind(sep);
++    if (at != std::string::npos && text.find_first_of(" \t", at + sep.size()) == std::string::npos) {
++        text.erase(at);
++    }
++    return text;
++}
++
++}  // namespace
++
++void sd_server_failure_log_begin() {
++    std::lock_guard<std::mutex> lock(g_failure_mutex);
++    g_failure_lines.clear();
++    g_failure_cancelled = false;
++}
++
++void sd_server_failure_log_cancelled() {
++    std::lock_guard<std::mutex> lock(g_failure_mutex);
++    g_failure_cancelled = true;
++}
++
++void sd_server_failure_log_add(sd_log_level_t level, const char* text) {
++    if (level != SD_LOG_WARN && level != SD_LOG_ERROR) {
++        return;
++    }
++    std::lock_guard<std::mutex> lock(g_failure_mutex);
++    g_failure_lines.push_back({level, failure_line_text(text)});
++    while (g_failure_lines.size() > k_failure_lines_kept) {
++        g_failure_lines.pop_front();
++    }
++}
++
++std::string sd_server_failure_reason(const std::string& fallback) {
++    static const char* const k_memory_markers[] = {
++        "cannot make enough memory available",
++        "out of memory",
++        "outofdevicememory",
++        "outofhostmemory",
++        "failed to allocate",
++    };
++    std::lock_guard<std::mutex> lock(g_failure_mutex);
++    if (g_failure_cancelled) {
++        return "Cancelled";
++    }
++    for (const FailureLine& line : g_failure_lines) {
++        for (const char* marker : k_memory_markers) {
++            if (contains_ci(line.text, marker)) {
++                return "Not enough memory on the console for this run. Try a smaller size, fewer images or frames, "
++                       "a lower hires scale, or a smaller model.";
++            }
++        }
++    }
++    for (auto it = g_failure_lines.rbegin(); it != g_failure_lines.rend(); ++it) {
++        if (it->level == SD_LOG_ERROR) {
++            std::string text         = it->text;
++            const std::string prefix = "ggml: ";
++            if (text.compare(0, prefix.size(), prefix) == 0) {
++                text.erase(0, prefix.size());
++            }
++            return "Generation failed: " + text;
++        }
++    }
++    return fallback;
++}
+diff --git a/examples/server/server_hooks.h b/examples/server/server_hooks.h
+index e2628f3..1e48b59 100644
+--- a/examples/server/server_hooks.h
++++ b/examples/server/server_hooks.h
+@@ -31,9 +31,11 @@ void sd_activity_progress(int step, int steps, float secs);
+ // Only called when the request asked for previews (the web UI does).
+ void sd_activity_preview(const uint8_t* rgb, int w, int h);
+ 
+-// The job ended. ok is 0 or 1. output_path lists the images saved to
+-// --output-dir, one full path a line in the order of the results (several for
+-// a batch; "" when there is no --output-dir or nothing was saved; never NULL).
++// The job ended. ok is 0 or 1. On success (ok 1) output_path lists the images
++// saved to --output-dir, one full path a line in the order of the results
++// (several for a batch; "" when there is no --output-dir or nothing was saved).
++// On failure (ok 0) it is the reason the job failed, as a person should read
++// it, or "" when that is not known. Never NULL.
+ void sd_activity_job_end(int ok, const char* output_path);
+ 
+ // The application's own routes: GET, POST and DELETE on /ps5sd/v1/app/<path>
+-- 
+2.56.0.windows.2
+

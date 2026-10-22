@@ -351,6 +351,11 @@ The `model` field of a generation request does not switch the model; the loaded 
 | `POST /sdcpp/v1/jobs/<id>/cancel` | cancel it; see "Jobs" above |
 | `POST /sdcpp/v1/upscale` | upscale an image with an upscaler model; see "Hires fix and upscaling" |
 
+A failed job says why in `error.message`: `Not enough memory on the console for this run. ...` when the GPU
+ran out of memory (a smaller size, fewer images or frames, a lower hires scale or a smaller model fits),
+otherwise `Generation failed: ` and the server's last error. The A1111 and OpenAI routes answer with the
+same message (`Cancelled` after `POST /sdapi/v1/interrupt`); a cancelled job stays `cancelled`.
+
 Several images in one job: `"batch_count": n` on `img_gen` (`"batch_size"` on `/sdapi/v1/txt2img`,
 `"n"` on `/v1/images/generations`), up to `limits.max_batch_count` of the capabilities (8). The images
 are made one after the other with the seeds `seed`, `seed + 1`, ...; while the job runs,
@@ -424,6 +429,9 @@ takes A1111's `enable_hr`, `hr_scale`, `hr_upscaler`, `hr_steps`,
 `hr_resize_x`/`hr_resize_y` and `denoising_strength`. A batch makes all first passes, then all second
 passes: while a job runs, `preview.pass` counts them (images 1 to n, then their hires passes n + 1 to 2n).
 The largest size is 4096 on each side; on the console, sizes over 2048 are not measured yet.
+`"scale": 1` is a second pass at the same size: it refines the details without making the image larger
+(on the console, 832x1216 with iLustMix at 10 steps and a strength of 0.35: 57 s with `Latent` and 63 s
+with `Lanczos`, against 30 s without it).
 
 **Upscale an image**: `POST /sdcpp/v1/upscale` with `{"image": "<base64>", "upscaler": "<name>"}` runs the
 model over it (4x for most). PS5SD saves the result to the gallery like a generated image and says under

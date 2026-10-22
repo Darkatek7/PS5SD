@@ -445,3 +445,28 @@ the server; pixel-art-xl (`nerijs/pixel-art-xl`, 170 MB) downloaded with `"kind"
 - Before `patches/sdcpp/0058`, B failed on `/sdapi/v1/txt2img` with "invalid lora path" because the
   file had come after the server started; the web UI's route (`/sdcpp/v1/img_gen`) already refreshed
   the list.
+
+## Hires fix at x1, and a run that does not fit (2026-10-21)
+
+iLustMix v11.1 (preset `ilustmix-portrait`), 832x1216, 10 steps, CFG 6, seed 7, a cabin by a lake:
+
+| Request | Request time | Size of the image |
+|---|---|---|
+| no hires fix | 30 s | 832x1216 |
+| hires fix x1, `Latent`, strength 0.35, steps 0 | 57 s | 832x1216 |
+| hires fix x1, `Lanczos`, strength 0.35, steps 0 | 63 s | 832x1216 |
+
+- sd.cpp takes a scale of 1: the target is the first pass's size, and the second pass runs 10 of the 28
+  steps of its schedule (`hires fix: scheduler_steps=28, denoising_strength=0.35`), 25.6 s of sampling.
+- Both images keep the first one's picture with crisper detail; `Lanczos` at x1 resizes nothing, so it
+  is image to image over the decoded first pass.
+
+The same model at 2048x2048, 4 steps, failed after 24 s in the first sampling step. The log said why:
+
+```
+[W] model manager cannot make enough memory available on Vulkan0: need 512.00 MB device / 2866.11 MB budget, available 0.00 MB device / unlimited budget --- model_manager.cpp:2018
+[E] sampling for image 1/1 failed after 18.50s --- image.cpp:907
+```
+
+The job's error was only `generate_image returned no results` until `patches/sdcpp/0065`. After the run,
+5.71 of 11.44 GiB of the pool were free again.

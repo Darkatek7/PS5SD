@@ -34,13 +34,13 @@ can rely on.
 
 Small, and promised in the issue.
 
-- [ ] **Hires fix at ×1**: a second pass at the same size, to refine an image without making it larger.
-  Measure first whether sd.cpp's hires pass takes a scale of 1.
-- [ ] **Say why a run failed**: "generate_image returned no results" tells nobody anything. The server
-  knows more (out of memory, a model that did not load, a LoRA of another family); the web UI and the API
-  should show that, with what to change.
-- [ ] **No sideways scrolling on a phone**: the tab bar is wider than a phone screen, so Help is cut off
-  and the whole page scrolls sideways.
+- [x] **Hires fix at ×1**: a second pass at the same size, to refine an image without making it larger.
+  sd.cpp takes a scale of 1; at 832x1216 with 10 steps and a strength of 0.35 it adds about 27 s.
+- [x] **Say why a run failed**: "generate_image returned no results" tells nobody anything. Now a run
+  that runs out of memory says so and what to lower; other failures give the server's last error, on the
+  web UI, in the API and on the TV. `app.log` keeps whole error lines again (their start was written over).
+- [x] **No sideways scrolling on a phone**: the tab bar was wider than a phone screen, so Help was cut off
+  and the whole page scrolled sideways; now the bar scrolls inside itself.
 
 ## 0.8.0: a clearer web UI
 

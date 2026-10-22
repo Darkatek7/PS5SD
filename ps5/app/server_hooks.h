@@ -31,9 +31,11 @@ void sd_activity_progress(int step, int steps, float secs);
 // Only called when the request asked for previews (the web UI does).
 void sd_activity_preview(const uint8_t* rgb, int w, int h);
 
-// The job ended. ok is 0 or 1. output_path lists the images saved to
-// --output-dir, one full path a line in the order of the results (several for
-// a batch; "" when there is no --output-dir or nothing was saved; never NULL).
+// The job ended. ok is 0 or 1. On success (ok 1) output_path lists the images
+// saved to --output-dir, one full path a line in the order of the results
+// (several for a batch; "" when there is no --output-dir or nothing was saved).
+// On failure (ok 0) it is the reason the job failed, as a person should read
+// it, or "" when that is not known. Never NULL.
 void sd_activity_job_end(int ok, const char* output_path);
 
 // The application's own routes: GET, POST and DELETE on /ps5sd/v1/app/<path>

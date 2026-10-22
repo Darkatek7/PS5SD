@@ -1455,7 +1455,19 @@ static bool is_png_path(const std::string & path) {
 extern "C" void sd_activity_job_end(int ok, const char * output_path) {
     log_memory("after a request");
     if (!ok) {
-        set_phase("Generation failed", "See /data/PS5SD/app.log");
+        // The server's reason for the failure ("Cancelled", out of memory, the
+        // last error), when it knows one (patches/sdcpp/0065).
+        std::string reason = output_path != nullptr ? output_path : "";
+        std::printf("ps5sd: failed: %s\n", reason.empty() ? "reason not known" : reason.c_str());
+        if (reason == "Cancelled") {
+            set_phase("Ready", "cancelled");  // a stop is no error (AppStatus::classify)
+            return;
+        }
+        const std::string prefix = "Generation failed: ";
+        if (reason.compare(0, prefix.size(), prefix) == 0) {
+            reason.erase(0, prefix.size());
+        }
+        set_phase("Generation failed", reason.empty() ? "See /data/PS5SD/app.log" : reason);
         return;
     }
     // One path a line: every image of a batch, in order (patches/sdcpp/0059).
@@ -1483,8 +1495,13 @@ int main(int, char **) {
     for (const char * dir : { kModels, kLoras, kEmbeddings, kPresets, kUpscalers }) {
         mkdir(dir, 0777);  // uploads, downloads and sd-server's lists expect them
     }
-    // stdout and stderr to a file the PC can fetch over FTP.
-    if (std::freopen(kLog, "w", stdout) != nullptr) {
+    // stdout and stderr to a file the PC can fetch over FTP. Both append: with
+    // "w", stdout kept its own offset and wrote over what stderr had appended
+    // (the start of every error line). The file is emptied first instead.
+    if (std::FILE * log = std::fopen(kLog, "w")) {
+        std::fclose(log);
+    }
+    if (std::freopen(kLog, "a", stdout) != nullptr) {
         setvbuf(stdout, nullptr, _IOLBF, 0);
     }
     if (std::freopen(kLog, "a", stderr) != nullptr) {

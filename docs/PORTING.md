@@ -158,7 +158,8 @@ instead of trapping, so `main.cpp` reports an out-of-memory load or generation a
 
 ## The app (`ps5/app`)
 
-- `main.cpp`: PS5LM's boot order: log to `/data/PS5SD/app.log`, `radv_enable_unified_heap_on_apu`
+- `main.cpp`: PS5LM's boot order: log to `/data/PS5SD/app.log` (stdout and stderr both appending, or
+  stdout writes over the start of the error lines), `radv_enable_unified_heap_on_apu`
   and `HOME`, `env.txt` switches (`RADV_`, `MESA_`, `ACO_`, `GGML_`, `SD_`, `PS5SD_`) before the GPU opens,
   the screen first (it takes from the same memory as the model), splash hidden, then the work on
   a 16 MiB-stack thread while the main thread draws and polls for `quit`. The work is the HTTP server
@@ -181,6 +182,10 @@ instead of trapping, so `main.cpp` reports an out-of-memory load or generation a
   `patches/sdcpp/0064` saves a `vid_gen` video into the output directory too
   (`sd_<date>_<time>_<n>.webm`), hands its path to `sd_activity_job_end` (which keeps it off the TV,
   the dashboard draws PNGs only), and lets the gallery list and serve videos with their type.
+  `patches/sdcpp/0065` keeps the WARN and ERROR lines of the log while a job runs, so a failed job says
+  why: `Not enough memory on the console ...` when the log names a memory failure, otherwise the last
+  error, and `Cancelled` after a stop. The job's error, the A1111 and OpenAI answers and
+  `sd_activity_job_end` (for the TV) carry it.
   The request's own settings (steps, CFG, size) win over the server's defaults, which are sd.cpp's, not
   the one-shot's SD-Turbo ones. `main.cpp` defines the activity hooks of `server_hooks.h` (in its own
   object: from an archive, lld could take the weak no-ops instead), which feed the status and the
