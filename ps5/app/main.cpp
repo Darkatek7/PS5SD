@@ -65,6 +65,7 @@
 #include <vulkan/vulkan_core.h>
 
 #include "app_status.hpp"
+#include "console_stats.hpp"
 #include "gen_args.hpp"
 #include "ggml-backend.h"
 #include "download_core.hpp"
@@ -163,6 +164,7 @@ constexpr int          kPort    = 7860;  // sd-server's listen port unless serve
 constexpr int          kStopWaitSeconds = 120;  // how long a quit waits for the server to stop
 
 AppStatus g_status;
+ConsoleStats g_console;  // the temperature, power, fan and load (console_stats.hpp)
 
 const ModelLibrary g_library{ kModels, kPresets };
 std::mutex         g_settings_mutex;  // the HTTP threads read and change g_settings
@@ -1132,6 +1134,8 @@ bool set_api_key(bool on, std::string & error) {
 //                       a new one (also when there is one).
 //   presets (POST), presets/<id> (GET, POST, DELETE): saved presets, the
 //                       variants of a model (ModelLibrary::create_preset).
+//   console (GET)       the console's temperature, power, fan and load, now,
+//                       the last 2 minutes and the last hour (console_stats.hpp).
 // GET docs/<name>: docs/MODELS.md or docs/API.md, which the title carries,
 // for the web UI's Help tab.
 int doc_request(const std::string & name, char ** out_body, size_t * out_len, const char ** content_type) {
@@ -1220,6 +1224,9 @@ extern "C" int sd_app_request(const char * method, const char * path, const char
         } else {
             status = ask_switch(id, out);
         }
+    } else if (m == "GET" && p == "console") {
+        out    = g_console.json();
+        status = 200;
     } else if (m == "GET" && p == "info") {
         out    = info_json(PS5SD_VERSION, sd_version(), sd_commit());
         status = 200;
@@ -1585,6 +1592,7 @@ int main(int, char **) {
     for (const std::string & id : update_catalog_presets(kPresets)) {
         std::printf("ps5sd: preset %s updated to the catalog's current settings\n", id.c_str());
     }
+    g_console.start(g_status);
     // One device-local heap over the whole pool (RADV splits an APU's 2/3 to
     // 1/3), and a HOME, which a title lacks and libraries look up.
     setenv("radv_enable_unified_heap_on_apu", "true", 1);

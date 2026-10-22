@@ -227,6 +227,7 @@ cxx "${eh[@]}" -I "$headers/include" "${sdinc[@]}" "${kitinc[@]}" -I "$app_src" 
     -c "$app_src/main.cpp" -o "$obj/main.o"
 cxx "${eh[@]}" "${sdinc[@]}" -c "$app_src/gen_args.cpp" -o "$obj/gen_args.o"
 cxx "${eh[@]}" -c "$app_src/app_status.cpp" -o "$obj/app_status.o"
+cxx -std=c++17 "${eh[@]}" -I "$sd/thirdparty" -c "$app_src/console_stats.cpp" -o "$obj/console_stats.o"
 # The model library (presets, checkpoints) and its JSON, with sd.cpp's nlohmann json; C++17,
 # where path::u8string() is a std::string (C++20 makes it std::u8string).
 cxx -std=c++17 "${eh[@]}" -I "$sd/thirdparty" -c "$app_src/models.cpp" -o "$obj/models.o"
@@ -257,7 +258,7 @@ rm -f "$obj/libps5app_compat.a"
 "$sdk/bin/llvm-ar" rcs "$obj/libps5app_compat.a" "$obj/compat_app.o"
 cxx -fno-exceptions -fno-rtti -c "$vk/tooling/native/app_crt.cpp" -o "$obj/app_crt.o"
 cxx -fexceptions -fcxx-exceptions -c "$app_src/cpp_runtime.cpp" -o "$obj/app_cpp_runtime.o"
-app_objects=("$obj/app_crt.o" "$obj/app_cpp_runtime.o" "$obj/main.o" "$obj/gen_args.o" "$obj/app_status.o"
+app_objects=("$obj/app_crt.o" "$obj/app_cpp_runtime.o" "$obj/main.o" "$obj/gen_args.o" "$obj/app_status.o" "$obj/console_stats.o"
     "$obj/models.o" "$obj/net_family.o" "$obj/mem_fit.o" "$obj/download_core.o" "$obj/downloader.o" "$obj/https_client.o" "$obj/ftp_writer.o" "$obj/upload.o")
 [ "$display" = 1 ] && app_objects+=("$obj/display.o" "$obj/dashboard.o" "$obj/qrcodegen.o" "$obj/image_file.o")
 
@@ -478,6 +479,20 @@ printf '%s\n' "ftpsrv by John Törnblom and drakmor, GPL-3.0-or-later." \
     "Source: https://github.com/drakmor/ftpsrv at $(git -C "$ftpsrv" rev-parse HEAD) (1.16-ng-stable)," \
     "with PS5SD's patches/ftpsrv (https://github.com/Darkatek7/PS5SD): 127.0.0.1:2122 only." \
     > "$app/ftpsrv/SOURCE.txt"
+# ps5-exporter (Marice, GPL-3.0): a title may not read the temperature, fan or SoC power, a
+# payload may (console_stats.hpp). The app sends it to the ELF loader when it does not answer.
+# Pinned by version and hash, downloaded once into .deps (the same file PS5LM carries).
+exporter="$root/.deps/ps5-exporter-0.2.0.elf"
+exporter_sha=0d19f7a293eeb30178ba562a3712abfdc50f6b6ebbe180ceaad92dc557948ba8
+if [ ! -f "$exporter" ]; then
+    curl -sSfL -o "$exporter.part" https://github.com/Marice/ps5-exporter/releases/download/v0.2.0/ps5-exporter.elf
+    mv "$exporter.part" "$exporter"
+fi
+echo "$exporter_sha  $exporter" | sha256sum -c --quiet || { echo "build-app: ps5-exporter hash mismatch" >&2; exit 1; }
+mkdir -p "$app/payloads"
+cp "$exporter" "$app/payloads/ps5-exporter.elf"
+printf '%s\n' "ps5-exporter v0.2.0 by Marice, GPL-3.0-or-later: https://github.com/Marice/ps5-exporter" \
+    "Source: https://github.com/Marice/ps5-exporter/tree/v0.2.0" > "$app/payloads/ps5-exporter-NOTICE.txt"
 # libwebp and libwebm (BSD-3-Clause), linked for the WebM videos: their licences go with the binary.
 rm -rf "$app/licenses"
 if [ "$webm" = ON ]; then

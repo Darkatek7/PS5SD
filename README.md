@@ -35,7 +35,8 @@ Open the address the TV shows (or scan its QR code) on a phone or a PC on the sa
 picks the model, the mode (Image, Edit, Guide, Video) and the settings in groups, with the result next to
 them; the count next to **Generate** sends that many images, with new seeds, and more can be queued while
 it runs. **Gallery** keeps every image and video, **Models** installs, switches and removes models, LoRAs
-and upscalers, **Settings** holds the done signal, the TV and the API key, and **Help** explains the rest.
+and upscalers, **Settings** holds the console's temperature, power, fan and load (also in the header and on the TV), the
+done signal, the TV and the API key, and **Help** explains the rest.
 
 <img src="docs/images/webui-pc-create.jpg" alt="The Create tab on a PC: the settings on the left, a finished image on the right" width="720">
 
@@ -107,6 +108,8 @@ See [docs/BUILDING.md](docs/BUILDING.md).
 - [libwebp](https://chromium.googlesource.com/webm/libwebp) and
   [libwebm](https://chromium.googlesource.com/webm/libwebm) by Google (BSD-3-Clause), through
   stable-diffusion.cpp's submodules: the WebM videos. Their licences are in the title's `licenses` folder.
+- [ps5-exporter](https://github.com/Marice/ps5-exporter) by Marice (GPL-3.0), the release 0.2.0 ELF
+  unchanged, in the title as `payloads/ps5-exporter.elf`: the temperature, power and fan readings.
 - ps5-homebrew-ui by blackbearreloaded (GPL-3.0). The original repository is gone; the submodule uses the copy at [Phononenom/ps5-homebrew-ui](https://github.com/Phononenom/ps5-homebrew-ui), pinned at the same commit.
 
 ## License

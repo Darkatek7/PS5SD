@@ -43,13 +43,14 @@ constexpr float kMuted = 0.62f;  // alpha of secondary text
 constexpr float kFaint = 0.38f;  // alpha of tertiary text and empty states
 
 // The grid, inside the safe area: a wide column of server, activity and recent
-// images; a narrow one of the picture, the memory and the log.
+// images; a narrow one of the picture, the memory with the console's readings,
+// and the log.
 constexpr Rect kServer{ 96, 152, 1164, 160 };
 constexpr Rect kActivity{ 96, 332, 1164, 396 };
 constexpr Rect kRecent{ 96, 748, 1164, 236 };
 constexpr Rect kImage{ 1284, 152, 540, 576 };
-constexpr Rect kMemory{ 1284, 748, 540, 92 };
-constexpr Rect kLogTile{ 1284, 860, 540, 124 };
+constexpr Rect kMemory{ 1284, 748, 540, 124 };
+constexpr Rect kLogTile{ 1284, 892, 540, 92 };
 constexpr float kRadius = 28.0f;
 constexpr float kPad    = 32.0f;
 constexpr int   kThumbs = 6;
@@ -59,6 +60,16 @@ constexpr const char * kDot = "\xC2\xB7";  // middle dot
 Color with_a(Color c, float a) {
     c.a = a;
     return c;
+}
+
+// A reading for the console line, or a dash while it is not read.
+std::string reading(double v, const char * format, double scale = 1.0) {
+    if (std::isnan(v)) {
+        return "\xE2\x80\x93";  // en dash
+    }
+    char text[24];
+    std::snprintf(text, sizeof(text), format, v * scale);
+    return text;
 }
 
 std::string seconds_text(double s) {
@@ -899,13 +910,34 @@ void Dashboard::draw_memory(DrawList & list, const Rect & r) const {
     hui::ui::text(list, fonts_.mono, text, r.x + r.w - 24, r.y + 36, 20, kInk, Align::right);
     hui::ui::Canvas c = canvas(list);
     memory_.draw(c);
+
+    // The console under the bar (console_stats.hpp): the SoC's temperature and power and the fan
+    // from ps5-exporter, PS5SD's CPU use, and the share of the time a job runs on the GPU.
+    const AppStatus::Console & k = s.console;
+    const std::pair<const char *, std::string> items[] = {
+        { "SoC", reading(k.soc_c, "%.0f\xC2\xB0" "C") }, { "Power", reading(k.watts, "%.0f W") },
+        { "Fan", reading(k.fan, "%.0f%%", 100) },          { "CPU", reading(k.cpu, "%.0f%%", 100) },
+        { "GPU", reading(k.job, "%.0f%%", 100) },
+    };
+    // spread over the tile's width, so "100%" and three-digit watts still fit
+    float used = 0;
+    for (const auto & item : items) {
+        used += fonts_.semibold.font->measure(hui::ui::upper(item.first), 14, 3.0f) + 6 +
+                fonts_.mono.font->measure(item.second, 18);
+    }
+    const float gap = std::max(6.0f, (r.w - 48 - used) / 4);
+    float       x   = r.x + 24;
+    for (const auto & item : items) {
+        x += caps(list, item.first, x, r.y + 106, 14, with_a(kInk, 0.5f)) + 6;
+        x += hui::ui::text(list, fonts_.mono, item.second, x, r.y + 106, 18, kInk) + gap;
+    }
 }
 
 void Dashboard::draw_log_tile(DrawList & list, const Rect & r) const {
     const AppStatus::Snapshot & s = snap_;
     draw_panel(list, r, 24, kSteel, 0.0f);
     caps(list, "Log", r.x + 24, r.y + 36, 17, kSteel);
-    const std::size_t shown = std::min<std::size_t>(s.lines.size(), 3);
+    const std::size_t shown = std::min<std::size_t>(s.lines.size(), 2);
     float             y     = r.y + 62;
     for (std::size_t i = s.lines.size() - shown; i < s.lines.size(); i++) {
         const std::string text = log_text(s.lines[i]);

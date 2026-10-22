@@ -53,6 +53,7 @@
     <span class="ver" id="ver"></span>
   </div>
   <button type="button" class="model" id="model" title="Change the model">connecting&hellip;</button>
+  <button type="button" class="cchip" id="cchip" title="The console: temperature and power (Settings)" style="display:none"><span id="cchip-t"></span><span class="cw" id="cchip-w"></span></button>
   <span class="pill off" id="pill"><span class="dot"></span><span id="pilltext">offline</span></span>
 </header>
 <nav class="tabs" aria-label="Tabs">
@@ -380,6 +381,15 @@
 
 <div class="main" id="view-settings" style="display:none">
   <div class="mcol">
+    <section class="panel" id="pnl-console">
+      <div class="ph"><h2>Console</h2><button type="button" class="info" data-help="help-console" aria-label="More about the console's readings">&#9432;</button></div>
+      <div class="mseg crange" id="con-range" role="group" aria-label="Time shown">
+        <button type="button" id="con-sec" class="on" aria-pressed="true">2 minutes</button>
+        <button type="button" id="con-min" aria-pressed="false">1 hour</button>
+      </div>
+      <div class="cgrid" id="con-charts"></div>
+      <p class="hint" id="con-note"></p>
+    </section>
     <section class="panel">
       <div class="ph"><h2>When an image is done</h2></div>
       <label class="opt"><input type="checkbox" id="opt-sound"> Play a sound</label>
@@ -453,6 +463,9 @@
     <p>Keep this page open until the upload is done.</p>
     <h2 id="help-apikey">API key</h2>
     <p>Apps send it as <code>Authorization: Bearer &lt;key&gt;</code>, A1111 apps as the password of their API login. The <a href="#help" data-doc="api">HTTP API</a> page has the details and how to reach the console from outside your network.</p>
+    <h2 id="help-console">The console's readings</h2>
+    <p>A PS5 app may not read the temperature, the power or the fan. A payload may: PS5SD brings Marice's ps5-exporter and starts it through the ELF loader (port 9021) when it does not run yet. It keeps running after PS5SD closes, until the console restarts. Without an ELF loader these three stay empty.</p>
+    <p>The temperature is the hottest of the chip's sensors; the power is the whole chip's (CPU, GPU and memory). The fan shows how hard it is driven, from 0 to 100%; its speed cannot be read. CPU is what PS5SD itself uses of the console's CPUs. GPU busy is the share of the time an image or video is made: the GPU has no reading of its own.</p>
   </div>
   <div class="doc" id="doc"></div>
 </section>
@@ -585,6 +598,7 @@
 @@include js/20-upscalers.js
 @@include js/21-video-models.js
 @@include js/22-server-info.js
+@@include js/22b-console.js
 @@include js/23-start-up.js
 </script>
 </body>

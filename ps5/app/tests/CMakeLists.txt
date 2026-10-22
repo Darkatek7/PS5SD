@@ -52,6 +52,12 @@ add_executable(test_app_status test_app_status.cpp ../app_status.cpp)
 target_include_directories(test_app_status PRIVATE ..)
 add_test(NAME app_status COMMAND test_app_status)
 
+# The console's readings: ps5-exporter's metrics (a fixture from the console), the history, its JSON.
+add_executable(test_console_stats test_console_stats.cpp ../console_stats.cpp ../app_status.cpp)
+target_include_directories(test_console_stats PRIVATE .. "${SD_DIR}/thirdparty")
+target_compile_definitions(test_console_stats PRIVATE PS5SD_FIXTURES="${CMAKE_CURRENT_SOURCE_DIR}/fixtures")
+add_test(NAME console_stats COMMAND test_console_stats)
+
 # The downloader's pure part: URLs, destinations, the catalog, the queue file.
 add_executable(test_downloads test_downloads.cpp ../download_core.cpp)
 target_include_directories(test_downloads PRIVATE .. "${SD_DIR}/thirdparty")

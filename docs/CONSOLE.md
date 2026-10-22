@@ -780,3 +780,29 @@ updated to the catalog's current settings", the same for `sdxl-base`):
 - The catalog's `sdxl-base` and `sdxl-full` have these settings since 0.9.2, and the title gives the
   presets that 0.9.1 wrote the new text when it starts, unless they were changed. Adding DMD2, Lightning,
   CausVid or LCM-LoRA on the Create tab sets their sampler, steps and CFG.
+
+## The console's readings (2026-10-22)
+
+A build with the 0.9.3 changes, FW 13.00, `GET /ps5sd/v1/app/console` and the TV.
+
+- A title cannot read the temperature, the power or the fan: the sensor calls answer `0x80020002`.
+  ps5-exporter 0.2.0, a payload, can, and serves them on `127.0.0.1:9100/metrics`. Its metrics are in
+  `ps5/app/tests/fixtures/ps5-exporter-0.2.0.txt`: 17 temperatures (`cpu`, `soc0` to `soc15`), the SoC's
+  power as a raw value whose low 32 bits are milliwatts, the fan's duty from 0 to 1, and the CPU clock.
+  There is no GPU reading and no fan speed.
+- `std::thread::hardware_concurrency()` in the title is 16; PS5SD's CPU share is its `getrusage` time
+  over 16 CPUs.
+
+| | Idle, the model loaded | FLUX.2 Klein 4B, 1024x1024, 10 steps |
+|---|---|---|
+| SoC, hottest sensor | 44 °C | 68 °C after 20 s, 79 °C after 60 s |
+| Power | 19.2–20.1 W | 94–109 W once it computes |
+| Fan duty | 23.1% | 23.1% |
+| PS5SD's CPU | 0–0.4% | up to 5% |
+
+- The fan's duty did not move in that minute at 79 °C.
+- "GPU busy" is the share of a second in which a job runs, not a reading of the GPU: it is 100% from
+  the request to the image. For the first 20 s of that request it was 100% while the power stayed at
+  20 W, the idle value, before the steps began.
+- The exporter was already running when this build started (sent by hand earlier), so PS5SD's own start of
+  it through the ELF loader (`payloads/ps5-exporter.elf` to port 9021) is not measured yet.

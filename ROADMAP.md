@@ -189,10 +189,11 @@ changes how the page is built, not what it can do; every feature stays.
 
 ## 0.9.3: the console on the TV and in the web UI
 
-- [ ] **Temperature, power, GPU and CPU load, fan**: on the TV and in the web UI, now and over the last
-  minutes, as PS5LM's Console page shows them. Temperature, the SoC's power and the fan's duty through
-  ps5-exporter (the ELF loader's), CPU load from `getrusage`; the GPU load from the time sd-server spends
-  computing. A fan speed is not readable, only its duty.
+- [x] **Temperature, power, GPU and CPU load, fan**: on the TV under the memory, in the web UI's header and
+  as charts in Settings (2 minutes, 1 hour), and as `GET /ps5sd/v1/app/console`. Temperature, the SoC's
+  power and the fan's duty through ps5-exporter, which PS5SD carries and starts through the ELF loader;
+  CPU load from `getrusage`; "GPU busy" is the share of the time a job runs. A fan speed is not
+  readable, only its duty.
 
 ## Later in 0.9.x
 

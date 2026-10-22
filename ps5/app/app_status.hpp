@@ -8,6 +8,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <deque>
@@ -47,6 +48,16 @@ class AppStatus {
         std::string prompt;
     };
 
+    // The console's readings for the screen (console_stats.hpp), NaN for what
+    // is not read.
+    struct Console {
+        double soc_c = NAN;  // the SoC's hottest sensor, degrees C
+        double watts = NAN;  // the SoC's power
+        double fan   = NAN;  // the fan's duty, 0..1
+        double cpu   = NAN;  // PS5SD's share of the CPUs, 0..1
+        double job   = NAN;  // the share of the last second a job ran, 0..1
+    };
+
     struct Snapshot {
         State                    state = State::starting;
         std::string              phase;         // one line: what the app is doing
@@ -70,6 +81,7 @@ class AppStatus {
         std::vector<std::string> lines;         // the log's last lines, oldest first
         bool                     tv_images = true;  // false: the screen shows no images and no prompts
         std::string              api_key;       // the API key to show, or empty (none, or hidden)
+        Console                  console;
     };
 
     void set_phase(std::string phase, std::string detail = {});
@@ -87,8 +99,11 @@ class AppStatus {
     void set_port(int port);
     // Copies the frame; the pointer is only valid during the call.
     void set_preview(const uint8_t * rgb, int width, int height);
+    void set_console(const Console & console);
     void log(std::string line);
     Snapshot snapshot() const;
+    // The seconds jobs have run since the app started, the running one's so far.
+    double job_seconds() const;
 
     // The state a phase text stands for (see State).
     static State classify(const std::string & phase);
@@ -102,6 +117,7 @@ class AppStatus {
     Snapshot                     s_;
     std::deque<std::string>      lines_;
     double                       job_started_ = -1;  // monotonic seconds, or -1
+    double                       jobs_done_s_ = 0;   // the seconds of the finished jobs
 };
 
 // The model and the port the server will use, read from the same files

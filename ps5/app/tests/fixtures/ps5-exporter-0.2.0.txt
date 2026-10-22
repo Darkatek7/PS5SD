@@ -1,0 +1,84 @@
+# HELP ps5_info Console model, kernel firmware version and the version the system reports.
+# TYPE ps5_info gauge
+ps5_info{model="CFI-2116 B01Y",firmware="13.00",system_version="13.590.001"} 1
+# HELP ps5_temperature_celsius Temperature reported by the console.
+# TYPE ps5_temperature_celsius gauge
+ps5_temperature_celsius{sensor="cpu"} 45
+ps5_temperature_celsius{sensor="soc0"} 43
+ps5_temperature_celsius{sensor="soc1"} 44
+ps5_temperature_celsius{sensor="soc2"} 44
+ps5_temperature_celsius{sensor="soc3"} 44
+ps5_temperature_celsius{sensor="soc4"} 45
+ps5_temperature_celsius{sensor="soc5"} 45
+ps5_temperature_celsius{sensor="soc6"} 44
+ps5_temperature_celsius{sensor="soc7"} 43
+ps5_temperature_celsius{sensor="soc8"} 43
+ps5_temperature_celsius{sensor="soc9"} 42
+ps5_temperature_celsius{sensor="soc10"} 44
+ps5_temperature_celsius{sensor="soc11"} 41
+ps5_temperature_celsius{sensor="soc12"} 41
+ps5_temperature_celsius{sensor="soc13"} 42
+ps5_temperature_celsius{sensor="soc14"} 42
+ps5_temperature_celsius{sensor="soc15"} 45
+# HELP ps5_cpu_frequency_hertz CPU frequency.
+# TYPE ps5_cpu_frequency_hertz gauge
+ps5_cpu_frequency_hertz 3200000000
+# HELP ps5_boot_time_seconds Unix time of the last boot.
+# TYPE ps5_boot_time_seconds gauge
+ps5_boot_time_seconds 1792669079
+# HELP ps5_uptime_seconds Seconds since boot.
+# TYPE ps5_uptime_seconds gauge
+ps5_uptime_seconds 27621
+# HELP ps5_direct_memory_bytes Size of the direct memory pool (games, GPU).
+# TYPE ps5_direct_memory_bytes gauge
+ps5_direct_memory_bytes 12280922112
+# HELP ps5_process_record_bytes Size of one process record as the kernel reports it (0 when unusable).
+# TYPE ps5_process_record_bytes gauge
+ps5_process_record_bytes 1096
+# HELP ps5_processes Number of processes.
+# TYPE ps5_processes gauge
+ps5_processes 91
+# HELP ps5_process_cpu_seconds_total CPU time of all processes with this name. Drops when such a process exits, which reads as a counter reset.
+# TYPE ps5_process_cpu_seconds_total counter
+ps5_process_cpu_seconds_total{name="payload.elf"} 5.833
+ps5_process_cpu_seconds_total{name="eboot.bin"} 77.059
+ps5_process_cpu_seconds_total{name="SceShellUI"} 489.658
+# HELP ps5_fan_duty_ratio Fan duty cycle, 0 to 1 (kernel reports 0..1024).
+# TYPE ps5_fan_duty_ratio gauge
+ps5_fan_duty_ratio 0.2305
+# HELP ps5_soc_power_raw_value Raw first word of sceKernelGetSocPowerConsumption (unit unconfirmed).
+# TYPE ps5_soc_power_raw_value gauge
+ps5_soc_power_raw_value 4647154633798
+# HELP ps5_shadowmount_up Whether the ShadowMountPlus API answered.
+# TYPE ps5_shadowmount_up gauge
+ps5_shadowmount_up 1
+# HELP ps5_shadowmount_info ShadowMountPlus version.
+# TYPE ps5_shadowmount_info gauge
+ps5_shadowmount_info{version="1.7beta7"} 1
+# HELP ps5_shadowmount_storage_total_bytes Filesystem size as reported by ShadowMount.
+# TYPE ps5_shadowmount_storage_total_bytes gauge
+# HELP ps5_shadowmount_storage_available_bytes Space available for new files.
+# TYPE ps5_shadowmount_storage_available_bytes gauge
+# HELP ps5_shadowmount_storage_used_bytes Used space.
+# TYPE ps5_shadowmount_storage_used_bytes gauge
+# HELP ps5_shadowmount_storage_read_only Filesystem mounted read-only.
+# TYPE ps5_shadowmount_storage_read_only gauge
+# HELP ps5_exporter_build_info Exporter version.
+# TYPE ps5_exporter_build_info gauge
+ps5_exporter_build_info{version="0.2.0"} 1
+# HELP ps5_exporter_scrapes_total Metrics requests served.
+# TYPE ps5_exporter_scrapes_total counter
+ps5_exporter_scrapes_total 1
+# HELP ps5_exporter_collector_success Whether a collector produced data during the last scrape.
+# TYPE ps5_exporter_collector_success gauge
+ps5_exporter_collector_success{collector="info"} 1
+ps5_exporter_collector_success{collector="temperatures"} 1
+ps5_exporter_collector_success{collector="cpu_frequency"} 1
+ps5_exporter_collector_success{collector="uptime"} 1
+ps5_exporter_collector_success{collector="direct_memory"} 1
+ps5_exporter_collector_success{collector="processes"} 1
+ps5_exporter_collector_success{collector="process_details"} 1
+ps5_exporter_collector_success{collector="fan"} 1
+ps5_exporter_collector_success{collector="cpu_usage"} 0
+ps5_exporter_collector_success{collector="soc_power"} 0
+ps5_exporter_collector_success{collector="lifetime"} 0

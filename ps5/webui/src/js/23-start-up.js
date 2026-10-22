@@ -74,6 +74,7 @@
     initCreateLayout();
     initModelsTabs();
     initHelpLinks();
+    initConsole();
     $('me-size-').onclick = function () { me.brush = Math.max(8, me.brush - 8); text($('me-size'), 'Brush ' + me.brush); };
     $('me-size+').onclick = function () { me.brush = Math.min(240, me.brush + 8); text($('me-size'), 'Brush ' + me.brush); };
     $('me-mode').onclick = function () { me.erase = !me.erase; text($('me-mode'), me.erase ? 'Paint' : 'Erase'); };

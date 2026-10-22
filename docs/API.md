@@ -164,6 +164,40 @@ Every other route answers `503 {"error": "...", "standby": true}`. In standby,
 `GET /ps5sd/v1/app/models` reports `"standby": true`. A switch (`POST /ps5sd/v1/app/models/active`)
 loads a model and ends standby.
 
+## The console's readings
+
+`GET /ps5sd/v1/app/console` answers with the console's temperature, power, fan and load, now and over the
+last two minutes and the last hour. The web UI's header and its Settings tab show them, and so does the TV.
+
+```json
+{
+  "exporter": "running",
+  "now": { "soc_c": 52.1, "cpu_c": 49.0, "watts": 61.3, "fan": 0.23, "cpu_ghz": 3.5, "cpu": 0.12, "job": 0.98 },
+  "sensors": { "cpu": 49.0, "soc0": 51.0, "soc1": 52.1 },
+  "seconds": { "soc_c": [ ... ], "watts": [ ... ], ... },
+  "seconds_interval": 1,
+  "minutes": { "soc_c": [ ... ], ... },
+  "minutes_interval": 30
+}
+```
+
+- `soc_c` is the hottest of the SoC's sensors and `cpu_c` the CPU's, in °C. `watts` is the whole SoC
+  (CPU, GPU and memory). `fan` is the fan's duty from 0 to 1; its speed cannot be read. `cpu_ghz` is the
+  CPU's clock.
+- `cpu` is the share of all the console's CPUs that PS5SD itself uses (`getrusage`), from 0 to 1.
+- `job` is the share of the last second in which an image or video job ran. The GPU has no load reading;
+  while a job runs it is the GPU that works.
+- `seconds` has a point a second for 120 s, `minutes` the mean of each 30 s for an hour, oldest first.
+  A value that was not read is `null`.
+- The temperature, the power, the fan and the clock come from
+  [ps5-exporter](https://github.com/Marice/ps5-exporter) (GPL-3.0), a payload that serves them on
+  `127.0.0.1:9100`: a PS5 app may not read them. PS5SD carries a copy (`payloads/ps5-exporter.elf`)
+  and sends it to the ELF loader on port 9021 when nothing answers on 9100. `exporter` says how that
+  went: `running`, `not running` (started, not answering yet), `not answering` (sent twice, a minute
+apart, and still silent) or `no ELF loader`. Without it those
+  values are `null`; `cpu` and `job` are there either way. The exporter keeps running after PS5SD closes,
+  until the console restarts.
+
 ## Model library and switching
 
 | Route | |

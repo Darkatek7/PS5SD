@@ -140,6 +140,7 @@
     for (var i = 0; i < tabs.length; i++) $('tab-' + tabs[i]).className = tabs[i] === name ? 'on' : '';
     if (name === 'gallery') refreshGallery();
     if (name === 'help') showDoc(docName);
+    if (name === 'settings') drawConsole();
     if (name === 'models') enterModels(); else dlSchedule(dlDelay());
   }
 

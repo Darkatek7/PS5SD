@@ -73,6 +73,7 @@ void AppStatus::set_phase(std::string phase, std::string detail) {
     const double now = now_seconds();
     if (s_.state == State::generating && next != State::generating && job_started_ >= 0) {
         s_.last_job_s = now - job_started_;
+        jobs_done_s_ += s_.last_job_s;
         job_started_  = -1;
     }
     if (next == State::generating) {
@@ -166,6 +167,16 @@ void AppStatus::set_preview(const uint8_t * rgb, int width, int height) {
     std::lock_guard<std::mutex> lock(mutex_);
     s_.preview = std::move(frame);
     s_.preview_serial++;
+}
+
+void AppStatus::set_console(const Console & console) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    s_.console = console;
+}
+
+double AppStatus::job_seconds() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return jobs_done_s_ + (job_started_ >= 0 ? std::max(0.0, now_seconds() - job_started_) : 0.0);
 }
 
 void AppStatus::log(std::string line) {
