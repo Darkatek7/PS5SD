@@ -3,7 +3,7 @@
 
   function drawPresets() {
     var d = st.mdl;
-    show('tab-presets', st.app === true, 'inline-block');
+    show('pnl-presets', st.app === true);
     var sig = JSON.stringify(d) + '|' + (st.sw ? st.sw.id : '') + '|' + (st.delErr ? st.delErr.id + st.delErr.msg : '');
     if (sig === plistSig) return;
     plistSig = sig;
@@ -16,7 +16,7 @@
       box.appendChild(presetRow(d.models[i], d));
       n++;
     }
-    if (!n) box.appendChild(el('div', 'empty-note', 'No presets yet. Set up the Create tab the way you like it, then save it here.'));
+    if (!n) box.appendChild(el('div', 'empty-note', 'No presets yet. Set up the Create tab the way you like it, then press Save as preset under Settings there.'));
     drawSaveBox();
   }
 
@@ -86,6 +86,7 @@
     $('ps-save').disabled = !ok;
     $('ps-name').disabled = !ok;
     show('savepreset', st.app === true && !!st.mid, 'inline-block');
+    if (!(st.app === true && !!st.mid)) show('ps-box', false);
     if (!ok) {
       text($('ps-what'), st.sw ? 'Wait for the model switch.' : 'Load a model first; a preset is a model with settings.');
       return;
@@ -109,6 +110,7 @@
       $('ps-save').disabled = false;
       if (code === 201 && data && data.models) {
         $('ps-name').value = '';
+        show('ps-box', false);
         setModels(data);
         toast('Saved ' + name + '. Use switches to it.', 5000);
       } else {

@@ -135,32 +135,19 @@
     save('open', open ? '1' : '0');
   }
 
-  // On a phone the tab bar scrolls sideways: bring the chosen tab into it. The page itself
-  // must not move, so its position is put back if the scroll changed it.
-  function showTab(name) {
-    var b = $('tab-' + name), bar = b && b.parentNode;
-    if (!bar || bar.scrollWidth <= bar.clientWidth) return;
-    var x = window.pageXOffset, y = window.pageYOffset;
-    try { b.scrollIntoView({ block: 'nearest', inline: 'nearest' }); } catch (e) {}
-    if (window.pageXOffset !== x || window.pageYOffset !== y) window.scrollTo(x, y);
-  }
-
+  // The five tabs, in the order of the bar. The last one open is remembered for the next visit.
   function setView(name) {
+    var tabs = ['create', 'gallery', 'models', 'settings', 'help'];
     st.view = name;
+    save('tab', name);
     show('view-create', name === 'create', 'flex');
     show('view-models', name === 'models', 'flex');
-    show('view-presets', name === 'presets', 'flex');
+    show('view-settings', name === 'settings', 'flex');
     show('view-gallery', name === 'gallery');
     show('view-help', name === 'help');
-    $('tab-create').className = name === 'create' ? 'on' : '';
-    $('tab-models').className = name === 'models' ? 'on' : '';
-    $('tab-presets').className = name === 'presets' ? 'on' : '';
-    $('tab-gallery').className = name === 'gallery' ? 'on' : '';
-    $('tab-help').className = name === 'help' ? 'on' : '';
-    showTab(name);
+    for (var i = 0; i < tabs.length; i++) $('tab-' + tabs[i]).className = tabs[i] === name ? 'on' : '';
     if (name === 'gallery') refreshGallery();
     if (name === 'help') showDoc(docName);
-    if (name === 'presets') { loadModels(null); loadLoras(null); drawSaveBox(); }
     if (name === 'models') enterModels(); else dlSchedule(dlDelay());
   }
 

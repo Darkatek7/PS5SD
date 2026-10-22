@@ -29,7 +29,7 @@
     GET/POST /ps5sd/v1/app/settings                                    (the "on the TV" switches; a 404 hides them)
     GET /ps5sd/v1/auth, POST .../auth/login, .../auth/logout           (the API key: login cookie; "#key=" in the address signs in)
     GET /ps5sd/v1/app/auth, POST .../app/auth/enable, .../auth/disable (the API key in Settings; a 404 hides it)
-    POST /ps5sd/v1/app/presets, GET/POST/DELETE .../app/presets/<id>   (the Presets tab)
+    POST /ps5sd/v1/app/presets, GET/POST/DELETE .../app/presets/<id>   (the presets: Models tab, saved from Create)
     POST /sdcpp/v1/upscale                                             (the Upscale button; the result is saved to the gallery)
     GET  /ps5sd/v1/app/upscalers, DELETE .../app/upscalers/<file>      (the Models tab's upscalers)
     init_image, mask_image, strength on /sdcpp/v1/img_gen              (image to image and inpainting)
@@ -47,15 +47,15 @@
   <span class="logo"></span>
   <span class="brand">PS5SD</span>
   <span class="ver" id="ver"></span>
-  <span class="model" id="model">connecting&hellip;</span>
+  <button type="button" class="model" id="model" title="Change the model">connecting&hellip;</button>
   <span class="pill off" id="pill"><span class="dot"></span><span id="pilltext">offline</span></span>
 </header>
-<nav class="tabs">
-  <button type="button" class="on" id="tab-create">Create</button>
-  <button type="button" id="tab-models">Models<span class="tabdot" id="mdot"></span></button>
-  <button type="button" id="tab-presets" style="display:none">Presets</button>
-  <button type="button" id="tab-gallery">Gallery <span id="gcount"></span></button>
-  <button type="button" id="tab-help">Help</button>
+<nav class="tabs" aria-label="Tabs">
+  <button type="button" class="on" id="tab-create"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 4l5 5L9 20l-5-5z"/><path d="M13.5 5.5l5 5"/><path d="M19 2v3M17.5 3.5h3M4 3v2M3 4h2"/></svg><span>Create</span></button>
+  <button type="button" id="tab-gallery"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M21 16l-5-5-8 8"/></svg><span>Gallery <span id="gcount"></span></span></button>
+  <button type="button" id="tab-models"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 8l-9-5-9 5v8l9 5 9-5z"/><path d="M3 8l9 5 9-5M12 13v8"/></svg><span>Models<span class="tabdot" id="mdot"></span></span></button>
+  <button type="button" id="tab-settings"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/></svg><span>Settings</span></button>
+  <button type="button" id="tab-help"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6V14"/><path d="M12 17.5h.01"/></svg><span>Help</span></button>
 </nav>
 
 <div class="main" id="view-create">
@@ -213,33 +213,10 @@
         <p class="hint">Wan makes 4n+1 frames: 33 are 2 seconds at 16 per second. On the console, 33 frames at 832×480 take about 15 minutes with 20 steps, under 4 minutes with the CausVid LoRA (Models tab, LoRAs) at 4 steps and CFG 1.</p>
       </div>
       <p class="hint"><span id="presetnote"></span><button type="button" id="resetpreset">Use defaults</button><button type="button" id="savepreset" style="display:none">Save as preset</button></p>
-
-      <div class="lbl">When an image is done</div>
-      <label class="opt"><input type="checkbox" id="opt-sound"> Play a sound</label>
-      <label class="opt" id="opt-notify-row" style="display:none"><input type="checkbox" id="opt-notify"> Show a notification</label>
-      <p class="hint">The tab's title shows a mark too, while you are in another tab.</p>
-      <div id="opt-tv-box" style="display:none">
-        <div class="lbl">PS5 screen</div>
-        <label class="opt"><input type="checkbox" id="opt-tv"> Show images and prompts on the TV</label>
-      </div>
-      <div id="opt-up-box" style="display:none">
-        <div class="lbl">Upscale button</div>
-        <select id="opt-up" aria-label="Upscaler of the Upscale button"></select>
-        <p class="hint">The Upscale button under an image and in the gallery runs this model over the image (4 times as wide and high for most). The result goes into the gallery.</p>
-      </div>
-      <div id="opt-auth-box" style="display:none">
-        <div class="lbl">API key</div>
-        <p class="hint" id="auth-state" style="margin-top:0"></p>
-        <div id="auth-key-row" style="display:none"><code class="key" id="auth-key"></code></div>
-        <div class="authbtns">
-          <button type="button" id="auth-on">Turn on</button>
-          <button type="button" id="auth-show">Show key</button>
-          <button type="button" id="auth-new">New key</button>
-          <button type="button" id="auth-off" class="danger">Turn off</button>
-          <button type="button" id="auth-out">Sign out</button>
-        </div>
-        <label class="opt" id="opt-tvkey-row" style="display:none"><input type="checkbox" id="opt-tvkey"> Show the API key on the TV</label>
-        <p class="hint">Apps send it as <code>Authorization: Bearer &lt;key&gt;</code>, A1111 apps as the password of their API login. Help, HTTP API has the details and how to reach the console from outside your network.</p>
+      <div id="ps-box" class="hrow" style="display:none">
+        <div class="hint" id="ps-what" style="margin-top:0"></div>
+        <div class="inrow" style="margin-top:0.8rem"><input id="ps-name" type="text" maxlength="100" placeholder="Name, e.g. Portrait fast" autocomplete="off"><button type="button" id="ps-save">Save</button></div>
+        <p class="hint">The settings above are saved with the model. Its own options (VAE, tiling and so on) come along. The list is under Models.</p>
       </div>
     </div>
   </section>
@@ -268,6 +245,11 @@
       </div>
       <div id="mlist"></div>
       <p class="hint" id="mnote"></p>
+    </section>
+    <section class="panel" id="pnl-presets" style="display:none">
+      <div class="ph"><h2>Saved presets</h2></div>
+      <div id="plist"></div>
+      <p class="hint">A preset is a model with your settings: size, steps, CFG, sampler and LoRAs. Use switches to it; when it is the model that is loaded already, at once. Delete removes only the preset, never the model. To make one, set up the Create tab and press Save as preset under Settings there.</p>
     </section>
     <section class="panel" id="pnl-loras" style="display:none">
       <div class="ph"><h2>LoRAs</h2></div>
@@ -319,20 +301,47 @@
   </div>
 </div>
 
-<div class="main" id="view-presets" style="display:none">
+<div class="main" id="view-settings" style="display:none">
   <div class="mcol">
     <section class="panel">
-      <div class="ph"><h2>Saved presets</h2></div>
-      <div id="plist"></div>
-      <p class="hint">A preset is a model with your settings: size, steps, CFG, sampler and LoRAs. Use switches to it; when it is the model that is loaded already, at once. Delete removes only the preset, never the model.</p>
+      <div class="ph"><h2>When an image is done</h2></div>
+      <label class="opt"><input type="checkbox" id="opt-sound"> Play a sound</label>
+      <label class="opt" id="opt-notify-row" style="display:none"><input type="checkbox" id="opt-notify"> Show a notification</label>
+      <p class="hint">The tab's title shows a mark too, while you are in another tab.</p>
+    </section>
+    <section class="panel" id="opt-tv-box" style="display:none">
+      <div class="ph"><h2>PS5 screen</h2></div>
+      <label class="opt"><input type="checkbox" id="opt-tv"> Show images and prompts on the TV</label>
+    </section>
+    <section class="panel" id="opt-up-box" style="display:none">
+      <div class="ph"><h2>Upscale button</h2></div>
+      <select id="opt-up" aria-label="Upscaler of the Upscale button"></select>
+      <p class="hint">The Upscale button under an image and in the gallery runs this model over the image (4 times as wide and high for most). The result goes into the gallery.</p>
     </section>
   </div>
   <div class="mcol">
-    <section class="panel">
-      <div class="ph"><h2>Save the current settings</h2></div>
-      <div class="hint" id="ps-what" style="margin-top:0"></div>
-      <div class="inrow" style="margin-top:0.8rem"><input id="ps-name" type="text" maxlength="100" placeholder="Name, e.g. Portrait fast" autocomplete="off"><button type="button" id="ps-save">Save</button></div>
-      <p class="hint">Change the settings on the Create tab first. The model's own options (VAE, tiling and so on) come along.</p>
+    <section class="panel" id="opt-auth-box" style="display:none">
+      <div class="ph"><h2>API key</h2></div>
+      <p class="hint" id="auth-state" style="margin-top:0"></p>
+      <div id="auth-key-row" style="display:none"><code class="key" id="auth-key"></code></div>
+      <div class="authbtns">
+        <button type="button" id="auth-on">Turn on</button>
+        <button type="button" id="auth-show">Show key</button>
+        <button type="button" id="auth-new">New key</button>
+        <button type="button" id="auth-off" class="danger">Turn off</button>
+        <button type="button" id="auth-out">Sign out</button>
+      </div>
+      <label class="opt" id="opt-tvkey-row" style="display:none"><input type="checkbox" id="opt-tvkey"> Show the API key on the TV</label>
+      <p class="hint">Apps send it as <code>Authorization: Bearer &lt;key&gt;</code>, A1111 apps as the password of their API login. Help, HTTP API has the details and how to reach the console from outside your network.</p>
+    </section>
+    <section class="panel" id="pnl-about">
+      <div class="ph"><h2>About</h2></div>
+      <div class="arow"><span>PS5SD</span><span id="about-ver">&hellip;</span></div>
+      <div class="arow"><span>stable-diffusion.cpp</span><span id="about-sd">&hellip;</span></div>
+      <div class="docbar" style="margin-top:0.9rem">
+        <button type="button" id="about-models">Getting models on</button>
+        <button type="button" id="about-api">HTTP API</button>
+      </div>
     </section>
   </div>
 </div>

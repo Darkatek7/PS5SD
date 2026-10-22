@@ -2,9 +2,17 @@
   // The app's version (an older app, or a plain sd-server, has no info route: nothing shown).
   function loadVersion() {
     req('GET', APP + '/info', null, function (code, data) {
+      var sd = data && data.sd_cpp ? data.sd_cpp : {};
       if (code === 200 && data && data.version) {
         text($('ver'), 'v' + data.version);
-        $('ver').title = 'stable-diffusion.cpp ' + ((data.sd_cpp && data.sd_cpp.commit) || '');
+        $('ver').title = 'stable-diffusion.cpp ' + (sd.commit || '');
+        text($('about-ver'), 'v' + data.version);
+        var sdText = sd.version || '';
+        if (sd.commit) sdText += (sdText ? ', ' : '') + 'commit ' + sd.commit;
+        text($('about-sd'), sdText || 'not reported');
+      } else {
+        text($('about-ver'), 'not available');
+        text($('about-sd'), 'not available');
       }
     });
   }
@@ -131,8 +139,12 @@
       persist();
       toast('The model\'s defaults are set.');
     };
-    $('savepreset').onclick = function () { setView('presets'); try { $('ps-name').focus(); } catch (e) {} };
-    $('tab-presets').onclick = function () { setView('presets'); };
+    // Save as preset opens the save box under the button, on this tab
+    $('savepreset').onclick = function () {
+      var open = $('ps-box').style.display === 'none';
+      show('ps-box', open);
+      if (open) { drawSaveBox(); try { $('ps-name').focus(); } catch (e) {} }
+    };
     $('ps-save').onclick = savePreset;
     $('ps-name').onkeydown = function (e) { e = e || window.event; if (e.keyCode === 13) { savePreset(); return false; } return true; };
     $('pe-cancel').onclick = closeEdit;
@@ -140,10 +152,15 @@
     $('tab-create').onclick = function () { setView('create'); };
     $('tab-models').onclick = function () { setView('models'); };
     $('tab-gallery').onclick = function () { setView('gallery'); };
+    $('tab-settings').onclick = function () { setView('settings'); };
     $('tab-help').onclick = function () { setView('help'); };
+    $('about-models').onclick = function () { showDoc('models'); setView('help'); };
+    $('about-api').onclick = function () { showDoc('api'); setView('help'); };
     $('doc-models').onclick = function () { showDoc('models'); };
     $('doc-api').onclick = function () { showDoc('api'); };
     $('doc').onclick = onDocClick;
+    // The model name in the header and Change on the Create tab open the same model list.
+    $('model').onclick = function () { if (st.app !== false) setView('models'); };
     $('cm-change').onclick = function () { setView('models'); };
     $('m-refresh').onclick = enterModels;
     $('dl-go').onclick = addByUrl;
@@ -171,9 +188,13 @@
     loadGallery(null);
     drawModels();
     dlPoll();
-    if (window.location.hash === '#models') setView('models');
-    if (window.location.hash === '#help') setView('help');
-    if (window.location.hash === '#presets') setView('presets');
+    // The tab open last time comes back; an address with #models, #help or #settings wins over it.
+    var last = load('tab');
+    if (last === 'gallery' || last === 'models' || last === 'settings' || last === 'help') setView(last);
+    var hash = window.location.hash;
+    if (hash === '#models' || hash === '#presets') setView('models');
+    if (hash === '#help') setView('help');
+    if (hash === '#settings') setView('settings');
   }
 
   init();

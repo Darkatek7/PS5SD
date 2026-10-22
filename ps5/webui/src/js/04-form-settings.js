@@ -92,7 +92,7 @@
       (st.cn && st.cnModel && !st.video ? ' · ControlNet' : '') +
       (st.video ? ' · video' : st.init ? (st.init.mask ? ' · inpainting' : ' · from an image') : ($('hr-on').checked ? (num('hr-scale', 1.5, 1, 4) === 1 ? ' · refine pass' : ' · hires ×' + num('hr-scale', 1.5, 1, 4)) : '')));
     drawHires();
-    if (st.view === 'presets') drawSaveBox();
+    if ($('ps-box').style.display !== 'none') drawSaveBox();
   }
 
   // The form follows the loaded model. After the user pressed Use (st.announce) it gets the

@@ -362,6 +362,15 @@ are made one after the other with the seeds `seed`, `seed + 1`, ...; while the j
 `preview.pass` says which of them is being sampled (1 for the first). Every image is saved to the
 gallery.
 
+Many images from one request: `"repeat": n` on `img_gen` runs the same request n times, one after the other
+(1 to 100000, 1 by default; `limits.max_repeat` of the capabilities). Each run makes its `batch_count`
+images. Each run is saved to the gallery as it is done, and it has its own activity entry. A named `seed`
+(0 or more) counts up by `batch_count` per run. Without one, or with a negative one, every run gets a new
+random seed. The job's `result` has the images of the last run only. While the job runs, `repeat` shows
+`total`, `done` (the runs finished so far) and `saved` (the gallery file names so far, the last 50); it is
+there when `repeat` is more than 1. A cancel stops the job before the next run: the images already saved
+stay in the gallery, and the job ends `cancelled`. A run that makes no image ends the job as `failed`.
+
 **Video**: `POST /sdcpp/v1/vid_gen` takes the `img_gen` fields and two more, `video_frames` (4n+1: 5 to 33
 for now) and `fps`. `output_format` is `webm` (the default), `webp` (animated WebP) or `avi` (MJPEG). Leave out `flow_shift` and `vae_tiling_params` to take the
 loaded preset's. The job runs as the images do, and a 33-frame video takes about 15 minutes (see

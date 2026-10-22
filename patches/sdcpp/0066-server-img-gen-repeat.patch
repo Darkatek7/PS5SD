@@ -1,0 +1,320 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: ps5sd <ps5sd@localhost>
+Date: Thu, 22 Oct 2026 12:00:00 +0200
+Subject: [PATCH] server: an img_gen job can repeat N times
+
+---
+ examples/server/async_jobs.cpp   | 183 ++++++++++++++++++++++---------
+ examples/server/async_jobs.h     |  10 ++
+ examples/server/routes_sdcpp.cpp |  22 ++++
+ 3 files changed, 164 insertions(+), 51 deletions(-)
+
+diff --git a/examples/server/async_jobs.cpp b/examples/server/async_jobs.cpp
+index 050b82d..69a80de 100644
+--- a/examples/server/async_jobs.cpp
++++ b/examples/server/async_jobs.cpp
+@@ -4,6 +4,7 @@
+ 
+ #include <algorithm>
+ #include <iomanip>
++#include <random>
+ #include <sstream>
+ 
+ #include "common/log.h"
+@@ -228,77 +229,157 @@ json make_async_job_json(const AsyncJobManager& manager, const AsyncGenerationJo
+         }
+     }
+ 
++    // PS5SD: an img_gen job with "repeat" > 1 shows how far it has got.
++    if (job.kind == AsyncJobKind::ImgGen && job.repeat_total > 1) {
++        result["repeat"] = {
++            {"total", job.repeat_total},
++            {"done", job.repeat_done},
++            {"saved", job.repeat_saved},
++        };
++    }
++
+     return result;
+ }
+ 
++// PS5SD: the file name of a saved gallery path, for the job's "repeat" list.
++static std::string gallery_file_name(const std::string& path) {
++    const size_t sep = path.find_last_of("/\\");
++    return sep == std::string::npos ? path : path.substr(sep + 1);
++}
++
++// PS5SD: after a repetition, its gallery file names go to the job's "repeat"
++// object (the last 50 are kept) and the done count goes up.
++static void note_repetition_done(AsyncJobManager& manager,
++                                 AsyncGenerationJob& job,
++                                 const std::vector<std::string>& saved) {
++    std::lock_guard<std::mutex> lock(manager.mutex);
++    for (const std::string& path : saved) {
++        job.repeat_saved.push_back(gallery_file_name(path));
++    }
++    if (job.repeat_saved.size() > 50) {
++        job.repeat_saved.erase(job.repeat_saved.begin(), job.repeat_saved.end() - 50);
++    }
++    ++job.repeat_done;
++}
++
++// PS5SD: "repeat" runs the same request N times, one generation after the
++// other. Each repetition is saved to the gallery as soon as it is done; only
++// the last repetition's encoded images are kept for the job's result. A named
++// seed (>= 0) counts up by batch_count per repetition. Without one, every
++// repetition after the first draws a new seed. A cancel is checked before each
++// repetition starts, under the lock that guards generate_image().
+ bool execute_img_gen_job(ServerRuntime& runtime,
++                         AsyncJobManager& manager,
+                          AsyncGenerationJob& job,
+                          std::vector<std::string>& output_images,
+                          std::string& error_message) {
+-    sd_img_gen_params_t params = job.img_gen.to_sd_img_gen_params_t();
++    const int repeat_total   = std::max(1, job.repeat_total);
++    const int64_t seed_step  = std::max(1, job.img_gen.gen_params.batch_count);
++    const int64_t base_seed  = job.img_gen.gen_params.seed;
++
++    std::mt19937 seed_rng;
++    if (job.repeat_random_seed && repeat_total > 1) {
++        // random_device can throw where there is no entropy source; the clock
++        // still makes a seed then. An exception here would end the worker thread.
++        unsigned int entropy = 0;
++        try {
++            std::random_device device;
++            entropy = device();
++        } catch (...) {
++        }
++        std::seed_seq seq{entropy, static_cast<unsigned int>(unix_timestamp_now())};
++        seed_rng.seed(seq);
++    }
+ 
+-    SDImageVec results;
+-    ActivityJob activity("img_gen", job.img_gen.gen_params);
++    output_images.clear();
++    for (int repetition = 0; repetition < repeat_total; ++repetition) {
++        if (repetition > 0 && job.repeat_random_seed) {
++            job.img_gen.gen_params.seed = std::uniform_int_distribution<int64_t>(0, 0x7fffffffLL)(seed_rng);
++        } else {
++            job.img_gen.gen_params.seed = base_seed + static_cast<int64_t>(repetition) * seed_step;
++        }
++        sd_img_gen_params_t params = job.img_gen.to_sd_img_gen_params_t();
+ 
+-    {
+-        std::lock_guard<std::mutex> lock(*runtime.sd_ctx_mutex);
+-        activity.begin();
+-        set_preview_callback(job);
+-        sd_image_t* raw_results = nullptr;
+-        int num_results         = 0;
+-        if (!generate_image(runtime.sd_ctx, &params, &raw_results, &num_results)) {
+-            raw_results = nullptr;
+-            num_results = 0;
++        SDImageVec results;
++        ActivityJob activity("img_gen", job.img_gen.gen_params);
++        bool cancelled = false;
++
++        {
++            std::lock_guard<std::mutex> lock(*runtime.sd_ctx_mutex);
++            {
++                std::lock_guard<std::mutex> manager_lock(manager.mutex);
++                cancelled = job.cancel_requested;
++            }
++            if (!cancelled) {
++                activity.begin();
++                set_preview_callback(job);
++                sd_image_t* raw_results = nullptr;
++                int num_results         = 0;
++                if (!generate_image(runtime.sd_ctx, &params, &raw_results, &num_results)) {
++                    raw_results = nullptr;
++                    num_results = 0;
++                }
++                clear_preview_callback();
++                results.adopt(raw_results, num_results);
++            }
++        }
++        if (cancelled) {
++            break;
+         }
+-        clear_preview_callback();
+-        results.adopt(raw_results, num_results);
+-    }
+ 
+-    const int num_results = results.count();
+-    const std::vector<std::string> saved = save_output_images(*runtime.svr_params, results);
+-    activity.finish(num_results > 0, saved_paths(saved));
+-    if (num_results <= 0) {
+-        error_message = sd_server_failure_reason("generate_image returned no results");
+-        return false;
+-    }
++        const int num_results                = results.count();
++        const std::vector<std::string> saved = save_output_images(*runtime.svr_params, results);
++        activity.finish(num_results > 0, saved_paths(saved));
++        if (num_results <= 0) {
++            error_message = sd_server_failure_reason("generate_image returned no results");
++            return false;
++        }
+ 
+-    EncodedImageFormat encoded_format = EncodedImageFormat::PNG;
+-    if (job.img_gen.output_format == "jpeg") {
+-        encoded_format = EncodedImageFormat::JPEG;
+-    } else if (job.img_gen.output_format == "webp") {
+-        encoded_format = EncodedImageFormat::WEBP;
+-    }
++        EncodedImageFormat encoded_format = EncodedImageFormat::PNG;
++        if (job.img_gen.output_format == "jpeg") {
++            encoded_format = EncodedImageFormat::JPEG;
++        } else if (job.img_gen.output_format == "webp") {
++            encoded_format = EncodedImageFormat::WEBP;
++        }
+ 
+-    int batch_count      = job.img_gen.gen_params.batch_count;
+-    int images_per_batch = batch_count > 0 ? std::max(1, num_results / batch_count) : 1;
+-    for (int i = 0; i < num_results; ++i) {
+-        if (results[i].data == nullptr) {
+-            continue;
++        output_images.clear();
++        int batch_count      = job.img_gen.gen_params.batch_count;
++        int images_per_batch = batch_count > 0 ? std::max(1, num_results / batch_count) : 1;
++        for (int i = 0; i < num_results; ++i) {
++            if (results[i].data == nullptr) {
++                continue;
++            }
++
++            const std::string metadata = job.img_gen.gen_params.embed_image_metadata
++                                             ? get_image_params(*runtime.ctx_params,
++                                                                job.img_gen.gen_params,
++                                                                job.img_gen.gen_params.seed + i / images_per_batch)
++                                             : "";
++            auto image_bytes           = encode_image_to_vector(encoded_format,
++                                                                results[i].data,
++                                                                results[i].width,
++                                                                results[i].height,
++                                                                results[i].channel,
++                                                                metadata,
++                                                                job.img_gen.output_compression);
++            if (image_bytes.empty()) {
++                continue;
++            }
++            output_images.push_back(base64_encode(image_bytes));
+         }
+ 
+-        const std::string metadata = job.img_gen.gen_params.embed_image_metadata
+-                                         ? get_image_params(*runtime.ctx_params,
+-                                                            job.img_gen.gen_params,
+-                                                            job.img_gen.gen_params.seed + i / images_per_batch)
+-                                         : "";
+-        auto image_bytes           = encode_image_to_vector(encoded_format,
+-                                                            results[i].data,
+-                                                            results[i].width,
+-                                                            results[i].height,
+-                                                            results[i].channel,
+-                                                            metadata,
+-                                                            job.img_gen.output_compression);
+-        if (image_bytes.empty()) {
+-            continue;
++        if (output_images.empty()) {
++            error_message = "generate_image returned empty encoded outputs";
++            return false;
+         }
+-        output_images.push_back(base64_encode(image_bytes));
++        note_repetition_done(manager, job, saved);
+     }
+ 
+     if (output_images.empty()) {
+-        error_message = "generate_image returned empty encoded outputs";
++        // The job was cancelled before its first repetition started.
++        error_message = "job cancelled by client";
+         return false;
+     }
+-
+     return true;
+ }
+ 
+@@ -399,7 +480,7 @@ void async_job_worker(ServerRuntime& runtime) {
+         bool ok = false;
+ 
+         if (job->kind == AsyncJobKind::ImgGen) {
+-            ok = execute_img_gen_job(runtime, *job, output_images, error_message);
++            ok = execute_img_gen_job(runtime, manager, *job, output_images, error_message);
+         } else if (job->kind == AsyncJobKind::VidGen) {
+             ok = execute_vid_gen_job(runtime,
+                                      *job,
+diff --git a/examples/server/async_jobs.h b/examples/server/async_jobs.h
+index b10959c..f996402 100644
+--- a/examples/server/async_jobs.h
++++ b/examples/server/async_jobs.h
+@@ -51,8 +51,17 @@ struct AsyncGenerationJob {
+     int preview_total_steps   = 0;
+     // PS5SD: set when a client cancels the job while it generates.
+     bool cancel_requested = false;
++    // PS5SD: img_gen "repeat". The worker updates done and saved under the
++    // manager mutex; total and random_seed are set before the job is queued.
++    int repeat_total        = 1;
++    int repeat_done         = 0;
++    bool repeat_random_seed = false;  // the request named no seed >= 0
++    std::vector<std::string> repeat_saved;  // gallery file names, the last 50
+ };
+ 
++// PS5SD: the most repetitions one img_gen job may run.
++constexpr int k_max_img_gen_repeat = 100000;
++
+ struct AsyncJobManager {
+     std::mutex mutex;
+     std::condition_variable cv;
+@@ -72,6 +81,7 @@ std::string make_async_job_id(AsyncJobManager& manager);
+ bool cancel_queued_job(AsyncJobManager& manager, AsyncGenerationJob& job);
+ json make_async_job_json(const AsyncJobManager& manager, const AsyncGenerationJob& job);
+ bool execute_img_gen_job(ServerRuntime& runtime,
++                         AsyncJobManager& manager,
+                          AsyncGenerationJob& job,
+                          std::vector<std::string>& output_images,
+                          std::string& error_message);
+diff --git a/examples/server/routes_sdcpp.cpp b/examples/server/routes_sdcpp.cpp
+index 8d16b8c..6bbbced 100644
+--- a/examples/server/routes_sdcpp.cpp
++++ b/examples/server/routes_sdcpp.cpp
+@@ -396,6 +396,7 @@ static json make_capabilities_json(ServerRuntime& runtime) {
+                   {"min_height", 64},
+                   {"max_height", 4096},
+                   {"max_batch_count", 8},
++                  {"max_repeat", k_max_img_gen_repeat},
+                   {"max_queue_size", manager.max_pending_jobs},
+                   {"max_upscale_width", k_max_upscale_dimension},
+                   {"max_upscale_height", k_max_upscale_dimension},
+@@ -684,6 +685,25 @@ void register_sdcpp_api_endpoints(httplib::Server& svr, ServerRuntime& rt) {
+             }
+ 
+             json body = json::parse(req.body);
++
++            // PS5SD: "repeat" runs the request N times, one generation after the other.
++            int repeat = 1;
++            if (body.contains("repeat")) {
++                const bool valid = body["repeat"].is_number_integer() &&
++                                   body["repeat"].get<int64_t>() >= 1 &&
++                                   body["repeat"].get<int64_t>() <= k_max_img_gen_repeat;
++                if (!valid) {
++                    res.status = 400;
++                    res.set_content(json({{"error", "repeat must be a whole number from 1 to 100000"}}).dump(),
++                                    "application/json");
++                    return;
++                }
++                repeat = static_cast<int>(body["repeat"].get<int64_t>());
++            }
++            // No seed, or a negative one: every repetition draws its own seed.
++            const bool random_seed = !(body.contains("seed") && body["seed"].is_number_integer() &&
++                                       body["seed"].get<int64_t>() >= 0);
++
+             ImgGenJobRequest request;
+             std::string error_message;
+             if (!parse_img_gen_request(body, *runtime, request, error_message)) {
+@@ -698,6 +718,8 @@ void register_sdcpp_api_endpoints(httplib::Server& svr, ServerRuntime& rt) {
+             job->status                             = AsyncJobStatus::Queued;
+             job->created_at                         = unix_timestamp_now();
+             job->img_gen                            = std::move(request);
++            job->repeat_total                       = repeat;
++            job->repeat_random_seed                 = random_seed;
+ 
+             {
+                 std::lock_guard<std::mutex> lock(manager.mutex);
+-- 
+2.56.0.windows.2
+

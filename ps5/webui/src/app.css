@@ -20,6 +20,11 @@
   .brand { color: var(--text); font-size: 1.25rem; font-weight: 600; letter-spacing: 0.04em; margin-right: 1.25rem; }
   .ver { color: var(--muted); font-size: 0.8rem; margin: 0.2rem 1.25rem 0 -0.9rem; }
   .model { color: var(--muted); font-size: 0.95rem; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  /* the model name is a button: it opens the model list */
+  button.model { display: block; min-height: 0; margin: 0; padding: 0; border: 0; border-radius: 0; background: transparent;
+    text-align: left; line-height: 1.5; cursor: pointer; }
+  button.model:hover { background: transparent; color: var(--text); }
+  button.model::after { content: "\00a0\25BE"; color: var(--faint); }
   .pill { display: flex; align-items: center; font-size: 0.875rem; color: var(--faint); background: var(--surface);
     border: 1px solid var(--border); border-radius: 2rem; padding: 0.2rem 1rem 0.2rem 0.8rem; margin-left: 1rem; white-space: nowrap; }
   .pill .dot { width: 0.6rem; height: 0.6rem; border-radius: 50%; background: var(--faint); margin-right: 0.55rem; }
@@ -33,6 +38,8 @@
     background: transparent; color: var(--muted); border: 1px solid transparent; }
   .tabs button:hover { color: var(--text); background: var(--surface); }
   .tabs button.on { color: #fff; background: var(--accent); }
+  /* the tab icons show on a phone only (see the 720px rules) */
+  .tabs svg { display: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 
   .main { display: flex; flex-wrap: wrap; align-items: flex-start; max-width: 90rem; margin: 0 auto; padding: 0.5rem 1.25rem 2rem; }
   .panel { box-sizing: border-box; margin: 0.75rem; background: var(--surface); border: 1px solid var(--border);
@@ -261,6 +268,9 @@
   .me-size { flex: none; color: var(--muted); margin: 0 0.4rem 0 0.6rem; min-width: 5.5rem; text-align: center; }
   .authbtns { display: flex; flex-wrap: wrap; margin: 0 -0.25rem; }
   .authbtns button { margin: 0.25rem; min-height: 2.75rem; }
+  .arow { display: flex; justify-content: space-between; align-items: baseline; padding: 0.55rem 0; border-bottom: 1px solid var(--border); }
+  .arow span:first-child { color: var(--muted); }
+  .arow span:last-child { color: var(--text); text-align: right; min-width: 0; overflow-wrap: anywhere; margin-left: 1rem; }
   #savepreset { margin-left: 0.5rem; }
 
   @media (max-width: 1300px) { .thumbs .t { flex-basis: 25%; } }
@@ -270,11 +280,19 @@
     .top { padding: 0 1rem; flex-wrap: wrap; padding-top: 0.5rem; padding-bottom: 0.25rem; }
     .model { order: 3; flex-basis: 100%; margin-top: 0.1rem; }
     .pill { margin-left: auto; }
-    /* The tab bar scrolls sideways inside itself, so the page never gets wider than the phone.
-       The padding leaves room for the white focus frame, which the overflow would cut off. */
-    .tabs { padding: 0.5rem 1rem 0.4rem; overflow-x: auto; scrollbar-width: none; }
-    .tabs::-webkit-scrollbar { display: none; }
-    .tabs button { flex: 0 0 auto; margin-right: 0.3rem; padding: 0 0.85rem; white-space: nowrap; }
+    /* The tab bar sits at the foot of the screen: five equal buttons, an icon over a label.
+       The page keeps room under it, and the bar stays below the viewer and the mask editor (.lb, .dlg). */
+    body { padding-bottom: 5.5rem; padding-bottom: calc(5.5rem + env(safe-area-inset-bottom)); }
+    #toast { bottom: 6rem; }
+    .tabs { position: fixed; left: 0; right: 0; bottom: 0; z-index: 5; max-width: none; margin: 0; padding: 0.3rem 0.4rem;
+      background: var(--surface); border-top: 1px solid var(--border); }
+    .tabs { padding-bottom: calc(0.3rem + env(safe-area-inset-bottom)); }
+    .tabs > button { flex: 1 1 0; min-width: 0; min-height: 3.4rem; margin: 0; padding: 0.25rem 0.1rem; border: 0; border-radius: 12px;
+      font-size: 0.8rem; line-height: 1.15; }
+    .tabs > button > span { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .tabs > button.on { background: var(--accent); color: #fff; }
+    .tabs svg { display: block; width: 1.5rem; height: 1.5rem; margin: 0 auto 0.15rem; }
+    .tabs #gcount { display: block; font-size: 0.7rem; }
     .panel { margin: 0.5rem 0; padding: 1.1rem; }
     .main { padding: 0.25rem 0.75rem 1.5rem; }
     .gal { padding: 0.5rem 0.75rem 2rem; }
