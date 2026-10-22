@@ -10,6 +10,9 @@ can rely on.
 
 ## Done
 
+- **0.9.4**: downloads and uploads work with ftpsrv up to 0.15 (PASV), or through PS5SD's own copy when
+  the one on 2121 cannot write; a file that is only a part of a model is marked and says what it needs,
+  and a model that does not load says why ([issue 5](https://github.com/Darkatek7/PS5SD/issues/5)).
 - **0.9.3**: the console's temperature, power, fan and load on the TV, in the web UI's header and as charts
   in Settings, through ps5-exporter, which the title carries and starts.
 - **0.9.2**: SDXL in 30 s instead of 70 (dpm++2m with the `ays` schedule at 10 steps, larger VAE tiles,
