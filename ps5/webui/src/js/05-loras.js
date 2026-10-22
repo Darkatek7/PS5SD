@@ -122,22 +122,24 @@
       url: 'https://huggingface.co/Kijai/WanVideo_comfy/resolve/main/Wan21_CausVid_bidirect2_T2V_1_3B_lora_rank32.safetensors' }
   ];
 
+  // The installed LoRAs (Installed), and the featured ones not installed yet (Get more).
   function drawLoraList() {
     var box = $('llist');
     clear(box);
     var list = loraList || [];
-    if (!list.length) box.appendChild(el('div', 'empty-note', 'No LoRAs yet. Get one below, upload one, or download one by link as LoRA.'));
+    if (!list.length) box.appendChild(el('div', 'empty-note', 'No LoRAs yet. Get one under Get more, or upload one.'));
     for (var i = 0; i < list.length; i++) {
       (function (l) {
+        var raw = l.name || loraName(l.path);
         var row = el('div', 'mrow mwrap');
         var main = el('div', 'mmain');
-        main.appendChild(el('div', 'mname', l.name || loraName(l.path)));
-        main.appendChild(el('div', 'mmeta', (l.bytes > 0 ? bytes(l.bytes) + ' · ' : '') + l.path));
+        main.appendChild(el('div', 'mname', readable(raw)));
+        addTags(main, loraFamily(raw) ? [{ text: loraFamily(raw), cls: 'fam' }] : []);
+        main.appendChild(el('div', 'mfile', l.path));
+        if (l.bytes > 0) main.appendChild(el('div', 'mmeta', bytes(l.bytes)));
         row.appendChild(main);
         var acts = el('div', 'macts');
-        var del = actionButton('Delete', function () { askDeleteLora(l); });
-        del.className = 'danger';
-        acts.appendChild(del);
+        acts.appendChild(moreMenu([{ label: 'Delete', danger: true, fn: function () { askDeleteLora(l); } }], ''));
         row.appendChild(acts);
         box.appendChild(row);
       })(list[i]);
@@ -147,9 +149,11 @@
     for (var k = 0; k < FEATURED_LORAS.length; k++) {
       (function (c) {
         for (var j = 0; j < list.length; j++) if (list[j].path === c.file) return;
+        if (!sug.childNodes.length) sug.appendChild(el('div', 'ghead', 'LoRAs'));
         var row = el('div', 'mrow mwrap');
         var main = el('div', 'mmain');
         main.appendChild(el('div', 'mname', c.label));
+        addTags(main, loraFamily(c.label + ' ' + c.file) ? [{ text: loraFamily(c.label + ' ' + c.file), cls: 'fam' }] : []);
         main.appendChild(el('div', 'mmeta', c.note));
         row.appendChild(main);
         var acts = el('div', 'macts');
@@ -160,6 +164,12 @@
         sug.appendChild(row);
       })(FEATURED_LORAS[k]);
     }
+    showSugg();
+  }
+
+  // The Get more section of featured LoRAs and upscalers: shown while one of them is not installed.
+  function showSugg() {
+    show('pnl-sugg', $('lsugg').childNodes.length > 0 || $('usugg').childNodes.length > 0);
   }
 
   function askDeleteLora(l) {

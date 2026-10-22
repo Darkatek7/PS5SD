@@ -284,6 +284,45 @@
   .feat .mmeta { font-size: 0.95rem; }
   .feat .mmeta.good { color: var(--body); }
   .empty-note { color: var(--faint); padding: 0.8rem 0 0.2rem; font-size: 0.95rem; }
+  /* Models tab: Installed | Get more | Downloads, the groups, the saved settings under a model, the ⋯ menu */
+  .mseg { display: flex; box-sizing: border-box; flex: 0 1 calc(100% - 1.5rem); max-width: 36rem; margin: 0.75rem 0.75rem 0; padding: 0.3rem; background: var(--surface);
+    border: 1px solid var(--border); border-radius: 2rem; }
+  .mseg button { flex: 1 1 0; min-width: 0; min-height: 2.9rem; margin: 0; padding: 0 0.7rem; border: 0; border-radius: 2rem;
+    background: transparent; color: var(--muted); white-space: nowrap; }
+  .mseg button:hover { background: var(--raised); color: var(--text); }
+  .mseg button.on { background: var(--accent); color: #fff; }
+  .seg-badge { display: inline-block; min-width: 1.4rem; margin-left: 0.4rem; padding: 0 0.4rem; border-radius: 1rem;
+    background: var(--accent-hi); color: #fff; font-size: 0.75rem; line-height: 1.4rem; text-align: center; vertical-align: 0.1rem; }
+  .mseg button.on .seg-badge { background: #fff; color: var(--accent); }
+  .mview { flex: 1 1 100%; min-width: 0; flex-wrap: wrap; align-items: flex-start; }
+  .mcol.wide { flex: 1 1 100%; max-width: 60rem; }
+  .ghead { color: var(--muted); font-size: 0.875rem; font-weight: 500; margin: 1.2rem 0 0; }
+  .mfile { color: var(--faint); font-size: 0.8rem; word-break: break-all; }
+  .mtags { margin-top: 0.15rem; }
+  .mitem { margin-top: 0.6rem; }
+  .mitem > .mrow { margin-top: 0; }
+  .subs { margin: 0.2rem 0 0.2rem 0.9rem; padding-left: 0.9rem; border-left: 2px solid var(--border); }
+  .subhead { color: var(--faint); font-size: 0.8rem; margin-top: 0.5rem; }
+  .sub { display: flex; align-items: center; margin-top: 0.4rem; padding: 0.55rem 0.8rem; background: var(--field);
+    border: 1px solid var(--border); border-radius: 10px; }
+  .sub.on { border-color: var(--accent-hi); background: #10213a; }
+  .smain { flex: 1; min-width: 0; }
+  .sname { color: var(--text); font-size: 0.95rem; word-wrap: break-word; }
+  .sacts { display: flex; flex: none; margin-left: 0.6rem; }
+  .sacts button { flex: none; min-height: 2.5rem; min-width: 4.2rem; margin-left: 0.4rem; padding: 0 0.6rem; font-size: 0.9rem; }
+  .sacts button:first-child { margin-left: 0; }
+  .rmore { position: relative; flex: none; margin-left: 0.9rem; }
+  .macts .rmore { margin-left: 0.5rem; }
+  .macts .more-btn, .rmore .more-btn { flex: none; min-width: 3rem; padding: 0 0.6rem; font-size: 1.2rem; line-height: 1; }
+  .menu { position: absolute; right: 0; top: calc(100% + 0.3rem); z-index: 6; min-width: 12rem; max-width: 18rem; padding: 0.3rem;
+    background: var(--raised); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5); }
+  .menu .menu-item { display: block; width: 100%; min-width: 0; min-height: 2.9rem; margin: 0; padding: 0 0.8rem; text-align: left;
+    background: transparent; border: 0; border-radius: 8px; }
+  .menu .menu-item:hover { background: #222e47; }
+  .menu .menu-item.danger { color: var(--bad); }
+  .menu .menu-item:disabled { opacity: 0.45; }
+  .menu .menu-note { padding: 0.4rem 0.8rem 0.3rem; color: var(--faint); font-size: 0.8rem; line-height: 1.35; }
+  #dl-clear:disabled { opacity: 0.45; }
   .notice { margin: 0.6rem 0 0.4rem; padding: 1rem; background: #10213a; border: 1px solid var(--accent-hi); border-radius: 12px; }
   .nline { color: var(--text); font-size: 1.1rem; }
   .notice .bar { margin: 0.7rem 0 0.4rem; }
@@ -374,8 +413,13 @@
     .mrow { flex-wrap: wrap; }
     .mmain { flex-basis: 100%; }
     .mrow > button { flex: 1; margin: 0.7rem 0 0; }
-    .macts { flex: 1 1 100%; margin: 0.7rem 0 0; }
-    .macts button { flex: 1; }
+    .macts { flex: 1 1 100%; justify-content: flex-end; margin: 0.7rem 0 0; }
+    .macts > button { flex: 1; }
+    .sub { flex-wrap: wrap; }
+    .smain { flex: 1 1 100%; }
+    .sacts { flex: 1 1 100%; justify-content: flex-end; margin: 0.5rem 0 0; }
+    .sacts > button { flex: 1; }
+    .mseg button { padding: 0 0.3rem; font-size: 0.95rem; }
     .inrow { flex-wrap: wrap; }
     .inrow input { flex-basis: 100%; margin: 0 0 0.6rem; }
     .inrow button { flex: 1; }

@@ -73,23 +73,7 @@
     return false;
   }
 
-  // The family of a model, guessed from the names (then the files) of it and its base file.
-  function familyWord(s) {
-    if (/flux/.test(s)) return 'FLUX';
-    if (/z[-_ ]?image/.test(s)) return 'Z-Image';
-    if (/wan/.test(s)) return 'Wan';
-    if (/sd ?3|sd_3|stable-diffusion-3/.test(s)) return 'SD 3';
-    if (/xl|pony|ilust|illust|juggernaut|animagine/.test(s)) return 'SDXL';
-    if (/sd ?1\.?5|v1-5|sd_?15|sdxs/.test(s)) return 'SD 1.5';
-    return '';
-  }
-
-  function familyOf(entry, base) {
-    var names = ((entry && entry.name) || '') + ' ' + ((base && base.name) || '') + ' ' + ((entry && entry.id) || '');
-    var files = ((entry && entry.files) || []).concat((base && base.files) || []).join(' ');
-    return familyWord(names.toLowerCase()) || familyWord(files.toLowerCase());
-  }
-
+  // The family of the model in use (familyOf: 03-model-presets.js, shared with the Models tab).
   function drawModelBlock() {
     var d = st.mdl;
     var loaded = d && d.loaded ? findModel(d.loaded) : null;

@@ -21,22 +21,26 @@
     });
   }
 
+  // The installed upscalers (Installed; the one the Upscale button uses is marked), and the featured
+  // ones not installed yet (Get more).
   function drawUpscalers() {
     var box = $('ulist');
     clear(box);
     var list = upList || [];
-    if (!list.length) box.appendChild(el('div', 'empty-note', 'No upscalers yet. Get one below.'));
+    var chosen = $('opt-up').value || upModels[0] || '';
+    if (!list.length) box.appendChild(el('div', 'empty-note', 'No upscalers yet. Get one under Get more.'));
     for (var i = 0; i < list.length; i++) {
       (function (u) {
         var row = el('div', 'mrow mwrap');
         var main = el('div', 'mmain');
-        main.appendChild(el('div', 'mname', u.name));
-        main.appendChild(el('div', 'mmeta', bytes(u.bytes) + ' · ' + u.file));
+        var nm = el('div', 'mname', readable(u.name));
+        if (u.name === chosen && upModels.length) nm.appendChild(el('span', 'badge ok', 'Upscale button'));
+        main.appendChild(nm);
+        main.appendChild(el('div', 'mfile', u.file));
+        main.appendChild(el('div', 'mmeta', bytes(u.bytes)));
         row.appendChild(main);
         var acts = el('div', 'macts');
-        var del = actionButton('Delete', function () { askDeleteUpscaler(u); });
-        del.className = 'danger';
-        acts.appendChild(del);
+        acts.appendChild(moreMenu([{ label: 'Delete', danger: true, fn: function () { askDeleteUpscaler(u); } }], ''));
         row.appendChild(acts);
         box.appendChild(row);
       })(list[i]);
@@ -46,6 +50,7 @@
     for (var k = 0; k < UPSCALERS.length; k++) {
       (function (c) {
         for (var j = 0; j < list.length; j++) if (list[j].file === c.file) return;
+        if (!sug.childNodes.length) sug.appendChild(el('div', 'ghead', 'Upscalers'));
         var row = el('div', 'mrow mwrap');
         var main = el('div', 'mmain');
         main.appendChild(el('div', 'mname', c.label));
@@ -59,6 +64,7 @@
         sug.appendChild(row);
       })(UPSCALERS[k]);
     }
+    showSugg();
   }
 
   function askDeleteUpscaler(u) {
@@ -118,6 +124,7 @@
     if (img.length) setSelect('opt-up', want, img[0]);
     show('opt-up-box', img.length > 0);
     show('lb-up', img.length > 0, 'inline-block');
+    drawUpscalers();  // the "Upscale button" mark
     if (!st.busy && st.results) pickResult(st.pick);
   }
 

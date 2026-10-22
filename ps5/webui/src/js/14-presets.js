@@ -1,63 +1,4 @@
-  // ---------- presets ----------
-  var plistSig = null;
-
-  function drawPresets() {
-    var d = st.mdl;
-    show('pnl-presets', st.app === true);
-    var sig = JSON.stringify(d) + '|' + (st.sw ? st.sw.id : '') + '|' + (st.delErr ? st.delErr.id + st.delErr.msg : '');
-    if (sig === plistSig) return;
-    plistSig = sig;
-    var box = $('plist');
-    clear(box);
-    if (!d) { box.appendChild(el('div', 'empty-note', 'Loading…')); return; }
-    var n = 0;
-    for (var i = 0; i < d.models.length; i++) {
-      if (d.models[i].kind !== 'preset' || !d.models[i].base) continue;
-      box.appendChild(presetRow(d.models[i], d));
-      n++;
-    }
-    if (!n) box.appendChild(el('div', 'empty-note', 'No presets yet. Set up the Create tab the way you like it, then press Save as preset under Settings there.'));
-    drawSaveBox();
-  }
-
-  function presetRow(m, d) {
-    var loaded = d.loaded === m.id;
-    var target = !!(st.sw && st.sw.id === m.id);
-    var miss = m.missing && m.missing.length;
-    var base = findModel(m.base);
-    var row = el('div', 'mrow mwrap' + (loaded ? ' on' : '') + (miss && !loaded ? ' dim' : ''));
-    var main = el('div', 'mmain');
-    var nm = el('div', 'mname', m.name || m.id);
-    if (loaded) nm.appendChild(el('span', 'badge ok', 'In use'));
-    else if (target) nm.appendChild(el('span', 'badge warn', 'Loading…'));
-    if (miss) nm.appendChild(el('span', 'badge bad', 'Model missing'));
-    main.appendChild(nm);
-    var meta = 'For ' + (base ? base.name || base.id : m.base);
-    var def = defaultsText(m.defaults);
-    if (def) meta += ' · ' + def;
-    var ls = m.defaults && m.defaults.loras ? parseLoras(m.defaults.loras) : [];
-    if (ls.length) meta += ' · ' + ls.length + (ls.length === 1 ? ' LoRA' : ' LoRAs');
-    if (m.defaults && m.defaults.hires_scale) meta += ' · hires ×' + m.defaults.hires_scale;
-    main.appendChild(el('div', 'mmeta', meta));
-    if (st.delErr && st.delErr.id === m.id) main.appendChild(el('div', 'mmeta bad', st.delErr.msg));
-    row.appendChild(main);
-    var acts = el('div', 'macts');
-    if (!loaded) {
-      var usable = !target && !miss && !st.sw;
-      var b = actionButton(target ? 'Loading…' : 'Use', function () { useModel(m); });
-      b.disabled = !usable;
-      if (usable) b.className = 'on';
-      acts.appendChild(b);
-    }
-    acts.appendChild(actionButton('Edit', function () { editPreset(m); }));
-    var del = actionButton('Delete', function () { askDeletePreset(m); });
-    del.className = 'danger';
-    del.disabled = loaded || d.active === m.id || !!st.sw;
-    if (del.disabled && !st.sw) del.title = 'Switch to another model or preset first.';
-    acts.appendChild(del);
-    row.appendChild(acts);
-    return row;
-  }
+  // ---------- saved settings: the list is in the Models tab (13-models.js); the save box is here ----------
 
   // What "Save" keeps: the loaded model and the form of the Create tab.
   function presetDefaults() {
@@ -178,55 +119,10 @@
         toast('Deleted the preset ' + (m.name || m.id) + '.');
       } else {
         st.delErr = { id: m.id, msg: errText(code, data, 'Could not delete') };
-        plistSig = null;
+        mlistSig = null;
         loadModels(null);
       }
     }, 15000);
-  }
-
-  function modelRow(m, d) {
-    var loaded = d.loaded === m.id;
-    var target = !!(st.sw && st.sw.id === m.id);
-    var loading = target || (!loaded && d.active === m.id);
-    var miss = m.missing && m.missing.length ? m.missing : null;
-    var row = el('div', 'mrow mwrap' + (loaded ? ' on' : '') + (miss && !loaded ? ' dim' : ''));
-    var main = el('div', 'mmain');
-    var nm = el('div', 'mname', m.name || m.id);
-    var via = !loaded && d.loaded ? findModel(d.loaded) : null;  // a saved preset of this model is loaded
-    if (via && via.base !== m.id) via = null;
-    if (loaded) nm.appendChild(el('span', 'badge ok', 'In use'));
-    else if (loading) nm.appendChild(el('span', 'badge warn', 'Loading…'));
-    else if (via) nm.appendChild(el('span', 'badge ok', 'In use via ' + (via.name || via.id)));
-    if (miss) nm.appendChild(el('span', 'badge bad', 'Incomplete'));
-    main.appendChild(nm);
-    var meta = (m.kind === 'preset' ? 'Model with options' : 'Checkpoint') + ' · ' + bytes(m.bytes);
-    var def = defaultsText(m.defaults);
-    if (def) meta += ' · ' + def;
-    main.appendChild(el('div', 'mmeta', meta));
-    if (miss) {
-      var lost = [];
-      for (var i = 0; i < miss.length; i++) lost.push(baseName(miss[i]));
-      main.appendChild(el('div', 'mmeta bad', 'Missing: ' + lost.join(', ')));
-    }
-    var why = deleteBlock(m, d);
-    if (why) main.appendChild(el('div', 'mmeta', why));
-    if (st.delErr && st.delErr.id === m.id) main.appendChild(el('div', 'mmeta bad', st.delErr.msg));
-    row.appendChild(main);
-    var acts = el('div', 'macts');
-    if (!loaded) {   // the badge says it; nothing to switch to
-      var usable = !loading && !miss && !st.sw;
-      var b = actionButton(loading ? 'Loading…' : 'Use', function () { useModel(m); });
-      b.disabled = !usable;
-      if (usable) b.className = 'on';
-      acts.appendChild(b);
-    }
-    var del = actionButton('Delete', function () { askDelete(m); });
-    del.className = 'danger';
-    del.disabled = !!why || !!st.sw;
-    if (why) del.title = why;
-    acts.appendChild(del);
-    row.appendChild(acts);
-    return row;
   }
 
   // Why this model cannot be deleted (shown in its row), or ''.

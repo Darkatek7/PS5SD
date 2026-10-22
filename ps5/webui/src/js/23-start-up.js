@@ -54,7 +54,7 @@
     $('hr-steps+').onclick = function () { stepper('hr-steps', 1, 0, 150, 0); };
     $('hr-den-').onclick = function () { stepper('hr-den', -0.05, 0.05, 1, 2); };
     $('hr-den+').onclick = function () { stepper('hr-den', 0.05, 0.05, 1, 2); };
-    $('opt-up').onchange = function () { save('upscaler', this.value); };
+    $('opt-up').onchange = function () { save('upscaler', this.value); drawUpscalers(); };
     $('init-pick').onclick = function () { $('init-file').click(); };
     $('init-file').onchange = initFile;
     $('init-drop').onclick = dropInit;
@@ -71,6 +71,7 @@
     $('cn-str+').onclick = function () { stepper('cn-str', 0.1, 0.1, 1.5, 1); };
     $('cn-canny').onchange = function () { summary(); };
     initCreateLayout();
+    initModelsTabs();
     $('me-size-').onclick = function () { me.brush = Math.max(8, me.brush - 8); text($('me-size'), 'Brush ' + me.brush); };
     $('me-size+').onclick = function () { me.brush = Math.min(240, me.brush + 8); text($('me-size'), 'Brush ' + me.brush); };
     $('me-mode').onclick = function () { me.erase = !me.erase; text($('me-mode'), me.erase ? 'Paint' : 'Erase'); };
