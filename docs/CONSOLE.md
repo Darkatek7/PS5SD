@@ -492,3 +492,17 @@ of the pool is free, and the first sampling step asks for 5,366 MB on the GPU ag
 (`model manager cannot make enough memory available`). The run fails after 0.24 s with the out-of-memory
 reason of 0.7.1. Smaller sizes fit: 896×896 in 114 s, 768×768 in 78 s, 1024×768 in 105 s, 832×1216 in
 130 s. The catalog's preset now defaults to 896×896.
+
+## FLUX.2 Klein 4B (2026-10-22)
+
+leejet's GGUFs of FLUX.2 Klein 4B (Apache 2.0), with the Qwen3-4B Instruct 2507 Q4_K_M text encoder that
+Z-Image Turbo uses (Klein was trained with Qwen3-4B; the Instruct weights load and give clean images) and
+the FLUX.2 VAE, CFG 1, Euler, the lighthouse prompt of the catalog measurements, seed 42:
+
+| Model | Weights | Size, steps | First | Warm | Pool free after |
+|---|---|---|---|---|---|
+| Q8_0 (4.30 GB) | 6.64 GB | 1024×1024, 4 | 46.7 s | 30.5 s | 3.92 GiB |
+| Q4_0 (2.46 GB) | | 1024×1024, 4 | 43.7 s | 26.1 s | 4.71 GiB |
+
+The warm Q8_0 image: 34.4 s of sampling the first time, 24.1 s after; the text encoder 5.6 s once (cached
+for the same prompt), the VAE decode about 6 s. The catalog has Q8_0.

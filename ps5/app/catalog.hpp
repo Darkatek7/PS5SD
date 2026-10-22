@@ -13,6 +13,8 @@
 // sampling and a step takes 2.5 times as long); FLUX.3 Klein Q4_K, Qwen3-VL-4B
 // Q4_K_M and the FLUX.2 VAE are 6.3 GB and leave 4 GiB free after a request;
 // Z-Image Turbo Q4_K with Qwen3-4B Q4_K_M and the FLUX.1 VAE is 6.7 GB.
+// FLUX.2 Klein 4B Q8_0 with Qwen3-4B Q4_K_M and the FLUX.2 VAE is 7.1 GB and leaves 3.9 GiB free
+// after a 1024x1024 image.
 // Wan 2.1 T2V 1.3B (f16) with umt5-xxl Q4_K_M and the Wan 2.1 VAE is 6.7 GB;
 // the VAE decode of 33 frames needs 128 px tiles (256 px ran out of memory).
 // SDXL Q8_0 with the Canny ControlNet (2.5 GB more) left 2.7 GiB free after a 1024x1024 image.
@@ -42,6 +44,13 @@ namespace catalog_data {
 #define PS5SD_KLEIN_VAE                                                                                   \
     { "https://huggingface.co/Comfy-Org/flux2-dev/resolve/main/split_files/vae/flux2-vae.safetensors",     \
       "vae/flux2-vae.safetensors", 336213556ull, 336211292ull }
+
+// Qwen3-4B Instruct 2507, the text encoder of Z-Image Turbo and FLUX.2 Klein 4B (which was trained
+// with Qwen3-4B; the Instruct 2507 weights work as well, measured 2026-10-22).
+#define PS5SD_QWEN3_4B                                                                                    \
+    { "https://huggingface.co/unsloth/Qwen3-4B-Instruct-2507-GGUF/resolve/main/"                          \
+      "Qwen3-4B-Instruct-2507-Q4_K_M.gguf",                                                               \
+      "text_encoders/Qwen3-4B-Instruct-2507-Q4_K_M.gguf", 2497281120ull, 0 }
 
 inline std::vector<CatalogEntry> entries() {
     return {
@@ -100,9 +109,7 @@ inline std::vector<CatalogEntry> entries() {
             {
                 { "https://huggingface.co/leejet/Z-Image-Turbo-GGUF/resolve/main/z_image_turbo-Q4_K.gguf",
                   "diffusion_models/z_image_turbo-Q4_K.gguf", 3864250304ull, 0 },
-                { "https://huggingface.co/unsloth/Qwen3-4B-Instruct-2507-GGUF/resolve/main/"
-                  "Qwen3-4B-Instruct-2507-Q4_K_M.gguf",
-                  "text_encoders/Qwen3-4B-Instruct-2507-Q4_K_M.gguf", 2497281120ull, 0 },
+                PS5SD_QWEN3_4B,
                 // The FLUX.1 VAE: Comfy-Org's copy (black-forest-labs/FLUX.1-schnell answers 401).
                 { "https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/vae/ae.safetensors",
                   "vae/flux1-ae.safetensors", 335304388ull, 0 },
@@ -120,6 +127,30 @@ inline std::vector<CatalogEntry> entries() {
             "512\n",
             true,
             "fast photoreal images",
+        },
+        {
+            "flux2-klein-4b",
+            "FLUX.2 Klein 4B (Q8_0)",
+            "Fast and detailed: 1024x1024 in 4 steps, about 30 s an image. Apache 2.0. 7.1 GB.",
+            {
+                { "https://huggingface.co/leejet/FLUX.2-klein-4B-GGUF/resolve/main/flux-2-klein-4b-Q8_0.gguf",
+                  "diffusion_models/flux-2-klein-4b-Q8_0.gguf", 4300629440ull, 0 },
+                PS5SD_QWEN3_4B,
+                PS5SD_KLEIN_VAE,
+            },
+            "# name: FLUX.2 Klein 4B (Q8_0)\n"
+            "# defaults: steps=4 cfg=1 width=1024 height=1024 sampler=euler\n"
+            "--diffusion-model\n"
+            "diffusion_models/flux-2-klein-4b-Q8_0.gguf\n"
+            "--llm\n"
+            "text_encoders/Qwen3-4B-Instruct-2507-Q4_K_M.gguf\n"
+            "--vae\n"
+            "vae/flux2-vae.safetensors\n"
+            "--vae-tiling\n"
+            "--vae-tile-size\n"
+            "512\n",
+            true,
+            "fast, detailed images",
         },
         {
             "flux3-klein-q6",

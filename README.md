@@ -58,8 +58,8 @@ and upscalers, **Settings** holds the done signal, the TV and the API key, and *
 
 ## Models
 
-The title downloads models itself, from the web UI: a starter catalog (SDXL Base 1.0, FLUX.3 Image
-Klein, Z-Image Turbo and a few smaller ones; one click installs the files and a preset) or any
+The title downloads models itself, from the web UI: a starter catalog (SDXL Base 1.0, FLUX.2 Klein 4B,
+FLUX.3 Image Klein, Z-Image Turbo and a few smaller ones; one click installs the files and a preset) or any
 Hugging Face or Civitai file URL, with progress, cancel and resume. Downloads keep going while
 images are generated. A gated or private Hugging Face repository needs a token in
 `/data/PS5SD/hf-token.txt`, a Civitai model that asks for a login one in

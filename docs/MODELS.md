@@ -179,7 +179,7 @@ still ask for a saved preset by its id. Deleting a saved preset, in the web UI o
 `DELETE /ps5sd/v1/app/models/<id>`, removes its file only.
 
 The catalog's presets in [ps5/app/catalog.hpp](../ps5/app/catalog.hpp) are working examples for SDXL,
-FLUX.3 Klein, Z-Image Turbo and Wan 2.1.
+FLUX.2 Klein 4B, FLUX.3 Klein, Z-Image Turbo and Wan 2.1.
 
 Put the preset in place like a model file, with FTP or the script:
 
@@ -411,6 +411,7 @@ must fit together, plus the working memory for one image.
 | SDXL Q8_0 + Canny ControlNet (fp16) | 7.9 GB | yes, 2.7 GiB free after a 1024x1024 image |
 | FLUX.3 Klein Q4_K / Q6_K + Qwen3-VL-4B Q4_K_M | 6.4 / 7.7 GB | yes; Q6_K up to about 1 megapixel (896×896, 832×1216), not 1024×1024 |
 | Z-Image Turbo Q4_K + Qwen3-4B Q4_K_M | 6.7 GB | yes |
+| FLUX.2 Klein 4B Q8_0 + Qwen3-4B Q4_K_M | 7.1 GB | yes, 1024×1024 in 4 steps in about 30 s, 3.9 GiB free after it |
 | Wan 2.1 T2V 1.3B (video) fp16 + umt5-xxl Q4_K_M + VAE | 6.7 GB | yes, 33 frames at 832×480 with 128 px VAE tiles; 256 px ran out of memory |
 | FLUX.1 dev or schnell in f16 (24 GB) | | no; use a Q4 or Q5 `.gguf` |
 
