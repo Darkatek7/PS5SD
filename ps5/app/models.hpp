@@ -187,10 +187,15 @@ bool valid_api_key(const std::string & key);
 // GET /ps5sd/v1/app/auth: {"enabled": bool, "key": "..." or ""}.
 std::string auth_json(const std::string & key);
 
-// POST /ps5sd/v1/app/gallery: {"image": "<base64 PNG, or a data URL>"}.
-// The PNG's bytes, or false with a message (not JSON, no image, not base64,
-// not a PNG).
+// POST /ps5sd/v1/app/gallery: {"image": "<base64 PNG, or a data URL>",
+// "parameters": "<what made it>" (optional)}. The PNG's bytes, with the
+// parameters in a tEXt "parameters" chunk as the generated images have them,
+// or false with a message (not JSON, no image, not base64, not a PNG).
 bool png_from_json(const std::string & body, std::string & png, std::string & error);
+
+// The PNG with a tEXt chunk keyword/text right after its IHDR; the PNG as it
+// is when it does not start with one.
+std::string png_with_text(const std::string & png, const std::string & keyword, const std::string & text);
 
 // A free gallery file name in dir for an image the web UI made at time t:
 // sd_YYYYMMDD_HHMMSS_edit.png, then _edit2, _edit3, ...

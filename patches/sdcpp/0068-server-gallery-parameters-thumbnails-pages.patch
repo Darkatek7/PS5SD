@@ -1,0 +1,543 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: ps5sd <ps5sd@localhost>
+Date: Thu, 22 Oct 2026 18:00:00 +0200
+Subject: [PATCH] server: gallery with parameters, thumbnails, pages and search
+
+Each image saved to --output-dir carries its parameters as sd.cpp's own
+routes give them (a tEXt "parameters" chunk, A1111's text with sd.cpp's
+JSON at the end); a video's go to .thumbs/<name>.txt. Each saved image and
+video gets a thumbnail (.thumbs/<name>.jpg, 320 px), and older PNGs get
+theirs on the first request. GET /ps5sd/v1/gallery takes offset, order,
+q (a search in the prompts) and type, says the total in X-Total-Count and
+gives each file's prompt; GET /ps5sd/v1/gallery/info/<file> gives what
+made it.
+---
+diff --git a/examples/server/async_jobs.cpp b/examples/server/async_jobs.cpp
+index 69a80de..60d83cb 100644
+--- a/examples/server/async_jobs.cpp
++++ b/examples/server/async_jobs.cpp
+@@ -328,7 +328,8 @@ bool execute_img_gen_job(ServerRuntime& runtime,
+         }
+ 
+         const int num_results                = results.count();
+-        const std::vector<std::string> saved = save_output_images(*runtime.svr_params, results);
++        const std::vector<std::string> saved = save_output_images(*runtime.svr_params, results, runtime.ctx_params,
++                                                                  &job.img_gen.gen_params);
+         activity.finish(num_results > 0, saved_paths(saved));
+         if (num_results <= 0) {
+             error_message = sd_server_failure_reason("generate_image returned no results");
+@@ -432,7 +433,8 @@ bool execute_vid_gen_job(ServerRuntime& runtime,
+         return false;
+     }
+     // PS5SD: into --output-dir like an image, so the gallery lists it.
+-    activity.finish(true, save_output_video(*runtime.svr_params, video_bytes, job.vid_gen.output_format));
++    activity.finish(true, save_output_video(*runtime.svr_params, video_bytes, job.vid_gen.output_format, str_params,
++                                            &results[0]));
+ 
+     output_media_b64       = base64_encode(video_bytes);
+     output_media_mime_type = video_mime_type(job.vid_gen.output_format);
+diff --git a/examples/server/gallery.cpp b/examples/server/gallery.cpp
+index 3ba106e..af765ca 100644
+--- a/examples/server/gallery.cpp
++++ b/examples/server/gallery.cpp
+@@ -1,17 +1,30 @@
+ // PS5SD: --output-dir, and the gallery endpoints that list and serve what was
+ // saved there:
+ //   GET /ps5sd/v1/gallery         JSON array, newest first:
+-//                                 [{"name","url","size","created","type"}]  (?limit=N, default 100)
++//                                 [{"name","url","thumb","size","created","type","prompt"}]
++//                                 ?limit=N (default 100), offset=N, order=oldest, q=<text in the
++//                                 prompt>, type=image|video; X-Total-Count: the matches before
++//                                 limit and offset
+ //   GET /ps5sd/v1/gallery/<file>  the PNG or the video
++//   GET /ps5sd/v1/gallery/thumb/<file>  its thumbnail, a JPEG at most 320 px a side (made when the
++//                                 file was saved, or now for a PNG saved before)
++//   GET /ps5sd/v1/gallery/info/<file>   {"name","type","parameters","prompt","sdcpp"}: what made it
++//
++// What made a file: a PNG's tEXt "parameters" chunk (A1111's text; sd.cpp ends
++// it with ", SDCPP: " and a JSON of the request), a video's .thumbs/<name>.txt.
+ 
+ #include <algorithm>
+ #include <atomic>
+ #include <chrono>
+ #include <cstdio>
+ #include <cstdlib>
++#include <cmath>
++#include <cstring>
+ #include <ctime>
+ #include <filesystem>
+ #include <fstream>
++#include <map>
++#include <mutex>
+ 
+ #include "common/log.h"
+ #include "common/media_io.h"
+@@ -74,7 +87,71 @@ static std::string next_output_name(const fs::path& dir, const char* ext) {
+     }
+ }
+ 
+-std::vector<std::string> save_output_images(const SDSvrParams& svr_params, SDImageVec& images) {
++// ---- thumbnails: <output-dir>/.thumbs/<name>.jpg; the listing skips the folder (no gallery type)
++
++static const int kThumbSide = 320;
++
++static fs::path thumbs_dir(const fs::path& dir) {
++    return dir / ".thumbs";
++}
++
++// Writes the bytes to path through a .tmp file, so a reader never sees half of them.
++static bool write_whole(const fs::path& path, const void* data, size_t size) {
++    const fs::path tmp = fs::u8path(path.u8string() + ".tmp");
++    {
++        std::ofstream file(tmp, std::ios::binary);
++        file.write(static_cast<const char*>(data), static_cast<std::streamsize>(size));
++        file.close();
++        if (!file) {
++            return false;
++        }
++    }
++    std::error_code ec;
++    fs::rename(tmp, path, ec);
++    return !ec;
++}
++
++// The image at most kThumbSide px a side (each pixel the mean of the ones it covers), as a JPEG.
++static bool write_thumbnail(const fs::path& dir, const std::string& name, const uint8_t* data, int w, int h, int c) {
++    if (data == nullptr || w <= 0 || h <= 0 || c <= 0) {
++        return false;
++    }
++    const double k = std::max(w, h) > kThumbSide ? (double)kThumbSide / std::max(w, h) : 1.0;
++    const int tw   = std::max(1, (int)std::lround(w * k));
++    const int th   = std::max(1, (int)std::lround(h * k));
++    std::vector<uint8_t> small((size_t)tw * th * 3);
++    for (int y = 0; y < th; ++y) {
++        const int y0 = (int)((int64_t)y * h / th);
++        const int y1 = std::max(y0 + 1, (int)((int64_t)(y + 1) * h / th));
++        for (int x = 0; x < tw; ++x) {
++            const int x0    = (int)((int64_t)x * w / tw);
++            const int x1    = std::max(x0 + 1, (int)((int64_t)(x + 1) * w / tw));
++            uint32_t sum[3] = {0, 0, 0};
++            for (int yy = y0; yy < y1; ++yy) {
++                const uint8_t* p = data + ((size_t)yy * w + x0) * c;
++                for (int xx = x0; xx < x1; ++xx, p += c) {
++                    for (int ch = 0; ch < 3; ++ch) {
++                        sum[ch] += p[c >= 3 ? ch : 0];
++                    }
++                }
++            }
++            const uint32_t n = (uint32_t)((y1 - y0) * (x1 - x0));
++            uint8_t* o       = &small[((size_t)y * tw + x) * 3];
++            for (int ch = 0; ch < 3; ++ch) {
++                o[ch] = (uint8_t)((sum[ch] + n / 2) / n);
++            }
++        }
++    }
++    const std::vector<uint8_t> jpeg = encode_image_to_vector(EncodedImageFormat::JPEG, small.data(), tw, th, 3, "", 80);
++    std::error_code ec;
++    fs::create_directories(thumbs_dir(dir), ec);
++    return !jpeg.empty() && write_whole(thumbs_dir(dir) / (name + ".jpg"), jpeg.data(), jpeg.size());
++}
++
++std::vector<std::string> save_output_images(const SDSvrParams& svr_params,
++                                            SDImageVec& images,
++                                            const SDContextParams* ctx_params,
++                                            const SDGenerationParams* gen_params) {
+     std::vector<std::string> saved;
+     if (svr_params.output_dir.empty()) {
+         return saved;
+@@ -84,21 +161,27 @@ std::vector<std::string> save_output_images(const SDSvrParams& svr_params, SDIma
+     std::error_code ec;
+     fs::create_directories(dir, ec);
+ 
++    const bool embed    = ctx_params != nullptr && gen_params != nullptr && gen_params->embed_image_metadata;
++    const int per_batch = embed && gen_params->batch_count > 0 ? std::max(1, images.count() / gen_params->batch_count) : 1;
+     for (int i = 0; i < images.count(); ++i) {
+         const sd_image_t& image = images[i];
+         if (image.data == nullptr) {
+             continue;
+         }
+-        std::vector<uint8_t> bytes = encode_image_to_vector(EncodedImageFormat::PNG,
++        // the seed of image i, as sd.cpp's own routes give it in their PNGs
++        const std::string parameters = embed ? get_image_params(*ctx_params, *gen_params, gen_params->seed + i / per_batch) : "";
++        std::vector<uint8_t> bytes   = encode_image_to_vector(EncodedImageFormat::PNG,
+                                                             image.data,
+                                                             image.width,
+                                                             image.height,
+-                                                            image.channel);
++                                                            image.channel,
++                                                            parameters);
+         if (bytes.empty()) {
+             LOG_ERROR("could not encode the image for --output-dir");
+             continue;
+         }
+-        const fs::path path = dir / next_output_name(dir, "png");
++        const std::string name = next_output_name(dir, "png");
++        const fs::path path    = dir / name;
+         std::ofstream file(path, std::ios::binary);
+         file.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+         file.close();
+@@ -106,12 +189,19 @@ std::vector<std::string> save_output_images(const SDSvrParams& svr_params, SDIma
+             LOG_ERROR("could not write %s", path.u8string().c_str());
+             continue;
+         }
++        if (!write_thumbnail(dir, name, image.data, (int)image.width, (int)image.height, (int)image.channel)) {
++            LOG_WARN("could not write the thumbnail of %s", name.c_str());
++        }
+         saved.push_back(path.u8string());
+     }
+     return saved;
+ }
+ 
+-std::string save_output_video(const SDSvrParams& svr_params, const std::vector<uint8_t>& bytes, const std::string& format) {
++std::string save_output_video(const SDSvrParams& svr_params,
++                              const std::vector<uint8_t>& bytes,
++                              const std::string& format,
++                              const std::string& parameters,
++                              const sd_image_t* first_frame) {
+     if (svr_params.output_dir.empty() || bytes.empty() ||
+         (format != "webm" && format != "webp" && format != "avi")) {
+         return "";
+@@ -121,7 +211,8 @@ std::string save_output_video(const SDSvrParams& svr_params, const std::vector<u
+     std::error_code ec;
+     fs::create_directories(dir, ec);
+ 
+-    const fs::path path = dir / next_output_name(dir, format.c_str());
++    const std::string name = next_output_name(dir, format.c_str());
++    const fs::path path    = dir / name;
+     std::ofstream file(path, std::ios::binary);
+     file.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+     file.close();
+@@ -129,6 +220,14 @@ std::string save_output_video(const SDSvrParams& svr_params, const std::vector<u
+         LOG_ERROR("could not write %s", path.u8string().c_str());
+         return "";
+     }
++    if (!parameters.empty()) {
++        fs::create_directories(thumbs_dir(dir), ec);
++        write_whole(thumbs_dir(dir) / (name + ".txt"), parameters.data(), parameters.size());
++    }
++    if (first_frame != nullptr) {
++        write_thumbnail(dir, name, first_frame->data, (int)first_frame->width, (int)first_frame->height,
++                        (int)first_frame->channel);
++    }
+     return path.u8string();
+ }
+ 
+@@ -150,8 +249,95 @@ struct GalleryEntry {
+     int64_t created  = 0;
+     uintmax_t size   = 0;
+     const char* type = nullptr;
++    std::string parameters;
++};
++
++// The text of a PNG's tEXt "parameters" chunk ("" when it has none). Reads the
++// chunk headers and skips the data, so a large PNG costs a few reads.
++std::string png_parameters(const fs::path& path) {
++    std::ifstream file(path, std::ios::binary);
++    char sig[8];
++    if (!file.read(sig, 8) || std::memcmp(sig, "\x89PNG\r\n\x1a\n", 8) != 0) {
++        return "";
++    }
++    unsigned char head[8];
++    while (file.read(reinterpret_cast<char*>(head), 8)) {
++        const uint32_t len = (uint32_t)head[0] << 24 | (uint32_t)head[1] << 16 | (uint32_t)head[2] << 8 | head[3];
++        const std::string type(reinterpret_cast<char*>(head) + 4, 4);
++        if (type == "IEND" || len > (256u << 20)) {
++            break;
++        }
++        if (type == "tEXt" && len > 11 && len < (1u << 20)) {
++            std::string data(len, '\0');
++            if (!file.read(&data[0], len)) {
++                break;
++            }
++            if (data.compare(0, 11, std::string("parameters\0", 11)) == 0) {
++                return data.substr(11);
++            }
++            file.seekg(4, std::ios::cur);
++        } else {
++            file.seekg((std::streamoff)len + 4, std::ios::cur);
++        }
++    }
++    return "";
++}
++
++// What made a file of the gallery: a PNG's own text, else the text saved next to it.
++std::string file_parameters(const fs::path& dir, const std::string& name, const char* type) {
++    if (type != nullptr && std::strcmp(type, "image/png") == 0) {
++        return png_parameters(dir / name);
++    }
++    std::ifstream file(thumbs_dir(dir) / (name + ".txt"), std::ios::binary);
++    return std::string((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
++}
++
++// The parameters of each file, kept while its size and time stay the same: a
++// listing reads only the files it has not seen.
++struct ParamCache {
++    struct Item {
++        uintmax_t size  = 0;
++        int64_t created = 0;
++        std::string parameters;
++    };
++    std::mutex mutex;
++    std::map<std::string, Item> items;
+ };
+ 
++ParamCache& param_cache() {
++    static ParamCache cache;
++    return cache;
++}
++
++// The prompt of A1111's text: the lines before "Negative prompt:" and before the last line, which
++// holds the settings ("Steps: ..."). The whole text when it has no such line.
++std::string prompt_of(const std::string& parameters) {
++    size_t end = parameters.rfind("\nSteps: ");
++    if (end == std::string::npos) {
++        return parameters;
++    }
++    const size_t neg = parameters.find("\nNegative prompt: ");
++    if (neg != std::string::npos && neg < end) {
++        end = neg;
++    }
++    return parameters.substr(0, end);
++}
++
++// sd.cpp's JSON at the end of the text (", SDCPP: {...}"); null when there is none.
++json sdcpp_of(const std::string& parameters) {
++    const size_t at = parameters.rfind(", SDCPP: {");
++    if (at == std::string::npos) {
++        return nullptr;
++    }
++    json j = json::parse(parameters.substr(at + 9), nullptr, false);
++    return j.is_discarded() ? json(nullptr) : j;
++}
++
++std::string lower_ascii(std::string s) {
++    std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
++    return s;
++}
++
+ }  // namespace
+ 
+ // /ps5sd/v1/app/<path>: handed to the application (sd_app_request).
+@@ -319,18 +505,27 @@ void register_ps5sd_endpoints(httplib::Server& svr, ServerRuntime& rt) {
+     svr.Put(R"(/ps5sd/v1/app/(.+))", app_upload_route);
+ 
+     svr.Get("/ps5sd/v1/gallery", [svr_params](const httplib::Request& req, httplib::Response& res) {
+-        size_t limit = 100;
+-        if (req.has_param("limit")) {
++        auto number = [&](const char* key, int fallback, int lo, int hi) {
++            if (!req.has_param(key)) {
++                return fallback;
++            }
+             try {
+-                limit = static_cast<size_t>(std::max(1, std::min(1000, std::stoi(req.get_param_value("limit")))));
++                return std::max(lo, std::min(hi, std::stoi(req.get_param_value(key))));
+             } catch (...) {
++                return fallback;
+             }
+-        }
++        };
++        const size_t limit      = static_cast<size_t>(number("limit", 100, 1, 1000));
++        const size_t offset     = static_cast<size_t>(number("offset", 0, 0, 1 << 30));
++        const bool oldest       = req.get_param_value("order") == "oldest";
++        const std::string query = lower_ascii(req.get_param_value("q"));
++        const std::string kind  = req.get_param_value("type");  // "image", "video", or all
+ 
+         std::vector<GalleryEntry> entries;
++        const fs::path dir = fs::u8path(svr_params->output_dir);
+         if (!svr_params->output_dir.empty()) {
+             std::error_code ec;
+-            for (fs::directory_iterator it(fs::u8path(svr_params->output_dir), ec), end; !ec && it != end; it.increment(ec)) {
++            for (fs::directory_iterator it(dir, ec), end; !ec && it != end; it.increment(ec)) {
+                 const std::string name = it->path().filename().u8string();
+                 const char* type       = gallery_type(name);
+                 if (type == nullptr || !it->is_regular_file(ec)) {
+@@ -346,27 +541,121 @@ void register_ps5sd_endpoints(httplib::Server& svr, ServerRuntime& rt) {
+                                    std::chrono::duration_cast<std::chrono::system_clock::duration>(
+                                        ftime - fs::file_time_type::clock::now());
+                 entry.created = static_cast<int64_t>(std::chrono::system_clock::to_time_t(stime));
++                if (!kind.empty() && std::strncmp(type, kind.c_str(), kind.size()) != 0) {
++                    continue;
++                }
+                 entries.push_back(std::move(entry));
+             }
+         }
+-        // newest first; names carry a date and a counter, so they break ties
+-        std::sort(entries.begin(), entries.end(), [](const GalleryEntry& a, const GalleryEntry& b) {
+-            return a.created != b.created ? a.created > b.created : a.name > b.name;
++        // newest first (or oldest); names carry a date and a counter, so they break ties
++        std::sort(entries.begin(), entries.end(), [oldest](const GalleryEntry& a, const GalleryEntry& b) {
++            if (a.created != b.created) {
++                return oldest ? a.created < b.created : a.created > b.created;
++            }
++            return oldest ? a.name < b.name : a.name > b.name;
+         });
+-        if (entries.size() > limit) {
+-            entries.resize(limit);
++
++        // what made each file, from the cache or the file
++        {
++            ParamCache& cache = param_cache();
++            std::lock_guard<std::mutex> lock(cache.mutex);
++            std::map<std::string, ParamCache::Item> kept;
++            for (auto& entry : entries) {
++                auto it = cache.items.find(entry.name);
++                if (it == cache.items.end() || it->second.size != entry.size || it->second.created != entry.created) {
++                    ParamCache::Item item;
++                    item.size       = entry.size;
++                    item.created    = entry.created;
++                    item.parameters = file_parameters(dir, entry.name, entry.type);
++                    it              = cache.items.insert_or_assign(entry.name, std::move(item)).first;
++                }
++                entry.parameters = it->second.parameters;
++                kept.insert(*it);
++            }
++            if (kind.empty()) {
++                cache.items.swap(kept);  // a listing of every file forgets the deleted ones
++            }
++        }
++        if (!query.empty()) {
++            entries.erase(std::remove_if(entries.begin(), entries.end(),
++                                         [&](const GalleryEntry& e) {
++                                             return lower_ascii(prompt_of(e.parameters)).find(query) == std::string::npos;
++                                         }),
++                          entries.end());
+         }
++        const size_t total = entries.size();
++        const size_t first = std::min(offset, total);
++        const size_t last  = std::min(total, first + limit);
+ 
+         json list = json::array();
+-        for (const auto& entry : entries) {
++        for (size_t i = first; i < last; ++i) {
++            const GalleryEntry& entry = entries[i];
+             list.push_back({{"name", entry.name},
+                             {"url", "/ps5sd/v1/gallery/" + entry.name},
++                            {"thumb", "/ps5sd/v1/gallery/thumb/" + entry.name},
+                             {"size", entry.size},
+                             {"created", entry.created},
+-                            {"type", entry.type}});
++                            {"type", entry.type},
++                            {"prompt", prompt_of(entry.parameters)}});
++        }
++        res.set_header("Cache-Control", "no-store");
++        res.set_header("X-Total-Count", std::to_string(total));
++        res.set_content(list.dump(-1, ' ', false, json::error_handler_t::replace), "application/json");
++    });
++
++    // The thumbnail, made now when a PNG has none (saved before 0.9.0, or by the web UI).
++    svr.Get(R"(/ps5sd/v1/gallery/thumb/([A-Za-z0-9_.\-]+))", [svr_params](const httplib::Request& req, httplib::Response& res) {
++        static std::mutex making;  // one at a time: a 4096 px image is 50 MB as pixels
++        const std::string name = req.matches[1];
++        const fs::path dir     = fs::u8path(svr_params->output_dir);
++        const fs::path thumb   = thumbs_dir(dir) / (name + ".jpg");
++        const char* type       = gallery_type(name);
++        std::error_code ec;
++        if (svr_params->output_dir.empty() || type == nullptr || !fs::is_regular_file(dir / name, ec)) {
++            res.status = 404;
++            res.set_content(R"({"error":"not found"})", "application/json");
++            return;
++        }
++        if (!fs::is_regular_file(thumb, ec) && std::strcmp(type, "image/png") == 0) {
++            std::lock_guard<std::mutex> lock(making);
++            if (!fs::is_regular_file(thumb, ec)) {
++                int w = 0, h = 0, c = 0;
++                uint8_t* pixels = load_image_from_file((dir / name).u8string().c_str(), w, h, c, 0, 0, 3);
++                if (pixels != nullptr) {
++                    write_thumbnail(dir, name, pixels, w, h, c);
++                    free(pixels);
++                }
++            }
++        }
++        if (!fs::is_regular_file(thumb, ec)) {
++            res.status = 404;  // a video saved before 0.9.0: the page shows the video itself
++            res.set_content(R"({"error":"no thumbnail"})", "application/json");
++            return;
++        }
++        std::ifstream file(thumb, std::ios::binary);
++        std::string content((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
++        res.set_header("Cache-Control", "public, max-age=31536000, immutable");
++        res.set_content(content, "image/jpeg");
++    });
++
++    svr.Get(R"(/ps5sd/v1/gallery/info/([A-Za-z0-9_.\-]+))", [svr_params](const httplib::Request& req, httplib::Response& res) {
++        const std::string name = req.matches[1];
++        const fs::path dir     = fs::u8path(svr_params->output_dir);
++        const char* type       = gallery_type(name);
++        std::error_code ec;
++        if (svr_params->output_dir.empty() || type == nullptr || !fs::is_regular_file(dir / name, ec)) {
++            res.status = 404;
++            res.set_content(R"({"error":"not found"})", "application/json");
++            return;
+         }
++        const std::string parameters = file_parameters(dir, name, type);
++        const json out               = {{"name", name},
++                                        {"type", type},
++                                        {"parameters", parameters},
++                                        {"prompt", prompt_of(parameters)},
++                                        {"sdcpp", sdcpp_of(parameters)}};
+         res.set_header("Cache-Control", "no-store");
+-        res.set_content(list.dump(), "application/json");
++        res.set_content(out.dump(-1, ' ', false, json::error_handler_t::replace), "application/json");
+     });
+ 
+     svr.Get(R"(/ps5sd/v1/gallery/([A-Za-z0-9_.\-]+))", [svr_params](const httplib::Request& req, httplib::Response& res) {
+diff --git a/examples/server/gallery.h b/examples/server/gallery.h
+index 851dde1..904a1df 100644
+--- a/examples/server/gallery.h
++++ b/examples/server/gallery.h
+@@ -11,12 +11,24 @@
+ // PS5SD: --output-dir. Saves every generated image there as a PNG
+ // (sd_<date>_<time>_<n>.png) and returns the full paths that were written.
+ // Does nothing, and returns an empty list, when --output-dir is not set.
+-std::vector<std::string> save_output_images(const SDSvrParams& svr_params, SDImageVec& images);
++// With the request's parameters, each PNG carries them as A1111 does (a tEXt
++// "parameters" chunk, with sd.cpp's "SDCPP: {json}" at the end), unless the
++// request turned embed_image_metadata off. Each image also gets its
++// thumbnail (.thumbs/<name>.jpg).
++std::vector<std::string> save_output_images(const SDSvrParams& svr_params,
++                                            SDImageVec& images,
++                                            const SDContextParams* ctx_params    = nullptr,
++                                            const SDGenerationParams* gen_params = nullptr);
+ 
+ // PS5SD: a generated video (vid_gen), into --output-dir as
+ // sd_<date>_<time>_<n>.<format> (webm, webp or avi). Returns the full path,
+-// or "" when nothing was written.
+-std::string save_output_video(const SDSvrParams& svr_params, const std::vector<uint8_t>& bytes, const std::string& format);
++// or "" when nothing was written. The parameters go to .thumbs/<name>.txt,
++// and the first frame (when given) is the thumbnail.
++std::string save_output_video(const SDSvrParams& svr_params,
++                              const std::vector<uint8_t>& bytes,
++                              const std::string& format,
++                              const std::string& parameters = "",
++                              const sd_image_t* first_frame = nullptr);
+ 
+ // PS5SD: the saved paths one a line, in the order of the results, for
+ // sd_activity_job_end ("" when nothing was saved).
+diff --git a/examples/server/routes_openai.cpp b/examples/server/routes_openai.cpp
+index f22c2c1..d9d5e02 100644
+--- a/examples/server/routes_openai.cpp
++++ b/examples/server/routes_openai.cpp
+@@ -246,7 +246,8 @@ static bool execute_sync_img_gen_request(ServerRuntime& runtime,
+         }
+         results.adopt(raw_results, num_results);
+     }
+-    const std::vector<std::string> saved = save_output_images(*runtime.svr_params, results);
++    const std::vector<std::string> saved = save_output_images(*runtime.svr_params, results, runtime.ctx_params,
++                                                              &request.gen_params);
+     activity.finish(!results.empty(), saved_paths(saved));
+ 
+     if (results.empty()) {
+diff --git a/examples/server/routes_sdapi.cpp b/examples/server/routes_sdapi.cpp
+index f207ef7..3eedfa5 100644
+--- a/examples/server/routes_sdapi.cpp
++++ b/examples/server/routes_sdapi.cpp
+@@ -428,7 +428,8 @@ void register_sdapi_endpoints(httplib::Server& svr, ServerRuntime& rt) {
+                 }
+                 results.adopt(raw_results, num_results);
+             }
+-            const std::vector<std::string> saved = save_output_images(*runtime->svr_params, results);
++            const std::vector<std::string> saved = save_output_images(*runtime->svr_params, results, runtime->ctx_params,
++                                                                      &request.gen_params);
+             activity.finish(!results.empty(), saved_paths(saved));
+ 
+             if (results.empty()) {

@@ -4,9 +4,14 @@
   var lbFrom = null;
   // The filter above the grid: all, images or videos (kept in this browser).
   var galleryFilter = load('gfilter') || 'all';
+  // The order (kept too) and the search in the prompts (the server gives each file's prompt).
+  var galleryOrder = load('gorder') === 'oldest' ? 'oldest' : 'newest';
+  var gallerySearch = '';
+  // While selecting: {name: true} of the selected files; null otherwise.
+  var gsel = null;
 
   function loadGallery(cb) {
-    req('GET', '/ps5sd/v1/gallery?limit=200', null, function (code, data) {
+    req('GET', '/ps5sd/v1/gallery?limit=1000', null, function (code, data) {
       if (code === 200 && data && data.length !== undefined) {
         galleryList = data;
         galleryLoaded = true;
@@ -38,15 +43,36 @@
     return countVideos() ? galleryFilter : 'all';
   }
 
-  // The items the grid and the viewer step through, in the gallery's order.
+  // The items the grid and the viewer step through: the filter, the search, the order.
+  // galleryList itself stays newest first (the Create tab finds new files in it).
   function galleryView() {
-    var kind = galleryKind();
-    if (kind === 'all') return galleryList;
-    var out = [];
+    var kind = galleryKind(), q = gallerySearch.toLowerCase(), out = [];
     for (var i = 0; i < galleryList.length; i++) {
-      if (isVideo(galleryList[i]) === (kind === 'videos')) out.push(galleryList[i]);
+      var it = galleryList[i];
+      if (kind !== 'all' && isVideo(it) !== (kind === 'videos')) continue;
+      if (q && String(it.prompt || '').toLowerCase().indexOf(q) < 0) continue;
+      out.push(it);
     }
+    if (galleryOrder === 'oldest') out.reverse();
     return out;
+  }
+
+  function setGalleryOrder(order) {
+    galleryOrder = order === 'oldest' ? 'oldest' : 'newest';
+    save('gorder', galleryOrder);
+    st.limit = PAGE;
+    drawGallery();
+  }
+
+  var searchTimer = null;
+  function setGallerySearch(q) {
+    if (searchTimer) clearTimeout(searchTimer);
+    searchTimer = setTimeout(function () {
+      searchTimer = null;
+      gallerySearch = q.replace(/^\s+|\s+$/g, '');
+      st.limit = PAGE;
+      drawGallery();
+    }, 250);
   }
 
   // The item the viewer shows: st.lb is an index into galleryView().
@@ -64,6 +90,7 @@
   function openLbItem(it, from) {
     var kind = galleryKind();
     if (kind !== 'all' && isVideo(it) !== (kind === 'videos')) setGalleryFilter('all');
+    if (gallerySearch && galleryView().indexOf(it) < 0) { gallerySearch = ''; $('gsearch').value = ''; drawGallery(); }
     var i = galleryView().indexOf(it);
     if (i >= 0) openLb(i, from);
   }
@@ -93,34 +120,151 @@
     for (var i = 0; i < shown; i++) {
       (function (item, idx) {
         var cell = document.createElement('div');
-        cell.className = 't';
+        cell.className = gsel && gsel[item.name] ? 't sel' : 't';
         var a = document.createElement('a');
         a.href = item.url;
-        a.title = item.name;
-        if (isVideo(item)) {
-          var vid = document.createElement('video');
-          vid.muted = true;
-          vid.setAttribute('muted', '');
-          vid.setAttribute('preload', 'metadata');
-          vid.setAttribute('playsinline', '');
-          vid.src = item.url;
-          a.appendChild(vid);
-          a.appendChild(el('span', 'vbadge', '▶'));
-        } else {
+        a.title = item.prompt || item.name;
+        // the thumbnail (0.9.0); the file itself when there is none
+        if (item.thumb) {
           var img = document.createElement('img');
-          img.src = item.url;
           img.alt = item.name;
+          img.setAttribute('loading', 'lazy');
+          img.onerror = function () { clear(a); fullCell(a, item); };
+          img.src = item.thumb;
           a.appendChild(img);
+          if (isVideo(item)) a.appendChild(el('span', 'vbadge', '▶'));
+        } else {
+          fullCell(a, item);
         }
-        a.onclick = function () { openLb(idx, a); return false; };
+        a.onclick = function () {
+          if (gsel) { toggleSel(item, cell); return false; }
+          openLb(idx, a);
+          return false;
+        };
         cell.appendChild(a);
         box.appendChild(cell);
       })(view[i], i);
     }
     text($('gcount'), galleryList.length ? '(' + galleryList.length + ')' : '');
-    text($('none'), kind === 'images' ? 'No images saved yet.' : kind === 'videos' ? 'No videos saved yet.' : 'Nothing saved yet.');
+    text($('none'), gallerySearch ? 'No prompt has "' + gallerySearch + '".'
+      : kind === 'images' ? 'No images saved yet.' : kind === 'videos' ? 'No videos saved yet.' : 'Nothing saved yet.');
     show('none', !view.length);
     show('more', view.length > shown, 'inline-block');
+    drawSelBar();
+  }
+
+  // A grid cell with the file itself: the image, or the video's first frame.
+  function fullCell(a, item) {
+    if (isVideo(item)) {
+      var vid = document.createElement('video');
+      vid.muted = true;
+      vid.setAttribute('muted', '');
+      vid.setAttribute('preload', 'metadata');
+      vid.setAttribute('playsinline', '');
+      vid.src = item.url;
+      a.appendChild(vid);
+      a.appendChild(el('span', 'vbadge', '▶'));
+    } else {
+      var img = document.createElement('img');
+      img.src = item.url;
+      img.alt = item.name;
+      a.appendChild(img);
+    }
+  }
+
+  // ---- several files at once: Select, then Download or Delete
+  function selNames() {
+    var out = [];
+    if (!gsel) return out;
+    for (var i = 0; i < galleryList.length; i++) if (gsel[galleryList[i].name]) out.push(galleryList[i]);
+    return out;
+  }
+
+  function setSelecting(on) {
+    gsel = on ? {} : null;
+    text($('gsel'), on ? 'Cancel' : 'Select');
+    $('gsel').setAttribute('aria-pressed', on ? 'true' : 'false');
+    drawGallery();
+  }
+
+  function toggleSel(item, cell) {
+    if (gsel[item.name]) delete gsel[item.name]; else gsel[item.name] = true;
+    cell.className = gsel[item.name] ? 't sel' : 't';
+    drawSelBar();
+  }
+
+  function selectAll() {
+    var view = galleryView(), all = true;
+    for (var i = 0; i < view.length; i++) if (!gsel[view[i].name]) all = false;
+    for (var j = 0; j < view.length; j++) { if (all) delete gsel[view[j].name]; else gsel[view[j].name] = true; }
+    st.limit = Math.max(st.limit, view.length);
+    drawGallery();
+  }
+
+  function drawSelBar() {
+    show('gselbar', !!gsel, 'flex');
+    if (!gsel) return;
+    var n = selNames().length;
+    text($('gsel-n'), n ? n + ' selected' : 'Press the images to select them.');
+    $('gsel-dl').disabled = !n;
+    $('gsel-del').disabled = !n;
+  }
+
+  // One download after the other: a browser takes several clicks at once badly.
+  function downloadSelected() {
+    var list = selNames(), k = 0;
+    (function next() {
+      if (k >= list.length) return;
+      var a = document.createElement('a');
+      a.href = list[k].url;
+      a.setAttribute('download', list[k].name);
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      k++;
+      setTimeout(next, 600);
+    })();
+    toast('Downloading ' + list.length + (list.length === 1 ? ' file.' : ' files.'));
+  }
+
+  function askDeleteSelected() {
+    var list = selNames();
+    if (!list.length) return;
+    dlgFor = { images: list };
+    dlgFrom = $('gsel-del');
+    text($('dlg-title'), 'Delete ' + list.length + (list.length === 1 ? ' file?' : ' files?'));
+    text($('dlg-body'), 'They are deleted from the console. Download them first to keep a copy.');
+    $('dlg-ok').disabled = false;
+    $('dlg-cancel').disabled = false;
+    text($('dlg-ok'), 'Delete');
+    show('dlg', true, 'flex');
+    $('dlg-cancel').focus();
+  }
+
+  function deleteImages(list) {
+    var k = 0, failed = 0;
+    (function next() {
+      if (k >= list.length) {
+        closeDlg();
+        setSelecting(false);
+        toast('Deleted ' + (list.length - failed) + (list.length - failed === 1 ? ' file' : ' files') +
+          (failed ? '; ' + failed + ' could not be deleted.' : '.'), failed ? 6000 : 3000);
+        return;
+      }
+      var it = list[k];
+      text($('dlg-ok'), 'Deleting ' + (k + 1) + ' of ' + list.length + '…');
+      req('DELETE', '/ps5sd/v1/app/gallery/' + encodeURIComponent(it.name), null, function (code) {
+        if (code === 200 || code === 404) {
+          for (var i = 0; i < galleryList.length; i++) {
+            if (galleryList[i].name === it.name) { galleryList.splice(i, 1); break; }
+          }
+        } else {
+          failed++;
+        }
+        k++;
+        next();
+      }, 30000);
+    })();
   }
 
   function when(sec) {
@@ -159,6 +303,7 @@
     dl.setAttribute('download', it.name);
     $('lb-open').href = it.url;
     text($('lb-title'), (i + 1) + ' / ' + n + ' · ' + it.name + ' · ' + Math.round(it.size / 1024) + ' KB · ' + when(it.created));
+    drawLbInfo(it);
     $('lb-prev').disabled = i <= 0;
     $('lb-next').disabled = i >= n - 1;
   }
@@ -249,7 +394,7 @@
       if (k === 46) { askDeleteImage(); return false; }
       if (k === 9) {
         // keep Tab inside the viewer
-        var ring = [$('lb-prev'), $('lb-dl'), $('lb-open'), $('lb-up'), $('lb-edit'), $('lb-guide'), $('lb-del'), $('lb-close'), $('lb-next')];
+        var ring = [$('lb-prev'), $('lb-dl'), $('lb-open'), $('lb-up'), $('lb-edit'), $('lb-guide'), $('lb-del'), $('lb-close'), $('lb-next'), $('lb-use')];
         var live = [];
         for (var i = 0; i < ring.length; i++) if (!ring[i].disabled && ring[i].style.display !== 'none') live.push(ring[i]);
         var at = -1;

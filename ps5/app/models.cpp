@@ -913,7 +913,56 @@ bool png_from_json(const std::string & body, std::string & png, std::string & er
         error = "the image is not a PNG";
         return false;
     }
+    const auto params = j.find("parameters");
+    if (params != j.end() && params->is_string() && !params->get<std::string>().empty()) {
+        png = png_with_text(png, "parameters", params->get<std::string>());
+    }
     return true;
+}
+
+namespace {
+
+uint32_t png_crc(const std::string & bytes) {
+    static uint32_t table[256];
+    static bool     ready = false;
+    if (!ready) {
+        for (uint32_t n = 0; n < 256; n++) {
+            uint32_t c = n;
+            for (int k = 0; k < 8; k++) {
+                c = (c & 1) ? 0xedb88320u ^ (c >> 1) : c >> 1;
+            }
+            table[n] = c;
+        }
+        ready = true;
+    }
+    uint32_t c = 0xffffffffu;
+    for (unsigned char b : bytes) {
+        c = table[(c ^ b) & 0xff] ^ (c >> 8);
+    }
+    return c ^ 0xffffffffu;
+}
+
+void put_u32(std::string & out, uint32_t v) {
+    out.push_back(static_cast<char>(v >> 24));
+    out.push_back(static_cast<char>(v >> 16));
+    out.push_back(static_cast<char>(v >> 8));
+    out.push_back(static_cast<char>(v));
+}
+
+}  // namespace
+
+std::string png_with_text(const std::string & png, const std::string & keyword, const std::string & text) {
+    // the signature (8), then IHDR: its length, "IHDR", 13 bytes, its CRC
+    const size_t after_ihdr = 8 + 4 + 4 + 13 + 4;
+    if (png.size() < after_ihdr || png.compare(12, 4, "IHDR") != 0) {
+        return png;
+    }
+    const std::string body = "tEXt" + keyword + std::string(1, '\0') + text;
+    std::string       chunk;
+    put_u32(chunk, static_cast<uint32_t>(body.size() - 4));
+    chunk += body;
+    put_u32(chunk, png_crc(body));
+    return png.substr(0, after_ihdr) + chunk + png.substr(after_ihdr);
 }
 
 std::string edited_image_name(const std::string & dir, long long t) {

@@ -35,7 +35,8 @@
     GET  /ps5sd/v1/app/upscalers, DELETE .../app/upscalers/<file>      (the Models tab's upscalers)
     init_image, mask_image, strength on /sdcpp/v1/img_gen              (image to image and inpainting)
     ref_images on /sdcpp/v1/img_gen, extra_images on /sdapi/v1/txt2img (Edit by the prompt, FLUX.2)
-    POST /ps5sd/v1/app/gallery                                         (an inpainting put back together here)
+    POST /ps5sd/v1/app/gallery                                         (an inpainting put back together here, with its parameters)
+    GET  /ps5sd/v1/gallery/thumb/<file>, .../gallery/info/<file>       (the gallery's thumbnails; what made an image)
     GET  /ps5sd/v1/app/catalog, GET/POST /ps5sd/v1/app/downloads,      (downloads; a 404 hides that part)
          DELETE .../downloads/<id>, POST .../app/hf/search
   SPDX-License-Identifier: MIT
@@ -466,6 +467,17 @@
     <button type="button" id="gf-images" aria-pressed="false">Images</button>
     <button type="button" id="gf-videos" aria-pressed="false">Videos</button>
   </div>
+  <div class="galtools">
+    <input type="search" id="gsearch" placeholder="Search the prompts" aria-label="Search the prompts">
+    <select id="gorder" aria-label="Order"><option value="newest">Newest first</option><option value="oldest">Oldest first</option></select>
+    <button type="button" id="gsel" aria-pressed="false">Select</button>
+  </div>
+  <div class="gselbar" id="gselbar" style="display:none" role="group" aria-label="Selected files">
+    <span id="gsel-n"></span>
+    <button type="button" id="gsel-all">All</button>
+    <button type="button" id="gsel-dl">Download</button>
+    <button type="button" class="danger" id="gsel-del">Delete</button>
+  </div>
   <div class="thumbs" id="thumbs"></div>
   <div class="none" id="none">Nothing saved yet.</div>
   <div class="more"><button type="button" id="more" style="display:none">Show more</button></div>
@@ -488,6 +500,13 @@
     <button type="button" class="nav" id="lb-prev" aria-label="Newer">&lsaquo;</button>
     <div class="lb-img"><img id="lb-img" alt=""><video id="lb-vid" controls loop playsinline style="display:none"></video></div>
     <button type="button" class="nav" id="lb-next" aria-label="Older">&rsaquo;</button>
+  </div>
+  <div class="lb-info" id="lb-info" style="display:none">
+    <div class="lb-text">
+      <p class="lb-prompt" id="lb-prompt"></p>
+      <p class="lb-set" id="lb-set"></p>
+    </div>
+    <button type="button" id="lb-use" title="Put the prompt and the settings of this image into the Create tab">Use these settings</button>
   </div>
 </div>
 <div class="dlg" id="dlg" style="display:none" role="alertdialog" aria-modal="true" aria-labelledby="dlg-title">
@@ -553,6 +572,7 @@
 @@include js/10b-create-layout.js
 @@include js/11-help.js
 @@include js/12-gallery.js
+@@include js/12b-gallery-info.js
 @@include js/13-models.js
 @@include js/14-presets.js
 @@include js/15-downloads.js

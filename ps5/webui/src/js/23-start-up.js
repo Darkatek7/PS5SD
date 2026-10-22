@@ -178,6 +178,14 @@
     $('gf-all').onclick = function () { setGalleryFilter('all'); };
     $('gf-images').onclick = function () { setGalleryFilter('images'); };
     $('gf-videos').onclick = function () { setGalleryFilter('videos'); };
+    $('gorder').value = galleryOrder;
+    $('gorder').onchange = function () { setGalleryOrder($('gorder').value); };
+    $('gsearch').oninput = function () { setGallerySearch($('gsearch').value); };
+    $('gsel').onclick = function () { setSelecting(!gsel); };
+    $('gsel-all').onclick = selectAll;
+    $('gsel-dl').onclick = downloadSelected;
+    $('gsel-del').onclick = askDeleteSelected;
+    $('lb-use').onclick = useSettings;
     $('dlg-cancel').onclick = closeDlg;
     $('dlg-ok').onclick = confirmDelete;
     $('lb-close').onclick = closeLb;

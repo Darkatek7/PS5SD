@@ -128,14 +128,16 @@ changes how the page is built, not what it can do; every feature stays.
 
 **Gallery**
 
-- [ ] **Thumbnails**: small copies made when an image is saved, so a gallery of hundreds of images and
-  4096 px upscales opens fast, on the console's own browser too.
-- [ ] **What made an image**: the prompt, model, seed and settings saved with each image (in the PNG, as
+- [x] **Thumbnails**: small copies made when an image is saved, so a gallery of hundreds of images and
+  4096 px upscales opens fast, on the console's own browser too. A JPEG of 320 px; older PNGs get theirs
+  when the gallery first shows them, videos from their first frame.
+- [x] **What made an image**: the prompt, model, seed and settings saved with each image (in the PNG, as
   A1111 does, so other tools read them too), shown in the viewer, with **Use these settings** to make it
   again or change it.
-- [ ] **Find and tidy**: newest or oldest first, a search in the prompts, and several images selected for
+- [x] **Find and tidy**: newest or oldest first, a search in the prompts, and several images selected for
   one delete or download (images or videos only is in 0.8.0).
-- [ ] **The gallery in pages** in the API, with each image's prompt and settings.
+- [x] **The gallery in pages** in the API, with each image's prompt and settings (`offset`, `order`, `q`,
+  `type`, and `/ps5sd/v1/gallery/info/<name>`).
 
 **Video**
 

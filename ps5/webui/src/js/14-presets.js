@@ -181,6 +181,7 @@
     $('dlg-cancel').disabled = true;
     text($('dlg-ok'), 'Deleting…');
     if (m.image) { deleteImage(m.image); return; }
+    if (m.images) { deleteImages(m.images); return; }
     if (m.lora) { deleteLora(m.lora); return; }
     if (m.preset) { deletePreset(m.preset); return; }
     if (m.upscaler) { deleteUpscaler(m.upscaler); return; }

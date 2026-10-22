@@ -1410,6 +1410,9 @@ extern "C" int sd_app_request(const char * method, const char * path, const char
             out    = error_json("not a gallery file: " + name);
             status = 400;
         } else if (::unlink((std::string(kOutputs) + "/" + name).c_str()) == 0) {
+            // and what the server keeps for it: the thumbnail, a video's parameters
+            ::unlink((std::string(kOutputs) + "/.thumbs/" + name + ".jpg").c_str());
+            ::unlink((std::string(kOutputs) + "/.thumbs/" + name + ".txt").c_str());
             out    = "{\"deleted\": \"" + name + "\"}";
             status = 200;
         } else if (errno == ENOENT) {

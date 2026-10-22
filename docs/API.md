@@ -488,7 +488,7 @@ to the gallery through:
 
 | Route | |
 |---|---|
-| `POST /ps5sd/v1/app/gallery` | `{"image": "<base64 PNG or data URL>"}`: saved to `/data/PS5SD/outputs` as `sd_<date>_<time>_edit.png`; `201 {"saved": "<name>"}`, `400` for anything that is not a PNG |
+| `POST /ps5sd/v1/app/gallery` | `{"image": "<base64 PNG or data URL>", "parameters": "<A1111's text>"}`: saved to `/data/PS5SD/outputs` as `sd_<date>_<time>_edit.png`, with the parameters (optional) in the PNG; `201 {"saved": "<name>"}`, `400` for anything that is not a PNG |
 
 ## Edit by the prompt (FLUX.2 Klein)
 
@@ -511,12 +511,16 @@ prompt says what to change ("the same house in winter, snow on the roof"). The l
 ## Gallery
 
 Every generated image is also saved as a PNG in `/data/PS5SD/outputs`, and every video in its own format
-(see [sd-server's own API](#sd-servers-own-api)).
+(see [sd-server's own API](#sd-servers-own-api)). Since 0.9.0 each PNG carries what made it as A1111 does,
+in a tEXt chunk named `parameters`, which other tools read too (a request with `"embed_image_metadata":
+false` leaves it out). A video's parameters and the thumbnails are in `/data/PS5SD/outputs/.thumbs`.
 
 | Route | |
 |---|---|
-| `GET /ps5sd/v1/gallery?limit=n` | the newest first, with name, time, size and `type`: the MIME type, `image/png`, `video/webm`, `image/webp` or `video/x-msvideo` |
+| `GET /ps5sd/v1/gallery` | the newest first: `name`, `url`, `thumb`, `created`, `size`, `type` (the MIME type: `image/png`, `video/webm`, `image/webp` or `video/x-msvideo`) and `prompt`. `limit` (100, at most 1000) and `offset` page it, `order=oldest` turns it round, `q=<text>` keeps the files whose prompt has that text (any case), `type=image` or `type=video` keeps one kind. `X-Total-Count` says how many match before `limit` and `offset` |
 | `GET /ps5sd/v1/gallery/<name>` | one image as PNG; a video is served with its own type |
+| `GET /ps5sd/v1/gallery/thumb/<name>` | the thumbnail, a JPEG at most 320 px a side. Made when the file is saved (a video's from its first frame); a PNG saved before 0.9.0 gets its own on the first request. 404 for a video saved before 0.9.0 |
+| `GET /ps5sd/v1/gallery/info/<name>` | what made the file: `{"name", "type", "parameters", "prompt", "sdcpp"}`. `parameters` is A1111's text, `sdcpp` the JSON of the request that sd.cpp puts at its end (prompt, size, seed, sampling, models, LoRAs, hires, video), `null` when there is none |
 | `DELETE /ps5sd/v1/app/gallery/<name>` | delete one image or video: `{"deleted": "<name>"}`; 400 for a name the gallery does not list (folders, other files), 404 when it is gone already |
 
 ## App settings

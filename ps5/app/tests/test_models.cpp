@@ -281,6 +281,15 @@ int main() {
         check(!ps5sd::png_from_json(R"({"image": "aGVsbG8gd29ybGQ="})", png, error), "not a PNG");
         check(!ps5sd::png_from_json(R"({"image": "iVBOR w0KGgo"})", png, error), "not base64");
         check(!ps5sd::png_from_json(R"({"img": "x"})", png, error) && !ps5sd::png_from_json("[]", png, error), "no image");
+        // the parameters as a tEXt chunk right after IHDR (the CRC as zlib's crc32 gives it)
+        const std::string head = std::string("\x89PNG\r\n\x1a\n", 8) + std::string("\0\0\0\x0dIHDR", 8) +
+                                 std::string(13, '\x01') + std::string("CRC!", 4);
+        const std::string tail = std::string("\0\0\0\0IEND\xae\x42\x60\x82", 12);
+        const std::string with = ps5sd::png_with_text(head + tail, "parameters", "a house\nSteps: 4");
+        check(with == head + std::string("\0\0\0\x1b", 4) + "tEXtparameters" + std::string(1, '\0') + "a house\nSteps: 4" +
+                          std::string("\xfd\x0c\x0b\xc7", 4) + tail,
+              "the parameters after IHDR");
+        check(ps5sd::png_with_text("not a png", "parameters", "x") == "not a png", "no IHDR: unchanged");
         const fs::path out = root / "outputs";
         fs::create_directories(out);
         const std::string a = ps5sd::edited_image_name(out.u8string(), 1792570000);

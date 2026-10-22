@@ -415,7 +415,9 @@
         return;
       }
       var r = results[k];
-      req('POST', APP + '/gallery', { image: r.src.substring(r.src.indexOf(',') + 1) }, function (code, data) {
+      var body = { image: r.src.substring(r.src.indexOf(',') + 1) };
+      if (r.params) body.parameters = r.params;
+      req('POST', APP + '/gallery', body, function (code, data) {
         if (code === 201 && data && data.saved) {
           r.name = data.saved;
           r.url = '/ps5sd/v1/gallery/' + encodeURIComponent(data.saved);

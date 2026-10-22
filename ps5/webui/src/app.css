@@ -193,6 +193,18 @@
   .vbadge { position: absolute; left: 6px; bottom: 6px; background: rgba(0, 0, 0, 0.6); color: #fff; border-radius: 4px;
     padding: 1px 6px; font-size: 12px; pointer-events: none; }
   .gal .none { color: var(--faint); padding: 2rem 0; }
+  .galtools { display: flex; flex-wrap: wrap; align-items: center; margin: 0 0 0.9rem; }
+  .galtools input { flex: 1 1 14rem; width: auto; min-width: 0; margin: 0 0.6rem 0.4rem 0; }
+  .galtools select { flex: 0 0 auto; width: auto; margin: 0 0.6rem 0.4rem 0; }
+  .galtools button { margin: 0 0 0.4rem; }
+  .gselbar { display: flex; flex-wrap: wrap; align-items: center; margin: 0 0 0.9rem; padding: 0.5rem 0.75rem;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 12px; }
+  .gselbar span { flex: 1 1 8rem; color: var(--muted); }
+  .gselbar button { margin: 0.2rem 0 0.2rem 0.5rem; }
+  .gselbar button.danger { color: var(--bad); }
+  .thumbs .t.sel a { border-color: var(--accent); box-shadow: inset 0 0 0 3px var(--accent); }
+  .thumbs .t.sel a::after { content: "\2713"; position: absolute; right: 6px; top: 6px; width: 1.6rem; height: 1.6rem;
+    line-height: 1.6rem; text-align: center; border-radius: 50%; background: var(--accent); color: #fff; font-size: 0.95rem; }
   .more { text-align: center; margin-top: 1rem; }
 
   /* Help tab */
@@ -232,6 +244,12 @@
   .lb-body .nav { flex: none; width: 4.5rem; height: 6rem; font-size: 2.4rem; padding: 0; border-radius: 14px; }
   .lb-img { flex: 1; min-width: 0; text-align: center; }
   .lb-img img, .lb-img video { max-width: 100%; height: calc(100vh - 8rem); object-fit: contain; border-radius: 6px; }
+  .lb.withinfo .lb-img img, .lb.withinfo .lb-img video { height: calc(100vh - 15rem); }
+  .lb-info { flex: none; display: flex; align-items: center; padding: 0 1.5rem 1rem; }
+  .lb-text { flex: 1; min-width: 0; margin-right: 1rem; }
+  .lb-prompt { margin: 0 0 0.3rem; color: var(--text); max-height: 3.2em; overflow: auto; line-height: 1.6em; }
+  .lb-set { margin: 0; color: var(--muted); font-size: 0.9rem; }
+  .lb-info button { flex: none; }
 
   #toast { position: fixed; left: 50%; bottom: 2rem; z-index: 20; display: none; max-width: 90%; background: var(--raised);
     border: 1px solid var(--accent-hi); color: var(--text); border-radius: 2rem; padding: 0.7rem 1.6rem; transform: translateX(-50%); }

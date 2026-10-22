@@ -120,7 +120,9 @@
     var rq = st.last && st.last.req;
     if (rq && rq.soft && !edited) {
       status('Putting the image together…');
-      putBack(rq, images, function (out) { succeed(out, seed, true); });
+      var params = [];
+      for (var p = 0; p < images.length; p++) params.push(pngParameters(images[p]));
+      putBack(rq, images, function (out) { st.editParams = params; succeed(out, seed, true); });
       return;
     }
     var seconds = (new Date().getTime() - st.t0) / 1000;
@@ -128,7 +130,8 @@
     var first = parseInt(seed, 10);
     for (var i = 0; i < images.length; i++) {
       var sd = isNaN(first) ? seed : first + i;
-      results.push({ src: dataUrl(images[i]), seed: sd, url: null, name: 'sd_' + sd + '.png' });
+      results.push({ src: dataUrl(images[i]), seed: sd, url: null, name: 'sd_' + sd + '.png',
+        params: edited && st.editParams ? st.editParams[i] || '' : '' });
     }
     // a page run (09b): this image goes to the run, and the next one is made
     if (st.run && !st.run.server) { pageRunImage(results, edited); return; }
