@@ -10,6 +10,8 @@ can rely on.
 
 ## Done
 
+- **0.9.1**: videos of up to 81 frames (5 s); the video decode in half the time (larger tiles that overlap
+  less) and Wan 2.1 with TAEHV, a small decoder; the gallery viewer on a phone.
 - **0.9.0**: edit with a reference image (FLUX.2 Klein); gallery thumbnails, the settings saved in each PNG
   with **Use these settings**, search, order and multi-select, and the gallery in pages in the API; GPU
   memory that earlier runs freed usable again (buffers of several blocks, `patches/mesa/0010`).
@@ -156,7 +158,7 @@ changes how the page is built, not what it can do; every feature stays.
   red brick") instead of a mask. The Create tab's Edit mode sends the start image as a reference for a
   FLUX.2 model ("Edit by the prompt"), and `ref_images` does it in the API. About 65 s at 4 steps with Klein 4B.
 
-## 0.9.1: video
+## 0.9.1: video, done
 
 **Gallery**
 
@@ -166,16 +168,19 @@ changes how the page is built, not what it can do; every feature stays.
 
 **Video**
 
-- [x] **Longer clips (49 and 81 frames)**: with CausVid at 4 steps, 49 frames (3 s) take 5.5 minutes and
-  81 frames (5 s) 10.6 minutes; the web UI offers up to 81.
+- [x] **Longer clips (49 and 81 frames)**: measured with CausVid at 4 steps, the scene kept to the last
+  frame; the web UI offers up to 81 (5 s).
 - [x] **Faster decoding**: the VAE decode was about 2 of the 3 minutes 40 s. Now 256 px tiles that overlap
   by a quarter (33 frames in 2 min 15 s, 81 in 8 min), and a catalog entry with TAEHV, a small decoder
   (1 min 45 s and 6 min, a little softer).
+
+## Later in 0.9.x
+
+**Video**
+
 - [ ] **Image to video**: a start image. Wan 2.1 T2V 1.3B is text only, so this means Wan 2.2 TI2V 5B; first
   measure whether it fits with the Wan 2.2 VAE.
 - [ ] **Flow shift on the Create tab**, set in the preset only for now (3 for Wan 2.1).
-
-## Later in 0.9.x
 
 **Images**
 
