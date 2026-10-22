@@ -490,6 +490,24 @@ to the gallery through:
 |---|---|
 | `POST /ps5sd/v1/app/gallery` | `{"image": "<base64 PNG or data URL>"}`: saved to `/data/PS5SD/outputs` as `sd_<date>_<time>_edit.png`; `201 {"saved": "<name>"}`, `400` for anything that is not a PNG |
 
+## Edit by the prompt (FLUX.2 Klein)
+
+FLUX.2 Klein changes an image by a sentence, without a mask: the image goes as a reference, and the
+prompt says what to change ("the same house in winter, snow on the roof"). The layout and the rest stay.
+
+```json
+{"prompt": "the same house at night, light in the windows", "ref_images": ["data:image/png;base64,..."],
+ "width": 1024, "height": 1024, "sample_params": {"sample_steps": 4, "guidance": {"txt_cfg": 1}}}
+```
+
+- No `init_image` and no `strength`: with them it is image to image again.
+- `/sdapi/v1/txt2img` takes the reference as `extra_images`.
+- Other model families ignore the reference and make an image of the prompt alone.
+- The reference adds as many tokens as its pixels, so it is best no larger than the image made; the web
+  UI crops it to the aspect of the form and scales it to that size.
+- Measured with FLUX.2 Klein 4B at 1024x1024 and a 1024x1024 reference (FW 13.00, 0.9.0): about 65 s at
+  4 steps and 2 minutes at 8, against 30 and 48 s without one. It runs in segments, even right after a start.
+
 ## Gallery
 
 Every generated image is also saved as a PNG in `/data/PS5SD/outputs`, and every video in its own format

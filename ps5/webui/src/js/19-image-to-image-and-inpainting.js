@@ -60,8 +60,13 @@
     r.readAsDataURL(f);
   }
 
+  // FLUX.2 edits by the prompt: the start image goes as a reference (ref_images), with no strength and no
+  // mask. sd.cpp ignores references for other families, so the choice shows only for FLUX.2.
+  function refCapable() { return /^FLUX\.2/.test(loadedFamily()); }
+  function refEdit() { return !!st.init && refCapable() && $('init-ref').checked; }
+
   function drawInit() {
-    var i = st.init;
+    var i = st.init, ref = refEdit();
     show('init-box', !!i);
     show('init-bar', !i, 'flex');
     if (i) {
@@ -75,12 +80,19 @@
         g.globalAlpha = 1;
       }
       $('init-thumb').src = t.toDataURL('image/png');
-      text($('init-meta'), i.canvas.width + '×' + i.canvas.height + ' · ' + (i.mask
-        ? Math.max(1, Math.round(i.painted * 100)) + '% masked: only that part changes'
+      text($('init-meta'), i.canvas.width + '×' + i.canvas.height + ' · ' + (ref
+        ? 'a reference: the prompt says what changes'
+        : i.mask ? Math.max(1, Math.round(i.painted * 100)) + '% masked: only that part changes'
         : 'no mask: the whole image changes'));
       text($('init-mask'), i.mask ? 'Edit the mask' : 'Paint a mask');
-      show('init-crop-row', !!i.mask, 'flex');
-      text($('init-hint'), i.mask && $('init-crop').checked
+      show('init-ref-row', refCapable(), 'flex');
+      show('init-str-row', !ref, 'flex');
+      show('init-mask', !ref, 'inline-block');
+      show('init-crop-row', !!i.mask && !ref, 'flex');
+      text($('init-hint'), ref
+        ? 'Say what to change, for example "the same house in winter, snow on the roof". The layout and the rest stay. ' +
+          'It takes longer than an image of its own: about a minute at 4 steps, two at 8.'
+        : i.mask && $('init-crop').checked
         ? 'A box around the mask is made with as many pixels as Width × Height, then put back into the image: small fixes in large images are quick and sharp.'
         : 'Strength 0.3 to 0.5 keeps the picture and changes details; 0.7 and up changes much more.' +
           ($('hr-on').checked ? ' The hires fix is not used with a start image.' : ''));
@@ -317,7 +329,8 @@
   // of the start image it stands for), crop, soft (the soft mask canvas), source (the start image)}.
   function initRequest(f) {
     var i = st.init, W = i.canvas.width, H = i.canvas.height, gw = f.w, gh = f.h, box;
-    var crop = !!(i.mask && $('init-crop').checked);
+    var ref = refEdit();
+    var crop = !!(i.mask && !ref && $('init-crop').checked);
     var b = crop ? maskBounds(i.mask) : null;
     if (b) {
       var pad = Math.max(32, Math.round(Math.max(W, H) / 32));
@@ -337,8 +350,8 @@
     }
     var ic = canvasOf(gw, gh);
     ic.getContext('2d').drawImage(i.canvas, box.x, box.y, box.w, box.h, 0, 0, gw, gh);
-    var out = { init: ic.toDataURL('image/png'), mask: null, soft: null, w: gw, h: gh, box: box, crop: crop, source: i.canvas };
-    if (i.mask) {
+    var out = { init: ic.toDataURL('image/png'), mask: null, soft: null, w: gw, h: gh, box: box, crop: crop, source: i.canvas, ref: ref };
+    if (i.mask && !ref) {
       out.soft = softMask(i.mask, box, gw, gh);
       out.mask = out.soft.toDataURL('image/png');
     }

@@ -34,6 +34,7 @@
     POST /sdcpp/v1/upscale                                             (the Upscale button; the result is saved to the gallery)
     GET  /ps5sd/v1/app/upscalers, DELETE .../app/upscalers/<file>      (the Models tab's upscalers)
     init_image, mask_image, strength on /sdcpp/v1/img_gen              (image to image and inpainting)
+    ref_images on /sdcpp/v1/img_gen, extra_images on /sdapi/v1/txt2img (Edit by the prompt, FLUX.2)
     POST /ps5sd/v1/app/gallery                                         (an inpainting put back together here)
     GET  /ps5sd/v1/app/catalog, GET/POST /ps5sd/v1/app/downloads,      (downloads; a 404 hides that part)
          DELETE .../downloads/<id>, POST .../app/hf/search
@@ -126,7 +127,8 @@
             </div>
           </div>
         </div>
-        <div class="row">
+        <label class="opt" id="init-ref-row" style="display:none"><input type="checkbox" id="init-ref" checked> Edit by the prompt: say what to change, the rest of the picture stays</label>
+        <div class="row" id="init-str-row">
           <div>
             <div class="lbl">Strength (how much changes)</div>
             <div class="step"><button type="button" id="init-str-">&minus;</button><input id="init-str" type="number" min="0.05" max="1" step="0.05" value="0.6" aria-label="Strength"><button type="button" id="init-str+">+</button></div>

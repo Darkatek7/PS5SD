@@ -75,7 +75,11 @@
     if (p.sampler !== 'default') body.sample_params.sample_method = p.sampler;
     if (p.scheduler !== 'default') body.sample_params.scheduler = p.scheduler;
     if (loraBody(p).length) body.lora = loraBody(p);
-    if (p.req) {
+    if (p.req && p.req.ref) {
+      body.ref_images = [p.req.init];
+      body.width = p.req.w;
+      body.height = p.req.h;
+    } else if (p.req) {
       body.init_image = p.req.init;
       if (p.req.mask) body.mask_image = p.req.mask;
       body.strength = p.strength;
@@ -230,7 +234,11 @@
     if (p.scheduler !== 'default') body.scheduler = p.scheduler;
     if (loraBody(p).length) body.lora = loraBody(p);
     var route = '/sdapi/v1/txt2img';
-    if (p.req) {
+    if (p.req && p.req.ref) {
+      body.extra_images = [p.req.init];
+      body.width = p.req.w;
+      body.height = p.req.h;
+    } else if (p.req) {
       route = '/sdapi/v1/img2img';
       body.init_images = [p.req.init];
       if (p.req.mask) body.mask = p.req.mask;

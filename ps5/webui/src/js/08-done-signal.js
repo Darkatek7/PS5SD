@@ -252,7 +252,7 @@
     if (st.results.length > 1) bits.push('image ' + (i + 1) + ' of ' + st.results.length);
     if (l) {
       var size = l.w + '×' + l.h;
-      if (l.req) size = (l.req.crop ? 'masked area, made at ' : '') + l.req.w + '×' + l.req.h + (l.req.mask ? ' · inpainted' : ' · from an image');
+      if (l.req) size = (l.req.crop ? 'masked area, made at ' : '') + l.req.w + '×' + l.req.h + (l.req.ref ? ' · edited by the prompt' : l.req.mask ? ' · inpainted' : ' · from an image');
       else if (l.hr && l.hr.on) size += ' → ' + Math.round(l.w * l.hr.scale / 8) * 8 + '×' + Math.round(l.h * l.hr.scale / 8) * 8 + ' (hires)';
       bits.push(size, l.steps + (l.steps === 1 ? ' step' : ' steps'), 'CFG ' + l.cfg);
     }

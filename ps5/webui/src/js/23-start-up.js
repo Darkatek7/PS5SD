@@ -60,6 +60,7 @@
     $('init-drop').onclick = dropInit;
     $('init-mask').onclick = openMask;
     $('init-crop').onchange = drawInit;
+    $('init-ref').onchange = drawInit;
     $('init-str').onchange = persist;
     $('init-str-').onclick = function () { stepper('init-str', -0.05, 0.05, 1, 2); };
     $('init-str+').onclick = function () { stepper('init-str', 0.05, 0.05, 1, 2); };

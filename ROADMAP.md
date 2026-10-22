@@ -154,9 +154,9 @@ changes how the page is built, not what it can do; every feature stays.
 
 **Images**
 
-- [ ] **Edit with a reference image** (FLUX.2 Klein): a picture and a sentence ("make it night", "the house in
-  red brick") instead of a mask. sd.cpp passes it with `-r`; Klein 4B does it in 4 steps. One or more
-  pictures on the Create tab's Edit mode, and the same in the API.
+- [x] **Edit with a reference image** (FLUX.2 Klein): a picture and a sentence ("make it night", "the house in
+  red brick") instead of a mask. The Create tab's Edit mode sends the start image as a reference for a
+  FLUX.2 model ("Edit by the prompt"), and `ref_images` does it in the API. About 65 s at 4 steps with Klein 4B.
 - [ ] **More ControlNets**: OpenPose and depth for SDXL. Without a preprocessor on the console they need
   a pose or depth image, so only if people ask for them.
 - [ ] **Face and detail fix** (like ADetailer): sd.cpp can find faces with a YOLOv8 model; with 0.5.0's
