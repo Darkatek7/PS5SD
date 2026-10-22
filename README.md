@@ -3,7 +3,7 @@
 stable-diffusion.cpp on the PS5 GPU — a native title running ggml-vulkan on RADV, with an
 OpenAI/A1111-compatible image API, a browser UI and a TV dashboard.
 
-> **Status: 0.8.0.** The title runs the server, the web UI, the model downloader and the TV dashboard
+> **Status: 0.8.1.** The title runs the server, the web UI, the model downloader and the TV dashboard
 > on the console. 0.2.0 added LoRAs; 0.3.0 several images per run, your own size buttons, a done sound
 > and a switch that keeps images and prompts off the TV; 0.3.1 an API key (for access from outside your
 > network) and a Presets tab; 0.4.0 the hires fix and an Upscale button. 0.5.0 adds image to image and
@@ -11,7 +11,7 @@ OpenAI/A1111-compatible image API, a browser UI and a TV dashboard.
 > again. 0.5.2 shows the console's address on the TV with a QR code: a phone's camera opens the web UI. 0.6.0
 > makes short videos with Wan 2.1 (2 seconds at 832x480 in about 15 minutes), played in the page and the
 > gallery, and offers two LoRAs that make SDXL models fast. 0.7.0 adds ControlNet
-> (a guide image whose edges set the layout, with SDXL) and CausVid, which makes a video in under 4 minutes. 0.7.1 adds a refine pass (the hires fix at ×1) and says why a run failed, out of memory for one. 0.8.0 rebuilds the web UI for clarity: five tabs, settings in groups, a count next to Generate that queues any number of images, a Models tab in three parts, and the measured time per image in the catalog. Downloads run at 50 to 75 MB/s from start to end and resume after a close; the web UI uploads
+> (a guide image whose edges set the layout, with SDXL) and CausVid, which makes a video in under 4 minutes. 0.7.1 adds a refine pass (the hires fix at ×1) and says why a run failed, out of memory for one. 0.8.0 rebuilds the web UI for clarity: five tabs, settings in groups, a count next to Generate that queues any number of images, a Models tab in three parts, and the measured time per image in the catalog. 0.8.1 adds FLUX.2 Klein 4B to the catalog (1024x1024 in about 30 s), runs that did not fit in one piece run in segments (SDXL at 2048x2048, Klein 4B at 1536x1536), the page says before a run when it may not fit, LoRAs are sorted by the model family their tensors show, and a PC shows the tabs as a sidebar. Downloads run at 50 to 75 MB/s from start to end and resume after a close; the web UI uploads
 > models from the PC at about 80 MB/s, and its Help tab shows [docs/MODELS.md](docs/MODELS.md) and
 > [docs/API.md](docs/API.md). Closing from the home screen during a download used to end in a crash
 > report about 1 time in 5; that has not happened in 8 Closes since the download fix. The measurements are in [docs/CONSOLE.md](docs/CONSOLE.md).

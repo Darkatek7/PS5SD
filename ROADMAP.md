@@ -10,6 +10,9 @@ can rely on.
 
 ## Done
 
+- **0.8.1**: FLUX.2 Klein 4B in the catalog; runs that do not fit in one piece run in segments (SDXL at
+  2048x2048 after other images, FLUX.2 Klein 4B at 1536x1536); a hint before a run that may not fit; the
+  family of a model or LoRA read from its tensors; the tabs as a sidebar on a PC.
 - **0.8.0**: a clearer web UI: five tabs (Create, Gallery, Models, Settings, Help) with the tabs at the
   bottom on a phone; the Create tab with the model picker in place, one mode at a time, settings in groups,
   the result next to them, a count next to Generate that queues any number of images; the Models tab in
@@ -107,6 +110,20 @@ changes how the page is built, not what it can do; every feature stays.
   `embed-file.sh` embeds it now; still no npm and no framework.
 - [x] **Screenshots in the README and the store listing**, taken from the new page on a phone and a PC.
 
+## 0.8.1: memory and LoRAs, done
+
+- [x] **Say before a run that it may not fit**: measured per model family right after a start, and against
+  the largest run since the model loaded (freed GPU memory is not all usable again). A hint under Generate,
+  `POST /ps5sd/v1/app/fit` in the API. It never blocks a run.
+- [x] **Run in segments when one piece does not fit**: sd.cpp planned a whole graph that then found no
+  room; now it is built again in segments (`patches/sdcpp/0067`). FLUX.3 Klein has no segments in sd.cpp,
+  so Q6_K stays at 1024x1024 at most.
+- [x] **LoRAs by their tensors**: the family (FLUX.1, FLUX.2 Klein 4B, SDXL, Wan 1.3B, ...) from the shapes,
+  not the name or the metadata, which is wrong for some FLUX.1 LoRAs.
+- [x] **No double entries**: a file that a model's settings load is not listed again.
+- [x] **FLUX.2 Klein 4B** (Q8_0) in the catalog: 1024x1024 in 4 steps, about 30 s.
+- [x] **The tabs as a sidebar** on a PC.
+
 ## 0.9.0: gallery and video
 
 **Gallery**
@@ -129,8 +146,17 @@ changes how the page is built, not what it can do; every feature stays.
   measure whether it fits with the Wan 2.2 VAE.
 - [ ] **Flow shift on the Create tab**, set in the preset only for now (3 for Wan 2.1).
 
+**Memory**
+
+- [ ] **Freed GPU memory back to the pool**: memory that a run frees stays with the title, and the model
+  manager sees less free memory after each larger run (docs/CONSOLE.md, "Memory"). With it back, a large
+  run would not need a restart to find room.
+
 **Images**
 
+- [ ] **Edit with a reference image** (FLUX.2 Klein): a picture and a sentence ("make it night", "the house in
+  red brick") instead of a mask. sd.cpp passes it with `-r`; Klein 4B does it in 4 steps. One or more
+  pictures on the Create tab's Edit mode, and the same in the API.
 - [ ] **More ControlNets**: OpenPose and depth for SDXL. Without a preprocessor on the console they need
   a pose or depth image, so only if people ask for them.
 - [ ] **Face and detail fix** (like ADetailer): sd.cpp can find faces with a YOLOv8 model; with 0.5.0's
