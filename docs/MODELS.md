@@ -104,7 +104,7 @@ An SDXL finetune (for example a Civitai checkpoint) with the fixed SDXL VAE:
 
 ```text
 # name: My SDXL finetune
-# defaults: steps=28 cfg=6 width=1024 height=1024 sampler=euler_a
+# defaults: steps=10 cfg=6 width=1024 height=1024 sampler=dpm++2m scheduler=ays
 -m
 myFinetune.safetensors
 --vae
@@ -113,7 +113,8 @@ vae/sdxl_vae_fp16_fix.safetensors
 q8_0
 --vae-tiling
 --vae-tile-size
-512
+640
+--eager-load
 ```
 
 A FLUX.3 Klein model in three parts:
@@ -211,9 +212,15 @@ Wan 2.1 1.3B video model: use CFG 1 and the steps and sampler of the table.
 | [CausVid](https://github.com/tianweiy/CausVid) (Kijai's conversion) | Wan 2.1 T2V 1.3B videos | Euler, 4 to 8 steps, CFG 1 | 91 MB |
 
 DMD2 is under CC BY-NC 4.0 (no commercial use); SDXL-Lightning under the OpenRAIL++ licence; CausVid under
-CC BY-NC-SA 4.0 (no commercial use). On the console, an 832x1216 image with DMD2 at 6 steps took 20 s, a
-1024x1024 image with Lightning at 8 steps 25 s. A 33-frame video at 832x480 with CausVid at 4 steps takes
-about 2 minutes 15 s instead of about 14.5 minutes.
+CC BY-NC-SA 4.0 (no commercial use). On the console, a 1024x1024 SDXL image with DMD2 at 4 steps takes
+11 s instead of 29, an 832x1216 iLustMix image 10 s, and a 1024x1024 image with Lightning at 8 steps 20 s.
+A 33-frame video at 832x480 with CausVid at 4 steps takes about 2 minutes 15 s instead of about 14.5
+minutes.
+
+Adding one of them on the Create tab sets the settings of the table; removing it brings back the ones
+from before, unless you changed them. DMD2 does not suit every finetune: Raehoshi IllustXL came out grey
+and flat at CFG 1, and clean only at CFG 1.5 and 8 steps, 26 s instead of 32 without it
+([CONSOLE.md](CONSOLE.md#faster-sdxl-2026-10-22)).
 
 The Models tab lists the LoRAs under **Installed**, with their size and Delete in the **⋯** menu.
 

@@ -89,11 +89,7 @@
           persist();
         };
         row.appendChild(inp);
-        var rm = actionButton('×', function () {
-          for (var j = 0; j < loraSel.length; j++) if (loraSel[j] === s) { loraSel.splice(j, 1); break; }
-          drawLoraPicker();
-          persist();
-        });
+        var rm = actionButton('×', function () { removeLora(s); });
         rm.setAttribute('aria-label', 'Remove ' + loraName(s.path));
         row.appendChild(rm);
         box.appendChild(row);
@@ -132,10 +128,59 @@
     $('lora-hint').className = wrong.length ? 'hint bad' : 'hint';
   }
 
+  // The settings a fast LoRA needs (a few steps at a low CFG), by its file name; null for other LoRAs.
+  function fastLoraSettings(path) {
+    var n = loraName(path).toLowerCase();
+    var steps = n.match(/(\d)[-_]?step/);
+    if (/dmd2/.test(n)) return { label: 'DMD2', sampler: 'lcm', scheduler: 'default', steps: 4, cfg: 1 };
+    if (/lightning/.test(n)) {
+      return { label: 'SDXL-Lightning', sampler: 'euler', scheduler: 'sgm_uniform', steps: steps ? Number(steps[1]) : 8, cfg: 1 };
+    }
+    if (/causvid/.test(n)) return { label: 'CausVid', sampler: 'euler', scheduler: 'default', steps: 4, cfg: 1 };
+    if (/lcm/.test(n)) return { label: 'LCM-LoRA', sampler: 'lcm', scheduler: 'default', steps: 6, cfg: 1.5 };
+    return null;
+  }
+
+  function settingsText(f) {
+    return (f.sampler === 'default' ? 'the default sampler' : f.sampler) +
+      (f.scheduler === 'default' ? '' : ', ' + f.scheduler) + ', ' + f.steps + ' steps, CFG ' + f.cfg;
+  }
+
+  function quality() {
+    return { steps: Number($('steps').value), cfg: Number($('cfg').value), sampler: $('sampler').value, scheduler: $('scheduler').value };
+  }
+
+  function setQuality(q) {
+    $('steps').value = q.steps;
+    $('cfg').value = q.cfg;
+    setSelect('sampler', q.sampler);
+    setSelect('scheduler', q.scheduler);
+  }
+
+  // A fast LoRA brings its settings and keeps the ones it replaced, which come back when it is
+  // removed while its settings are still set.
   function addLora() {
     var path = $('lora-add').value;
     if (!path) return;
-    loraSel.push({ path: path, m: 1 });
+    var s = { path: path, m: 1 };
+    var f = otherFamily(path, '', loadedFamily()) ? null : fastLoraSettings(path);
+    if (f) {
+      s.was = quality();
+      setQuality(f);
+      s.set = quality();
+      toast(f.label + ' works in a few steps: set to ' + settingsText(s.set) + '.');
+    }
+    loraSel.push(s);
+    drawLoraPicker();
+    persist();
+  }
+
+  function removeLora(s) {
+    for (var j = 0; j < loraSel.length; j++) if (loraSel[j] === s) { loraSel.splice(j, 1); break; }
+    if (s.was && JSON.stringify(quality()) === JSON.stringify(s.set)) {
+      setQuality(s.was);
+      toast('The settings from before ' + fastLoraSettings(s.path).label + ' are back: ' + settingsText(s.was) + '.');
+    }
     drawLoraPicker();
     persist();
   }
