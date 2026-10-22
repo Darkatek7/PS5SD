@@ -10,6 +10,8 @@ can rely on.
 
 ## Done
 
+- **0.9.3**: the console's temperature, power, fan and load on the TV, in the web UI's header and as charts
+  in Settings, through ps5-exporter, which the title carries and starts.
 - **0.9.2**: SDXL in 30 s instead of 70 (dpm++2m with the `ays` schedule at 10 steps, larger VAE tiles,
   the weights loaded at the start), and DMD2, Lightning and CausVid set their own settings when added.
 - **0.9.1**: videos of up to 81 frames (5 s); the video decode in half the time (larger tiles that overlap
@@ -187,7 +189,7 @@ changes how the page is built, not what it can do; every feature stays.
 - [x] Measured in [CONSOLE.md](docs/CONSOLE.md#faster-sdxl-2026-10-22): which LoRA suits which finetune,
   the VAE tiles at 1024 to 2048 px.
 
-## 0.9.3: the console on the TV and in the web UI
+## 0.9.3: the console on the TV and in the web UI, done
 
 - [x] **Temperature, power, GPU and CPU load, fan**: on the TV under the memory, in the web UI's header and
   as charts in Settings (2 minutes, 1 hour), and as `GET /ps5sd/v1/app/console`. Temperature, the SoC's
