@@ -126,10 +126,14 @@
     return html;
   }
 
+  // The views of the Help tab: 'page' is the static text of this page (#doc-notes, no request).
   function showDoc(name) {
     docName = name;
-    $('doc-models').className = name === 'models' ? 'on' : '';
-    $('doc-api').className = name === 'api' ? 'on' : '';
+    var views = ['page', 'models', 'api'];
+    for (var v = 0; v < views.length; v++) $('doc-' + views[v]).className = views[v] === name ? 'on' : '';
+    show('doc-notes', name === 'page');
+    show('doc', name !== 'page');
+    if (name === 'page') return;
     if (docText[name] !== undefined) {
       $('doc').innerHTML = mdRender(docText[name]);
       return;
@@ -160,5 +164,24 @@
       return false;
     }
     return true;
+  }
+
+  // The ⓘ buttons: data-help="<id of a section of This page>" open the Help tab at that section.
+  function helpAt(id) {
+    showDoc('page');
+    setView('help');
+    var at = $(id);
+    if (at && at.scrollIntoView) at.scrollIntoView(true);
+  }
+
+  function initHelpLinks() {
+    document.addEventListener('click', function (e) {
+      e = e || window.event;
+      var t = e.target || e.srcElement;
+      while (t && t !== document && !(t.getAttribute && t.getAttribute('data-help'))) t = t.parentNode;
+      if (!t || t === document) return;
+      helpAt(t.getAttribute('data-help'));
+      if (e.preventDefault) e.preventDefault();
+    });
   }
 

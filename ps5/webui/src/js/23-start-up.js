@@ -72,6 +72,7 @@
     $('cn-canny').onchange = function () { summary(); };
     initCreateLayout();
     initModelsTabs();
+    initHelpLinks();
     $('me-size-').onclick = function () { me.brush = Math.max(8, me.brush - 8); text($('me-size'), 'Brush ' + me.brush); };
     $('me-size+').onclick = function () { me.brush = Math.min(240, me.brush + 8); text($('me-size'), 'Brush ' + me.brush); };
     $('me-mode').onclick = function () { me.erase = !me.erase; text($('me-mode'), me.erase ? 'Paint' : 'Erase'); };
@@ -88,9 +89,9 @@
       document.addEventListener('mouseup', maskUp);
       window.addEventListener('resize', sizeMask);
     }
-    $('lb-edit').onclick = function () { var it = galleryList[st.lb]; if (it) { closeLb(); setInit(it.url, it.name); } };
-    $('lb-guide').onclick = function () { var it = galleryList[st.lb]; if (it) { closeLb(); setGuide(it.url, it.name); } };
-    $('lb-up').onclick = function () { var it = galleryList[st.lb]; if (it) upscale(it.url, $('lb-up')); };
+    $('lb-edit').onclick = function () { var it = lbItem(); if (it) { closeLb(); setInit(it.url, it.name); } };
+    $('lb-guide').onclick = function () { var it = lbItem(); if (it) { closeLb(); setGuide(it.url, it.name); } };
+    $('lb-up').onclick = function () { var it = lbItem(); if (it) upscale(it.url, $('lb-up')); };
     $('auth-on').onclick = newKey;
     $('auth-new').onclick = newKey;
     $('auth-off').onclick = askAuthOff;
@@ -156,7 +157,9 @@
     $('about-api').onclick = function () { showDoc('api'); setView('help'); };
     $('doc-models').onclick = function () { showDoc('models'); };
     $('doc-api').onclick = function () { showDoc('api'); };
+    $('doc-page').onclick = function () { showDoc('page'); };
     $('doc').onclick = onDocClick;
+    $('doc-notes').onclick = onDocClick;
     // The model name in the header and Change on the Create tab open the same model list.
     $('model').onclick = function () { if (st.app !== false) setView('models'); };
     $('m-refresh').onclick = enterModels;
@@ -171,6 +174,9 @@
     $('hf-q').onkeydown = function (e) { e = e || window.event; if (e.keyCode === 13) { hfSearch(); return false; } return true; };
     $('more').onclick = function () { st.limit += PAGE; drawGallery(); };
     $('refresh').onclick = refreshGallery;
+    $('gf-all').onclick = function () { setGalleryFilter('all'); };
+    $('gf-images').onclick = function () { setGalleryFilter('images'); };
+    $('gf-videos').onclick = function () { setGalleryFilter('videos'); };
     $('dlg-cancel').onclick = closeDlg;
     $('dlg-ok').onclick = confirmDelete;
     $('lb-close').onclick = closeLb;

@@ -2,6 +2,8 @@
   var galleryList = [];
   var galleryLoaded = false;
   var lbFrom = null;
+  // The filter above the grid: all, images or videos (kept in this browser).
+  var galleryFilter = load('gfilter') || 'all';
 
   function loadGallery(cb) {
     req('GET', '/ps5sd/v1/gallery?limit=200', null, function (code, data) {
@@ -21,13 +23,73 @@
   // A video in the gallery: by its type (the server's), else its name.
   function isVideo(item) {
     if (item.type) return item.type.indexOf('video/') === 0;
-    return /\.(webm|avi)$/i.test(item.name || '');
+    return /\.(webm|mp4|avi)$/i.test(item.name || '');
+  }
+
+  function countVideos() {
+    var n = 0;
+    for (var i = 0; i < galleryList.length; i++) if (isVideo(galleryList[i])) n++;
+    return n;
+  }
+
+  // The filter that applies. With no video in the gallery there is nothing to filter by: All.
+  function galleryKind() {
+    if (galleryFilter !== 'images' && galleryFilter !== 'videos') return 'all';
+    return countVideos() ? galleryFilter : 'all';
+  }
+
+  // The items the grid and the viewer step through, in the gallery's order.
+  function galleryView() {
+    var kind = galleryKind();
+    if (kind === 'all') return galleryList;
+    var out = [];
+    for (var i = 0; i < galleryList.length; i++) {
+      if (isVideo(galleryList[i]) === (kind === 'videos')) out.push(galleryList[i]);
+    }
+    return out;
+  }
+
+  // The item the viewer shows: st.lb is an index into galleryView().
+  function lbItem() { return galleryView()[st.lb]; }
+
+  function setGalleryFilter(kind) {
+    galleryFilter = kind;
+    save('gfilter', kind);
+    st.limit = PAGE;
+    drawGallery();
+  }
+
+  // The viewer on an item of the gallery (a strip image, an upscale result). The filter goes to All
+  // when the item is not in the one on screen.
+  function openLbItem(it, from) {
+    var kind = galleryKind();
+    if (kind !== 'all' && isVideo(it) !== (kind === 'videos')) setGalleryFilter('all');
+    var i = galleryView().indexOf(it);
+    if (i >= 0) openLb(i, from);
+  }
+
+  // The segmented control above the grid: All, Images, Videos, each with its count. Hidden without videos.
+  function drawFilter(videos) {
+    var kind = galleryKind();
+    var ids = { all: 'gf-all', images: 'gf-images', videos: 'gf-videos' };
+    show('gfilter', videos > 0, 'flex');
+    text($('gf-all'), 'All ' + galleryList.length);
+    text($('gf-images'), 'Images ' + (galleryList.length - videos));
+    text($('gf-videos'), 'Videos ' + videos);
+    for (var k in ids) {
+      if (!ids.hasOwnProperty(k)) continue;
+      $(ids[k]).className = k === kind ? 'on' : '';
+      $(ids[k]).setAttribute('aria-pressed', k === kind ? 'true' : 'false');
+    }
   }
 
   function drawGallery() {
     var box = $('thumbs');
     clear(box);
-    var shown = Math.min(galleryList.length, st.limit);
+    var kind = galleryKind();
+    var view = galleryView();
+    drawFilter(countVideos());
+    var shown = Math.min(view.length, st.limit);
     for (var i = 0; i < shown; i++) {
       (function (item, idx) {
         var cell = document.createElement('div');
@@ -53,11 +115,12 @@
         a.onclick = function () { openLb(idx, a); return false; };
         cell.appendChild(a);
         box.appendChild(cell);
-      })(galleryList[i], i);
+      })(view[i], i);
     }
     text($('gcount'), galleryList.length ? '(' + galleryList.length + ')' : '');
-    show('none', !galleryList.length);
-    show('more', galleryList.length > shown, 'inline-block');
+    text($('none'), kind === 'images' ? 'No images saved yet.' : kind === 'videos' ? 'No videos saved yet.' : 'Nothing saved yet.');
+    show('none', !view.length);
+    show('more', view.length > shown, 'inline-block');
   }
 
   function when(sec) {
@@ -65,12 +128,13 @@
   }
 
   function showLb(i) {
-    var n = galleryList.length;
+    var list = galleryView();
+    var n = list.length;
     if (!n) { closeLb(); return; }
     if (i < 0) i = 0;
     if (i > n - 1) i = n - 1;
     st.lb = i;
-    var it = galleryList[i];
+    var it = list[i];
     var img = $('lb-img'), vid = $('lb-vid');
     if (isVideo(it)) {
       img.style.display = 'none';
@@ -119,7 +183,7 @@
   // Delete in the viewer: the confirm box, then the next older image (or the
   // newer one at the end, or the gallery when it was the last).
   function askDeleteImage() {
-    var it = galleryList[st.lb];
+    var it = lbItem();
     if (!it) return;
     dlgFor = { image: it };
     dlgFrom = $('lb-del');
@@ -143,7 +207,7 @@
         }
         drawGallery();
         if (st.lb >= 0) {
-          if (galleryList.length) showLb(st.lb); else closeLb();
+          if (galleryView().length) showLb(st.lb); else closeLb();
         }
         toast('Deleted ' + it.name + '.');
       } else {

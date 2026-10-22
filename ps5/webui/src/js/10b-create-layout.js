@@ -153,7 +153,7 @@
     var miss = m.missing && m.missing.length;
     var row = el('div', 'mrow mwrap' + (loaded ? ' on' : ''));
     var main = el('div', 'mmain');
-    var nm = el('div', 'mname', m.name || m.id);
+    var nm = el('div', 'mname', titleOf(m));
     if (loaded) nm.appendChild(el('span', 'badge ok', 'In use'));
     else if (target) nm.appendChild(el('span', 'badge warn', 'Loading…'));
     if (miss) nm.appendChild(el('span', 'badge bad', 'Incomplete'));
@@ -192,8 +192,14 @@
     var enter = e.keyCode === 13 || e.key === 'Enter';
     var esc = e.keyCode === 27 || e.key === 'Escape';
     if (esc) {
+      var busy = cmOpen || prOpen || !!openMenu || overlayOpen();
       if (cmOpen) cmToggle(false);
       if (prOpen) prToggle(false);
+      // Escape shuts the Save as preset box too, when no menu or overlay was open
+      if (!busy && $('ps-box').style.display !== 'none') {
+        show('ps-box', false);
+        try { $('savepreset').focus(); } catch (x) {}
+      }
       return;
     }
     if (enter && (e.ctrlKey || e.metaKey) && st.view === 'create' && !overlayOpen()) {

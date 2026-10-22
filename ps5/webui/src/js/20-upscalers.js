@@ -168,7 +168,7 @@
         if (!name) return;
         loadGallery(function (list) {
           if (!list) return;
-          for (var i = 0; i < list.length; i++) if (list[i].name === name) { openLb(i, b); return; }
+          for (var i = 0; i < list.length; i++) if (list[i].name === name) { openLbItem(list[i], b); return; }
         });
       }, 30 * 60 * 1000);
     });

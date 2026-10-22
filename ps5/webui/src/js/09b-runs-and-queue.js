@@ -178,10 +178,10 @@
     if (!r) return;
     if (!r.name) { showRunItem(i); return; }
     var at = galleryIndex(r.name);
-    if (at >= 0) { openLb(at, from); return; }
+    if (at >= 0) { openLbItem(galleryList[at], from); return; }
     loadGallery(function () {
       var j = galleryIndex(r.name);
-      if (j >= 0) openLb(j, from); else showRunItem(i);
+      if (j >= 0) openLbItem(galleryList[j], from); else showRunItem(i);
     });
   }
 

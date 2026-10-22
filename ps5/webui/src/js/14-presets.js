@@ -39,8 +39,8 @@
     if (d.scheduler) parts.push(d.scheduler);
     if (d.loras) parts.push(d.loras.split(',').length + (d.loras.split(',').length === 1 ? ' LoRA' : ' LoRAs'));
     if (d.hires_scale) parts.push(d.hires_scale === '1' ? 'refine pass' : 'hires ×' + d.hires_scale);
-    text($('ps-what'), 'Model: ' + (root ? root.name || root.id : st.mid) + ' · ' + parts.join(' · '));
-    if (!$('ps-name').value) $('ps-name').placeholder = 'Name, e.g. ' + (root ? root.name || root.id : 'My preset') + ' ' + d.width + '×' + d.height;
+    text($('ps-what'), 'Model: ' + (root ? titleOf(root) : st.mid) + ' · ' + parts.join(' · '));
+    if (!$('ps-name').value) $('ps-name').placeholder = 'Name, e.g. ' + (root ? titleOf(root) : 'My preset') + ' ' + d.width + '×' + d.height;
   }
 
   function savePreset() {
@@ -216,14 +216,14 @@
       swPost = false;
       if (code === 200 && st.mid && st.mid !== m.id) {
         // a preset of the model that is loaded: no restart, only its settings
-        st.announce = m.name || m.id;
+        st.announce = titleOf(m);
         if (data && data.models) setModels(data);
         loadInfo();
       } else if (code === 200) {
-        toast((m.name || m.id) + ' is loaded already.');
+        toast(titleOf(m) + ' is loaded already.');
         if (data && data.models) setModels(data);
       } else if (code === 202) {
-        beginSwitch(m.id, m.name, waits);
+        beginSwitch(m.id, titleOf(m), waits);
         if (data && data.models) setModels(data);
       } else {
         toast(errText(code, data, 'Could not switch'), 6000);
@@ -236,7 +236,7 @@
   // every two seconds and treat errors as "still restarting".
   function beginSwitch(id, name, waitJob) {
     var m = findModel(id);
-    var sw = { id: id, name: name || (m ? m.name : id), t0: new Date().getTime(), ticks: 0, polling: false, down: false, waitJob: !!waitJob };
+    var sw = { id: id, name: name || (m ? titleOf(m) : id), t0: new Date().getTime(), ticks: 0, polling: false, down: false, waitJob: !!waitJob };
     st.sw = sw;
     st.announce = '';
     updateGo();
@@ -296,7 +296,7 @@
       toast(sw.name + ' is ready.');
     } else {
       var back = data.loaded ? findModel(data.loaded) : null;
-      toast('Could not load ' + sw.name + '. ' + (data.loaded ? 'Back on ' + (back ? back.name : data.loaded) + '.'
+      toast('Could not load ' + sw.name + '. ' + (data.loaded ? 'Back on ' + (back ? titleOf(back) : data.loaded) + '.'
         : 'No model is loaded now; /data/PS5SD/app.log says why.'), 7000);
     }
     loadInfo();

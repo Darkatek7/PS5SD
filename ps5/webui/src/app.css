@@ -373,6 +373,14 @@
   .arow span:first-child { color: var(--muted); }
   .arow span:last-child { color: var(--text); text-align: right; min-width: 0; overflow-wrap: anywhere; margin-left: 1rem; }
   #savepreset { margin-left: 0.5rem; }
+  /* the ⓘ buttons: a small round button that opens Help at its section (it comes after the .hint and .ph buttons) */
+  button.info { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 2.4rem; min-width: 2.4rem;
+    height: 2.4rem; min-height: 2.4rem; margin: 0 0 0 0.45rem; padding: 0; border-radius: 50%; background: transparent;
+    border-color: var(--border); color: var(--accent-hi); font-size: 1.1rem; line-height: 1; vertical-align: middle; }
+  button.info:hover { background: var(--raised); color: #fff; }
+  /* the gallery's filter: the Models tab's segmented control, smaller */
+  .gal .gfilter { flex: 0 1 auto; max-width: 26rem; margin: 0 0 0.9rem; }
+  .gal .gfilter button { min-height: 2.5rem; font-size: 0.95rem; }
 
   @media (max-width: 1300px) { .thumbs .t { flex-basis: 25%; } }
   @media (max-width: 900px) { .thumbs .t { flex-basis: 33.333%; } }
@@ -441,3 +449,11 @@
     #view-create .stage.with-strip img { max-height: calc(100vh - 29.5rem); }
   }
   @media (max-width: 520px) { .thumbs .t { flex-basis: 50%; } }
+  /* the narrowest phones: Generate keeps its word next to the count and the dice */
+  @media (max-width: 380px) {
+    .gorow .go { padding: 0 0.4rem; letter-spacing: 0; }
+    .count { margin-left: 0.3rem; }
+    .count button { width: 1.8rem; }
+    .count input { width: 2.4rem; margin: 0 0.15rem; }
+    .dice { width: 3rem; margin-left: 0.3rem; }
+  }

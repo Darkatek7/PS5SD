@@ -85,7 +85,7 @@
       <div id="ps-box" class="hrow" style="display:none">
         <div class="hint" id="ps-what" style="margin-top:0"></div>
         <div class="inrow" style="margin-top:0.8rem"><input id="ps-name" type="text" maxlength="100" placeholder="Name, e.g. Portrait fast" autocomplete="off"><button type="button" id="ps-save">Save</button></div>
-        <p class="hint">The settings above are saved with the model. Its own options (VAE, tiling and so on) come along. The list is under Models.</p>
+        <p class="hint">The settings above are saved with the model. <button type="button" class="info" data-help="help-saved" aria-label="More about saved settings">&#9432;</button></p>
       </div>
     </div>
 
@@ -239,7 +239,7 @@
               <div class="seed"><input id="seed" type="number" step="1" value="-1"><button type="button" id="rnd">Random</button></div>
             </div>
           </div>
-          <p class="hint">-1 picks a random seed. A run of several images (the count next to Generate) takes the seeds one after the other (seed, seed + 1, …); with -1 each image gets a new seed.</p>
+          <p class="hint">-1 picks a random seed. <button type="button" class="info" data-help="help-seed" aria-label="More about the seed">&#9432;</button></p>
         </div>
       </div>
 
@@ -256,7 +256,7 @@
               <div class="step"><button type="button" id="fps-">&minus;</button><input id="fps" type="number" min="4" max="30" step="1" value="16" aria-label="Frames per second"><button type="button" id="fps+">+</button></div>
             </div>
           </div>
-          <p class="hint">Wan makes 4n+1 frames: 33 are 2 seconds at 16 per second. On the console, 33 frames at 832×480 take about 15 minutes with 20 steps, under 4 minutes with the CausVid LoRA (Models tab, LoRAs) at 4 steps and CFG 1.</p>
+          <p class="hint">Wan makes 4n+1 frames; 33 is 2 seconds at 16 per second. <button type="button" class="info" data-help="help-video" aria-label="More about video length and time">&#9432;</button></p>
         </div>
       </div>
     </div>
@@ -309,19 +309,17 @@
         <p class="hint" id="mnote"></p>
         <div class="ghead" id="gh-vid" style="display:none">Video models</div>
         <div id="vlist"></div>
-        <p class="hint">A saved setting is a model with its own size, steps, CFG, sampler and LoRAs. Delete removes only the saved setting, never the model. To make one, set up the Create tab and press Save as preset there.</p>
+        <p class="hint">Delete removes only the saved setting, never the model. <button type="button" class="info" data-help="help-saved" aria-label="More about saved settings">&#9432;</button></p>
       </section>
     </div>
     <div class="mcol">
       <section class="panel" id="pnl-loras" style="display:none">
-        <div class="ph"><h2>LoRAs</h2></div>
+        <div class="ph"><h2>LoRAs</h2><button type="button" class="info" data-help="help-loras" aria-label="More about LoRAs">&#9432;</button></div>
         <div id="llist"></div>
-        <p class="hint">A LoRA adds a style, a character or a look to a model. It works only with models of the family it was made for (SD 1.5, SDXL, FLUX…). Pick them on the Create tab, under Style. DMD2 (anime) and SDXL-Lightning (photos) make SDXL models fast: CFG 1, 4 to 8 steps, sampler LCM for DMD2 and Euler for Lightning. CausVid does the same for Wan 2.1 1.3B videos: CFG 1, 4 steps.</p>
       </section>
       <section class="panel" id="pnl-ups" style="display:none">
-        <div class="ph"><h2>Upscalers</h2></div>
+        <div class="ph"><h2>Upscalers</h2><button type="button" class="info" data-help="help-upscalers" aria-label="More about upscalers">&#9432;</button></div>
         <div id="ulist"></div>
-        <p class="hint">An upscaler (ESRGAN) makes an image larger and sharper: with the Upscale button, or in the hires fix on the Create tab. More of them under Get more, or a .pth file under Upload.</p>
       </section>
     </div>
   </div>
@@ -342,12 +340,11 @@
         <p class="hint">This version of the PS5SD app cannot download models. Copy model files into /data/PS5SD/models on the console, then press Refresh.</p>
       </section>
       <section class="panel" id="pnl-url" style="display:none">
-      <div class="ph"><h2>Add by link</h2></div>
+      <div class="ph"><h2>Add by link</h2><button type="button" class="info" data-help="help-link" aria-label="More about adding by link">&#9432;</button></div>
       <div class="inrow"><select id="dl-kind" class="upkind" aria-label="What it is"><option value="">Model</option><option value="loras">LoRA</option><option value="upscalers">Upscaler</option></select><input id="dl-url" type="text" placeholder="Hugging Face or Civitai link to a model file" autocomplete="off" autocapitalize="off" spellcheck="false"><button type="button" id="dl-go">Download</button></div>
-      <p class="hint">A link to a file on huggingface.co, or a Civitai model version (a link that ends in modelVersionId=...). The file goes into the models folder on the console, or the loras folder for a LoRA; a Civitai LoRA goes there by itself.</p>
     </section>
     <section class="panel" id="pnl-up" style="display:none">
-      <div class="ph"><h2>Upload from this computer</h2></div>
+      <div class="ph"><h2>Upload from this computer</h2><button type="button" class="info" data-help="help-upload" aria-label="More about uploads">&#9432;</button></div>
       <div class="inrow"><select id="up-kind" class="upkind" aria-label="What it is"><option value="models">Model</option><option value="loras">LoRA</option><option value="embeddings">Embedding</option><option value="presets">Preset (.txt)</option><option value="upscalers">Upscaler</option></select><button type="button" id="up-pick">Choose a file</button></div>
       <input id="up-file" type="file" style="display:none">
       <div id="up-box" style="display:none">
@@ -355,7 +352,7 @@
         <div class="bar"><div id="up-fill"></div></div>
         <div class="upmeta"><div class="mmeta" id="up-meta"></div><button type="button" id="up-cancel" class="danger">Cancel</button></div>
       </div>
-      <p class="hint">Any model file on this computer: your own merge or training, or one from another site. It keeps its file name. A model in several files also needs a preset; docs/MODELS.md shows how. Keep this page open until the upload is done.</p>
+      <p class="hint">Keep this page open until the upload is done.</p>
     </section>
     <section class="panel" id="pnl-hf" style="display:none">
       <div class="ph"><h2>Search Hugging Face</h2></div>
@@ -388,9 +385,8 @@
       <label class="opt"><input type="checkbox" id="opt-tv"> Show images and prompts on the TV</label>
     </section>
     <section class="panel" id="opt-up-box" style="display:none">
-      <div class="ph"><h2>Upscale button</h2></div>
+      <div class="ph"><h2>Upscale button</h2><button type="button" class="info" data-help="help-upscale-button" aria-label="More about the Upscale button">&#9432;</button></div>
       <select id="opt-up" aria-label="Upscaler of the Upscale button"></select>
-      <p class="hint">The Upscale button under an image and in the gallery runs this model over the image (4 times as wide and high for most). The result goes into the gallery.</p>
     </section>
   </div>
   <div class="mcol">
@@ -406,7 +402,7 @@
         <button type="button" id="auth-out">Sign out</button>
       </div>
       <label class="opt" id="opt-tvkey-row" style="display:none"><input type="checkbox" id="opt-tvkey"> Show the API key on the TV</label>
-      <p class="hint">Apps send it as <code>Authorization: Bearer &lt;key&gt;</code>, A1111 apps as the password of their API login. Help, HTTP API has the details and how to reach the console from outside your network.</p>
+      <p class="hint">Apps send it with each request. <button type="button" class="info" data-help="help-apikey" aria-label="More about the API key">&#9432;</button></p>
     </section>
     <section class="panel" id="pnl-about">
       <div class="ph"><h2>About</h2></div>
@@ -422,9 +418,35 @@
 
 <section class="gal" id="view-help" style="display:none">
   <div class="docbar">
-    <button type="button" id="doc-models">Getting models on</button>
+    <button type="button" id="doc-page">This page</button>
+    <button type="button" id="doc-models">Getting models</button>
     <button type="button" id="doc-api">HTTP API</button>
     <a href="https://github.com/Darkatek7/PS5SD#readme" target="_blank" rel="noopener">PS5SD on GitHub</a>
+  </div>
+  <div class="doc" id="doc-notes" style="display:none">
+    <h1>Using this page</h1>
+    <h2 id="help-seed">Seed</h2>
+    <p>-1 picks a random seed. A run of several images (the count next to Generate) takes the seeds one after the other (seed, seed + 1, …); with -1 each image gets a new seed.</p>
+    <h2 id="help-video">Video length and time</h2>
+    <p>Wan makes 4n+1 frames: 33 are 2 seconds at 16 per second.</p>
+    <p>On the console, 33 frames at 832×480 take about 3 minutes 40 seconds with the CausVid LoRA (Models tab, LoRAs) at 4 steps and CFG 1. Without the LoRA they take about 15 minutes at 20 steps.</p>
+    <h2 id="help-saved">Saved settings</h2>
+    <p>A saved setting is a model with its own size, steps, CFG, sampler and LoRAs. Delete removes only the saved setting, never the model. To make one, set up the Create tab and press Save as preset there.</p>
+    <p>The settings above are saved with the model. Its own options (VAE, tiling and so on) come along. The list is under Models.</p>
+    <h2 id="help-loras">LoRAs</h2>
+    <p>A LoRA adds a style, a character or a look to a model. It works only with models of the family it was made for (SD 1.5, SDXL, FLUX…). Pick them on the Create tab, under Style.</p>
+    <p>DMD2 (anime) and SDXL-Lightning (photos) make SDXL models fast: CFG 1, 4 to 8 steps, sampler LCM for DMD2 and Euler for Lightning. CausVid does the same for Wan 2.1 1.3B videos: CFG 1, 4 steps.</p>
+    <h2 id="help-upscalers">Upscalers</h2>
+    <p>An upscaler (ESRGAN) makes an image larger and sharper: with the Upscale button, or in the hires fix on the Create tab. More of them under Get more, or a .pth file under Upload.</p>
+    <h2 id="help-upscale-button">Upscale button</h2>
+    <p>The Upscale button under an image and in the gallery runs this model over the image (4 times as wide and high for most). The result goes into the gallery.</p>
+    <h2 id="help-link">Add by link</h2>
+    <p>A link to a file on huggingface.co, or a Civitai model version (a link that ends in modelVersionId=...). The file goes into the models folder on the console, or the loras folder for a LoRA; a Civitai LoRA goes there by itself.</p>
+    <h2 id="help-upload">Upload</h2>
+    <p>Any model file on this computer: your own merge or training, or one from another site. It keeps its file name. A model in several files also needs a preset; the <a href="#help" data-doc="models">Getting models on</a> page shows how.</p>
+    <p>Keep this page open until the upload is done.</p>
+    <h2 id="help-apikey">API key</h2>
+    <p>Apps send it as <code>Authorization: Bearer &lt;key&gt;</code>, A1111 apps as the password of their API login. The <a href="#help" data-doc="api">HTTP API</a> page has the details and how to reach the console from outside your network.</p>
   </div>
   <div class="doc" id="doc"></div>
 </section>
@@ -433,6 +455,11 @@
   <div class="galbar">
     <h2>Gallery</h2>
     <button type="button" id="refresh">Refresh</button>
+  </div>
+  <div class="mseg gfilter" id="gfilter" role="group" aria-label="Show" style="display:none">
+    <button type="button" id="gf-all" class="on" aria-pressed="true">All</button>
+    <button type="button" id="gf-images" aria-pressed="false">Images</button>
+    <button type="button" id="gf-videos" aria-pressed="false">Videos</button>
   </div>
   <div class="thumbs" id="thumbs"></div>
   <div class="none" id="none">Nothing saved yet.</div>

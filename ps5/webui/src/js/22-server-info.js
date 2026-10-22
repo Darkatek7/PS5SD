@@ -37,7 +37,8 @@
               st.infoBusy = false;
               if (!reachable) { setOnline(false); return; }
               var entry = st.mdl && st.mdl.loaded ? findModel(st.mdl.loaded) : null;
-              st.label = entry ? entry.name : (name || 'no model loaded');
+              // the same names as the Models tab (titleOf, readable: 13-models.js)
+              st.label = entry ? titleOf(entry) : (name ? readable(name) : 'no model loaded');
               applyModel(name, entry);
               drawCurrent();
               resume();
