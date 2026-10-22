@@ -55,7 +55,7 @@
   }
 
   function presetNote(p) {
-    return 'Defaults for this model (' + p.label + '): ' + p.steps + (p.steps === 1 ? ' step' : ' steps') + ', CFG ' + p.cfg + ', ' + p.w + '×' + p.h +
+    return 'Defaults: ' + p.steps + (p.steps === 1 ? ' step' : ' steps') + ', CFG ' + p.cfg + ', ' + p.w + '×' + p.h +
       (p.loras && p.loras.length ? ', ' + p.loras.length + (p.loras.length === 1 ? ' LoRA' : ' LoRAs') : '') + '.';
   }
 

@@ -13,6 +13,8 @@
      the whole rule, frame included. */
   button:focus, input:focus, select:focus, textarea:focus, a:focus { outline: 3px solid #fff; outline-offset: 3px; }
   :focus-visible { outline: 3px solid #fff; outline-offset: 3px; }
+  /* a tap or a click in a browser that knows :focus-visible: no frame (the PS5's browser drops this rule) */
+  :focus:not(:focus-visible) { outline: none; }
 
   .top { display: flex; align-items: center; min-height: 4rem; padding: 0 2rem; }
   .logo { width: 1.1rem; height: 1.1rem; border-radius: 0.3rem; background: var(--accent); margin-right: 0.7rem;
