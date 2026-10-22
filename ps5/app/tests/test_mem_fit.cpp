@@ -58,7 +58,8 @@ void test_verdicts() {
     is(query("SDXL", 2048, 2048), "fits", "SDXL 2048, measured");
     is(query("SDXL", 2560, 2560), "tight", "SDXL over the measured size");
     is(query("FLUX.2 Klein 4B", 1536, 1536), "fits", "Klein 4B 1536");
-    is(query("FLUX.2 Klein 4B", 2048, 2048), "too_big", "Klein 4B 2048");
+    is(query("FLUX.2 Klein 4B", 2048, 2048), "fits", "Klein 4B 2048, measured (patches/mesa/0010)");
+    is(query("FLUX.2 Klein 4B", 2560, 2560), "tight", "Klein 4B over the measured size");
     is(query("FLUX.3 Klein", 1024, 1024), "fits", "FLUX.3 Klein 1024");
     is(query("FLUX.3 Klein", 1536, 1536), "too_big", "FLUX.3 Klein 1536");
     is(query("Wan 1.3B", 832, 480, 33), "fits", "Wan 33 frames");
@@ -71,9 +72,12 @@ void test_verdicts() {
     is(q, "fits", "SDXL 2048 after 1024 (it runs in segments, patches/sdcpp/0067)");
     q = query("FLUX.2 Klein 4B", 1536, 1536);
     q.largest_ok = 1024 * 1024;
-    is(q, "tight", "Klein 4B 1536 after 1024");
+    is(q, "fits", "Klein 4B 1536 after 1024 (buffers of several blocks, patches/mesa/0010)");
+    q = query("Z-Image", 1536, 1536);
+    q.largest_ok = 1024 * 1024;
+    is(q, "tight", "Z-Image 1536 after 1024, not measured");
     q.largest_ok = 1536 * 1536;
-    is(q, "fits", "Klein 4B 1536 again");
+    is(q, "fits", "Z-Image 1536 again");
     q = query("SDXL", 1024, 1024);
     q.other_model_before = true;
     is(q, "fits", "SDXL 1024 after another model");

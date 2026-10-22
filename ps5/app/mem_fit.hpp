@@ -7,10 +7,11 @@
 //
 //   - the largest sizes measured on the console per model family, right after
 //     a start (kLimits in mem_fit.cpp);
-//   - GPU memory that earlier runs freed is not all usable again (it goes back
-//     to the pool in pieces, and each GPU buffer needs one block): a run that
-//     is larger than every run since the model loaded can fail where it works
-//     right after a start, while the same size or a smaller one keeps working.
+//   - GPU memory that earlier runs freed goes back to the pool in pieces.
+//     Before 0.9.0 each GPU buffer needed one block, so a run larger than
+//     every run since the model loaded could fail where it worked right after
+//     a start. A buffer can now be made of several (patches/mesa/0010); until
+//     that is measured for a family too (safe in kLimits), the warning stays.
 //
 // So the answer is "fits", "tight" (larger than anything measured, or than
 // any run so far: it may fail, and a restart of PS5SD gives the most room)

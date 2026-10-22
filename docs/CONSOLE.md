@@ -527,7 +527,7 @@ depends on the run before it.
 | SDXL Base Q8_0 | 2048×2048 | fits right after a start (17 segments, 58.7 s); fails after 1024 and 1536 | fits after them too (17 segments, 42.5 s) |
 | FLUX.2 Klein 4B Q8_0 | 1024×1024 | fits (diffusion 1,120 MB) | the same |
 | FLUX.2 Klein 4B Q8_0 | 1536×1536 | fails | fits, 27 segments (60 s) |
-| FLUX.2 Klein 4B Q8_0 | 2048×2048 | fails | fails: one segment needs 4,489 MB, 4,089 MB free |
+| FLUX.2 Klein 4B Q8_0 | 2048×2048 | fails | fails: one segment needs 4,489 MB, 4,089 MB free. Fits since 0.9.0 (`patches/mesa/0010`), see the next section |
 | FLUX.3 Klein Q6_K | 1024×1024 | fits (794 MB), also after a switch from SDXL | the same |
 | FLUX.3 Klein Q6_K | 1536×1536 | fails | fails: sd.cpp has no cut points for this network |
 | Z-Image Turbo Q4_K | 1536×1536 | fits | |
@@ -562,7 +562,7 @@ pool, and the compute buffers leave holes between the others when they go. A buf
 largest hole cannot be made, however much is free in all.
 
 `pool free` in app.log was `sceKernelAvailableDirectMemorySize`: one free part, the largest. ggml's
-`Vulkan0 free` is the same number (the winsys reports it as the heap's budget). Since 0.9.0 the line also
+`Vulkan0 free` was about the same number (the winsys reported it as the heap's budget). Since 0.9.0 the line also
 gives the sum of the free parts, how many there are and the largest (`pool_free` in `ps5/app/main.cpp`).
 FLUX.2 Klein 4B Q8_0, right after a start, one step each:
 
@@ -575,11 +575,60 @@ FLUX.2 Klein 4B Q8_0, right after a start, one step each:
 | After 1024×1024 | 7.18 GiB | 14 | 4.21 GiB |
 | After 1280×1280 (in segments: one piece needed more than 4.21 GiB) | 7.02 GiB | 15 | 4.21 GiB |
 
-About 3 GiB is free in pieces after the first image, and stays so. Two ways to use it, neither tried yet:
+About 3 GiB is free in pieces after the first image, and stays so. Two ways to use it:
 
-- **A large buffer of several parts**, mapped one after the other at one GPU address (the winsys maps
-  direct memory at fixed addresses already, for sparse buffers). Buffers would no longer need one block,
-  and the budget would be the sum. A wrong mapping stops the GPU, and on the PS5 that hangs the console
-  until it is switched off, so this needs care and a console nobody else uses.
+- **A large buffer of several parts**, mapped one after the other at one GPU address. Done in 0.9.0, see
+  below.
 - **Long-lived and short-lived memory apart**: weights from one end of the pool, compute buffers from the
-  other, so the holes they leave are one.
+  other, so the holes they leave are one. Not tried.
+
+### Buffers of several blocks (`patches/mesa/0010`, 2026-10-22)
+
+The winsys now makes a buffer that no free block holds whole from several, the largest first: it reserves
+one range of the device-memory region, allocates block after block of the pool and maps each right after
+the one before, so the GPU reaches the buffer at one address. It does so only outside the 32-bit window
+and for buffers of 4 MiB and more; a placed mapping or a sparse bind of such a buffer is refused (they
+need one block). The pool's available bytes, which RADV's heap budget is made of, are the sum of the free
+blocks of 2 MiB and more.
+
+The budget had a second fault: RADV's APU branch adds the visible VRAM heap's allocations to the VRAM
+heap's, and the PS5 heap info gave both the driver's total, so the driver's bytes counted twice. ggml adds
+the heaps' free bytes of an integrated GPU, and saw that much less. A first build of the patch, with the
+sum but still the double count, showed `Vulkan0 free` 5.5 GB against 7.1 GiB in parts, and 1536 and 1280
+still ran in segments after the capacity check failed; the patch counts the driver's bytes once.
+
+FLUX.2 Klein 4B Q8_0 (`flux-2-klein-4b-quality-1024`), one sequence right after a start, one step, CFG 1:
+
+| Run | First build (driver counted twice) | `0010` |
+|---|---|---|
+| 1024×1024 | 35.5 s | 36.1 s |
+| 1536×1536 | 48.2 s, in segments | 30.7 s, in one piece (sampling 13.1 s) |
+| 1024×1024 | 15.1 s | 11.3 s |
+| 1280×1280 | 37.9 s, in segments | 20.0 s, in one piece |
+| 2048×2048 | | 72.9 s (sampling 39.2 s, VAE decode 31.0 s) |
+
+0.8.1 ran 1536×1536 in 27 segments (60 s) and failed at 2048×2048 ("Memory: what fits").
+
+SDXL Base Q8_0 (`sdxl-base`), one sequence right after a start, 6 steps, CFG 6, euler_a:
+
+| Run | Request | Sampling | VAE decode (512 px tiles) |
+|---|---|---|---|
+| 1024×1024 | 30.9 s | 19.9 s | 5.9 s |
+| 1536×1536 | 54.5 s | 37.5 s | 15.8 s |
+| 2048×2048 | 115.1 s | 82.4 s | 30.7 s |
+| 1024×1024 | 21.4 s | 15.0 s | 5.7 s |
+
+- With Klein, the gain at 1536 and 1280 came from the budget: those runs found one block large enough
+  once the capacity check let them try, and no buffer of several blocks was made. After the first image
+  `Vulkan0 free` is 4.75 GB with 4.43 GiB free in 10 parts: the budget is the sum.
+- Less is free after the first Klein image than with the first build (4.43 against 7.1 GiB), likely
+  because the model manager now keeps the text encoder loaded: the conditioning took 0.38 s on the second
+  request, so its weights were not read again.
+- Buffers of several blocks were made at 2048: two of 198 MiB (2 blocks each) with Klein, one of
+  2160 MiB (2 blocks) with SDXL (`radv/ps5: a buffer of ... made of N blocks` in app.log). The images
+  are right, with no seam. The console did not hang.
+- The other families, each in one sequence right after a start, one step, all ran with no error and no
+  buffer of several blocks: Z-Image Turbo 1024, 1536, 1024, 1536 (39.6 s both times); FLUX.3 Klein Q6_K
+  1024, 896, 1024 (14.3 s the second time); Wan 2.1 T2V 1.3B 832×480 with 9 frames (65.3 s), then 33
+  (165.6 s).
+- `mem_fit.cpp` has 2048×2048 as measured for FLUX.2 Klein 4B, after other runs too.

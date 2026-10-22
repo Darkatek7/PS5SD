@@ -1,0 +1,259 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: ps5sd <ps5sd@localhost>
+Date: Thu, 22 Oct 2026 20:00:00 +0000
+Subject: [PATCH] radv/ps5: a large buffer of several blocks when no free block
+ holds it
+
+Each buffer was one block of the direct-memory pool, and the pool falls
+apart in blocks as buffers of different lifetimes come and go. With
+stable-diffusion.cpp on the console, a model's weights load when a request
+needs them and stay between the compute buffers the request frees: after
+one image of FLUX.2 Klein 4B the pool had 7.2 GiB free in 13 blocks, the
+largest 4.2 GiB, and a larger image than any before found no room, though
+it ran right after a start.
+
+A buffer outside the window that no block holds whole is now made of
+several, the largest first, each mapped right after the one before in one
+reserved range of the device-memory region, so the GPU reaches it at one
+address. The pool's available bytes, which the heap budget is made of, are
+the sum of its free blocks of 2 MiB and more instead of the largest one.
+A placed mapping and a sparse bind of such a buffer are refused, as they
+need one block.
+
+The budget also counted the driver's bytes twice: the APU branch adds the
+visible VRAM heap's allocations to the VRAM heap's, and the PS5 heap info
+gave both the driver's total. An application that sums the heaps' free
+bytes (ggml) saw that much less than the pool has.
+---
+ src/amd/vulkan/radv_physical_device.c         |   4 +-
+ src/amd/vulkan/winsys/ps5/radv_ps5_platform.c | 137 +++++++++++++++++-
+ src/amd/vulkan/winsys/ps5/radv_ps5_platform.h |  14 +-
+ 3 files changed, 148 insertions(+), 7 deletions(-)
+
+diff --git a/src/amd/vulkan/radv_physical_device.c b/src/amd/vulkan/radv_physical_device.c
+index c0826e5..107d4e7 100644
+--- a/src/amd/vulkan/radv_physical_device.c
++++ b/src/amd/vulkan/radv_physical_device.c
+@@ -3271,8 +3271,10 @@ radv_query_heap_info(struct radv_physical_device *pdev, struct radeon_winsys_hea
+     * what the pool has handed out to anyone. */
+    uint64_t pool = 0, available = 0, driver = 0;
+    radv_ps5_winsys_heap_usage(&pool, &available, &driver);
++   /* The APU budget adds the two (the visible VRAM heap is all of it): the
++    * driver's bytes go in once. */
+    heap_info->allocated_vram = driver;
+-   heap_info->allocated_vram_vis = driver;
++   heap_info->allocated_vram_vis = 0;
+    heap_info->vram_usage = pool - MIN2(available, pool);
+    heap_info->vram_vis_usage = heap_info->vram_usage;
+ #endif
+diff --git a/src/amd/vulkan/winsys/ps5/radv_ps5_platform.c b/src/amd/vulkan/winsys/ps5/radv_ps5_platform.c
+index 67b304f..1e7b085 100644
+--- a/src/amd/vulkan/winsys/ps5/radv_ps5_platform.c
++++ b/src/amd/vulkan/winsys/ps5/radv_ps5_platform.c
+@@ -275,17 +275,136 @@ radv_ps5_memory_pool_bytes(void)
+    return bytes > 0 ? (uint64_t)bytes : 0;
+ }
+ 
++/* The sum of the pool's free blocks of 2 MiB and more, which a buffer can be
++ * made of (radv_ps5_memory_alloc_parts). sceKernelAvailableDirectMemorySize
++ * gives one free block of a range, so the ranges left and right of it are
++ * asked again. The largest block alone said far less than the pool has once
++ * buffers of different lifetimes have come and gone: after one image of a
++ * diffusion model, 4.2 of 7.2 GiB free in 13 blocks. */
+ uint64_t
+ radv_ps5_memory_available_bytes(void)
+ {
+    const int64_t pool = sceKernelGetDirectMemorySize();
+-   int64_t start = -1;
+-   size_t available = 0;
+-   if (pool <= 0 || sceKernelAvailableDirectMemorySize(0, pool, RADV_PS5_PAGE_BYTES, &start, &available) != 0)
++   if (pool <= 0)
+       return 0;
++   int64_t ranges[256][2];
++   unsigned count = 0;
++   uint64_t available = 0;
++   ranges[count][0] = 0;
++   ranges[count][1] = pool;
++   count++;
++   while (count > 0) {
++      count--;
++      const int64_t first = ranges[count][0], end = ranges[count][1];
++      if (end - first < (int64_t)RADV_PS5_LARGE_BYTES)
++         continue;
++      int64_t start = -1;
++      size_t free_bytes = 0;
++      if (sceKernelAvailableDirectMemorySize(first, end, RADV_PS5_LARGE_BYTES, &start, &free_bytes) != 0 ||
++          free_bytes == 0 || start < first || start + (int64_t)free_bytes > end)
++         continue;
++      available += free_bytes;
++      if (count + 2 <= ARRAY_SIZE(ranges)) {
++         ranges[count][0] = first;
++         ranges[count][1] = start;
++         count++;
++         ranges[count][0] = start + (int64_t)free_bytes;
++         ranges[count][1] = end;
++         count++;
++      }
++   }
+    return available;
+ }
+ 
++static bool radv_ps5_map_fixed(uint8_t *at, uint64_t bytes, int64_t physical);
++
++/* A buffer that no free block of the pool holds whole. The pool falls apart in
++ * blocks as buffers of different lifetimes come and go (a model's weights,
++ * loaded when a request needs them, stay between the compute buffers the
++ * request frees), and a large buffer then finds no block though the pool has
++ * room. It is made of several blocks, the largest first, each mapped right
++ * after the one before in one range of the device-memory region: the GPU
++ * reaches the buffer at one address, as it reaches one whose pages lie
++ * anywhere on a PC. Each block is whole 2 MiB pages. */
++static bool
++radv_ps5_memory_alloc_parts(uint64_t bytes, uint64_t alignment, struct radv_ps5_memory *out)
++{
++   *out = (struct radv_ps5_memory){.physical = -1};
++   bytes = align64(bytes, RADV_PS5_LARGE_BYTES);
++   const uint32_t granules = (uint32_t)(bytes / RADV_PS5_LARGE_BYTES);
++   const uint32_t granule =
++      radv_ps5_granules_take(&radv_ps5_region, granules, (uint32_t)MAX2(alignment / RADV_PS5_LARGE_BYTES, 1));
++   if (granule == UINT32_MAX)
++      return false;
++   uint8_t *const va = (uint8_t *)(uintptr_t)(RADV_PS5_REGION_BASE + (uint64_t)granule * RADV_PS5_LARGE_BYTES);
++
++   /* The range is held while the blocks are mapped into it, so nothing else
++    * lands there; each fixed mapping replaces its part of the reservation. */
++   void *at = va;
++   if (sceKernelReserveVirtualRange(&at, bytes, 0, RADV_PS5_LARGE_BYTES) != 0) {
++      radv_ps5_granules_give(&radv_ps5_region, granule, granules);
++      return false;
++   }
++   if (at != va) {
++      sceKernelMunmap(at, bytes);
++      radv_ps5_granules_give(&radv_ps5_region, granule, granules);
++      return false;
++   }
++
++   const int64_t pool = sceKernelGetDirectMemorySize();
++   struct radv_ps5_part *parts = NULL;
++   uint32_t count = 0, capacity = 0, misses = 0;
++   uint64_t done = 0;
++   while (done < bytes) {
++      int64_t start = -1;
++      size_t free_bytes = 0;
++      if (sceKernelAvailableDirectMemorySize(0, pool, RADV_PS5_LARGE_BYTES, &start, &free_bytes) != 0 ||
++          free_bytes < RADV_PS5_LARGE_BYTES)
++         break;
++      const uint64_t take = MIN2((uint64_t)free_bytes / RADV_PS5_LARGE_BYTES * RADV_PS5_LARGE_BYTES, bytes - done);
++      if (count == capacity) {
++         capacity = MAX2(capacity * 2, 8);
++         struct radv_ps5_part *const grown = realloc(parts, capacity * sizeof(*parts));
++         if (!grown)
++            break;
++         parts = grown;
++      }
++      int64_t physical = -1;
++      if (sceKernelAllocateDirectMemory(start, start + (int64_t)take, take, RADV_PS5_LARGE_BYTES,
++                                        RADV_PS5_DIRECT_TYPE, &physical) != 0) {
++         /* Another thread took the block between the question and now: ask again. */
++         if (++misses > 8)
++            break;
++         continue;
++      }
++      if (!radv_ps5_map_fixed(va + done, take, physical)) {
++         sceKernelReleaseDirectMemory(physical, take);
++         break;
++      }
++      parts[count++] = (struct radv_ps5_part){.physical = physical, .bytes = take};
++      done += take;
++   }
++
++   if (done < bytes) {
++      sceKernelMunmap(va, bytes);
++      for (uint32_t i = 0; i < count; i++)
++         sceKernelReleaseDirectMemory(parts[i].physical, parts[i].bytes);
++      free(parts);
++      radv_ps5_granules_give(&radv_ps5_region, granule, granules);
++      return false;
++   }
++   *out = (struct radv_ps5_memory){
++      .cpu = va,
++      .bytes = bytes,
++      .physical = -1,
++      .parts = parts,
++      .part_count = count,
++      .granule = granule,
++      .granules = granules,
++   };
++   return true;
++}
++
+ bool
+ radv_ps5_memory_alloc(uint64_t bytes, uint64_t alignment, bool window32, struct radv_ps5_memory *out)
+ {
+@@ -298,8 +417,15 @@ radv_ps5_memory_alloc(uint64_t bytes, uint64_t alignment, bool window32, struct
+ 
+    int64_t physical = -1;
+    if (sceKernelAllocateDirectMemory(0, sceKernelGetDirectMemorySize(), bytes, alignment,
+-                                     RADV_PS5_DIRECT_TYPE, &physical) != 0)
++                                     RADV_PS5_DIRECT_TYPE, &physical) != 0) {
++      /* No block holds it whole: a large buffer outside the window is made of several. */
++      if (!window32 && bytes >= 2 * RADV_PS5_LARGE_BYTES && radv_ps5_memory_alloc_parts(bytes, alignment, out)) {
++         fprintf(stderr, "radv/ps5: a buffer of %" PRIu64 " MiB made of %u blocks\n", out->bytes >> 20,
++                 out->part_count);
++         return true;
++      }
+       return false;
++   }
+ 
+    /* A window buffer goes where the kernel puts a mapping it is given no
+     * address for, which is the window (PS5_Vulkan R86); anything else goes in
+@@ -645,6 +771,9 @@ radv_ps5_memory_free(struct radv_ps5_memory *memory)
+    radv_ps5_granules_give(&radv_ps5_region, memory->granule, memory->granules);
+    if (memory->physical >= 0)
+       sceKernelReleaseDirectMemory(memory->physical, memory->bytes);
++   for (uint32_t i = 0; i < memory->part_count; i++)
++      sceKernelReleaseDirectMemory(memory->parts[i].physical, memory->parts[i].bytes);
++   free(memory->parts);
+    *memory = (struct radv_ps5_memory){.physical = -1};
+ }
+ 
+diff --git a/src/amd/vulkan/winsys/ps5/radv_ps5_platform.h b/src/amd/vulkan/winsys/ps5/radv_ps5_platform.h
+index f203fad..4b0d8be 100644
+--- a/src/amd/vulkan/winsys/ps5/radv_ps5_platform.h
++++ b/src/amd/vulkan/winsys/ps5/radv_ps5_platform.h
+@@ -37,12 +37,21 @@
+ #define RADV_PS5_PAGE_BYTES UINT64_C(0x4000)
+ #define RADV_PS5_LARGE_BYTES UINT64_C(0x200000)
+ 
++/* One direct-memory block of a buffer made of several (radv_ps5_memory.parts). */
++struct radv_ps5_part {
++   int64_t physical;
++   uint64_t bytes;
++};
++
+ struct radv_ps5_memory {
+    /* The CPU mapping, which is also the GPU address. */
+    uint8_t *cpu;
+    uint64_t bytes;
+-   /* The direct-memory allocation behind it; -1 on the host. */
++   /* The direct-memory allocation behind it; -1 on the host, and for a buffer
++    * made of several blocks, which parts lists in the order they are mapped. */
+    int64_t physical;
++   struct radv_ps5_part *parts;
++   uint32_t part_count;
+    /* The device-memory region granules the mapping took, if any, or the
+     * window's replay range's (window_replay). */
+    uint32_t granule;
+@@ -90,7 +99,8 @@ bool radv_ps5_vrange_bind(void *at, uint64_t bytes, const struct radv_ps5_memory
+ bool radv_ps5_vrange_unbind(void *at, uint64_t bytes);
+ uint64_t radv_ps5_vrange_space_bytes(void);
+ 
+-/* The direct-memory pool, which the CPU draws on too, and what it has left. */
++/* The direct-memory pool, which the CPU draws on too, and what it has left in
++ * blocks a buffer can be made of (2 MiB and more, all of them together). */
+ uint64_t radv_ps5_memory_pool_bytes(void);
+ uint64_t radv_ps5_memory_available_bytes(void);
+ 
+-- 
+2.56.0
+
