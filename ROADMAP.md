@@ -172,7 +172,7 @@ changes how the page is built, not what it can do; every feature stays.
   frame; the web UI offers up to 81 (5 s).
 - [x] **Faster decoding**: the VAE decode was about 2 of the 3 minutes 40 s. Now 256 px tiles that overlap
   by a quarter (33 frames in 2 min 15 s, 81 in 8 min), and a catalog entry with TAEHV, a small decoder
-  (1 min 45 s and 6 min, a little softer).
+  (1 min 30 s and 6 min, a little softer).
 
 ## Later in 0.9.x
 

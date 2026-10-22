@@ -361,12 +361,13 @@ inline std::vector<CatalogEntry> entries() {
             "short videos",
         },
         // The same model with TAEHV (madebyollin, MIT; lightx2v's copy on Hugging Face, the same file):
-        // the decode of 33 frames in 6.8 s instead of 55 s, a little softer (docs/CONSOLE.md, "Faster video
-        // decoding"). lightx2v's lighttaew2_1 came out washed out and striped in sd.cpp.
+        // the decode of 33 frames in 3.6 s instead of 55 s, a little softer (docs/CONSOLE.md, "Faster video
+        // decoding"). Tiled from the start: whole, it asks for 20 GB and sd.cpp falls back to tiles only
+        // after two failed allocations. lightx2v's lighttaew2_1 came out washed out and striped in sd.cpp.
         {
             "wan21-t2v-1.3b-tae",
             "Wan 2.1 T2V 1.3B, fast decoder (video)",
-            "Wan 2.1 with a small decoder: 33 frames (2 s) in about 1 min 45 s with the CausVid LoRA, 81 frames in about 6 min; a little softer. Shares the model files, 23 MB more.",
+            "Wan 2.1 with a small decoder: 33 frames (2 s) in about 1 min 30 s with the CausVid LoRA, 81 frames in about 6 min; a little softer. Shares the model files, 23 MB more.",
             {
                 { "https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/"
                   "diffusion_models/wan2.1_t2v_1.3B_fp16.safetensors",
@@ -384,6 +385,12 @@ inline std::vector<CatalogEntry> entries() {
             "text_encoders/umt5-xxl-encoder-Q4_K_M.gguf\n"
             "--taesd\n"
             "vae/taew2_1.safetensors\n"
+            "--vae-tiling\n"
+            "--temporal-tiling\n"
+            "--vae-tile-size\n"
+            "256\n"
+            "--vae-tile-overlap\n"
+            "0.25\n"
             "--flow-shift\n"
             "3\n"
             "--video-frames\n"

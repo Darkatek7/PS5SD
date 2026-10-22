@@ -686,5 +686,10 @@ A small decoder instead of the VAE, `--taesd` (sd.cpp's TAEHV), with the same 33
   which shares the model files.
 - `lighttaew2_1` came out washed out, with a fine pattern of stripes (28.4 apart): sd.cpp b13a482 does not
   read it right. Not used.
+- Whole, TAEHV asks for 20 GB for 33 frames. sd.cpp then retries with temporal tiling (7 GB, fails too)
+  and then with tiles of 416×240 as well, which works; the log has the failed allocations and the system's
+  "Internal Memory is running out". The decode times above include that. Tiled from the start
+  (`--vae-tiling --temporal-tiling`, 256 px at 0.25), on 0.9.1's release build: decode 3.63 s, request
+  90.4 s, with no error; the frame differs from the fallback's by 0.35 of 255. The catalog entry does that.
 - The title passed `--tae` to sd-server unresolved (a path relative to the models folder) and the model did
   not load; it knew only `--taesd`. 0.9.1 resolves both.

@@ -309,8 +309,8 @@ PS5SD 0.9.1 gives a Wan preset that 0.9.0 or older wrote, and that nobody change
 starts.
 
 **Wan 2.1 T2V 1.3B, fast decoder** is the same model with TAEHV, a small decoder (22.6 MB, MIT, by
-madebyollin), instead of the VAE: 33 frames with CausVid in about 1 minute 45 s and 81 frames in about 6
-minutes, the decode 7 and 15 s instead of 55 and 134. The frames are a little softer. It shares the model
+madebyollin), instead of the VAE: 33 frames with CausVid in about 1 minute 30 s and 81 frames in about 6
+minutes; the decode of 33 frames takes 4 s instead of 55. The frames are a little softer. It shares the model
 files with the other Wan entry, so getting both costs 23 MB more.
 
 The video is a WebM file (VP8, about 4 MB for 33 frames and 10 MB for 81). It plays on the page in Chrome, Firefox and Edge.
