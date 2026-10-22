@@ -271,6 +271,9 @@
     try { return new Date(sec * 1000).toLocaleString(); } catch (e) { return ''; }
   }
 
+  // the URL of the item in the viewer, for the full image that arrives after the thumbnail
+  var lbShown = null;
+
   function showLb(i) {
     var list = galleryView();
     var n = list.length;
@@ -279,6 +282,7 @@
     if (i > n - 1) i = n - 1;
     st.lb = i;
     var it = list[i];
+    lbShown = it.url;
     var img = $('lb-img'), vid = $('lb-vid');
     if (isVideo(it)) {
       img.style.display = 'none';
@@ -291,8 +295,19 @@
       vid.load();
       vid.style.display = 'none';
       img.style.display = '';
-      img.src = it.url;
       img.alt = it.name;
+      // the thumbnail at once and the image when it is in: a PNG of several MB takes a while on a
+      // phone, and the viewer keeps its shape meanwhile
+      if (it.thumb && img.getAttribute('src') !== it.url) {
+        img.src = it.thumb;
+        var full = new Image();
+        full.onload = full.onerror = function () {
+          if (lbShown === it.url) img.src = it.url;
+        };
+        full.src = it.url;
+      } else {
+        img.src = it.url;
+      }
     }
     // Upscale and Edit take images only
     $('lb-edit').style.display = isVideo(it) ? 'none' : '';
@@ -318,6 +333,7 @@
   function closeLb() {
     show('lb', false);
     st.lb = -1;
+    lbShown = null;
     $('lb-img').removeAttribute('src');
     try { $('lb-vid').pause(); } catch (e) {}
     $('lb-vid').removeAttribute('src');

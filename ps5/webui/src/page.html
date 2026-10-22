@@ -488,12 +488,14 @@
 <div class="lb" id="lb" style="display:none" role="dialog" aria-modal="true" aria-label="Image viewer">
   <div class="lb-bar">
     <span class="lb-title" id="lb-title"></span>
-    <a id="lb-dl" href="#">Download</a>
-    <a id="lb-open" href="#" target="_blank">Open full size</a>
-    <button type="button" id="lb-up" style="display:none">Upscale</button>
-    <button type="button" id="lb-edit" title="Use as the start image on the Create tab">Edit</button>
-    <button type="button" id="lb-guide" title="Use as the guide image (ControlNet) on the Create tab">Guide</button>
-    <button type="button" class="danger" id="lb-del">Delete</button>
+    <div class="lb-acts">
+      <a id="lb-dl" href="#">Download</a>
+      <a id="lb-open" href="#" target="_blank">Full size</a>
+      <button type="button" id="lb-up" style="display:none">Upscale</button>
+      <button type="button" id="lb-edit" title="Use as the start image on the Create tab">Edit</button>
+      <button type="button" id="lb-guide" title="Use as the guide image (ControlNet) on the Create tab">Guide</button>
+      <button type="button" class="danger" id="lb-del">Delete</button>
+    </div>
     <button type="button" id="lb-close">Close</button>
   </div>
   <div class="lb-body">

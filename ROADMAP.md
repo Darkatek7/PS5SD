@@ -156,7 +156,13 @@ changes how the page is built, not what it can do; every feature stays.
   red brick") instead of a mask. The Create tab's Edit mode sends the start image as a reference for a
   FLUX.2 model ("Edit by the prompt"), and `ref_images` does it in the API. About 65 s at 4 steps with Klein 4B.
 
-## 0.10.0: video and more
+## 0.9.1: video
+
+**Gallery**
+
+- [x] **The viewer on a phone**: the picture across the whole width with the arrows on it, the whole prompt
+  under it, and the actions three to a row below, instead of a bar of buttons squeezed above the picture.
+  The thumbnail shows at once and the image replaces it when it is in.
 
 **Video**
 
@@ -166,6 +172,8 @@ changes how the page is built, not what it can do; every feature stays.
 - [ ] **Image to video**: a start image. Wan 2.1 T2V 1.3B is text only, so this means Wan 2.2 TI2V 5B; first
   measure whether it fits with the Wan 2.2 VAE.
 - [ ] **Flow shift on the Create tab**, set in the preset only for now (3 for Wan 2.1).
+
+## Later in 0.9.x
 
 **Images**
 

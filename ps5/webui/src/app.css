@@ -236,6 +236,7 @@
   .lb { position: fixed; left: 0; top: 0; right: 0; bottom: 0; z-index: 10; background: #05080e; flex-direction: column; }
   .lb-bar { display: flex; align-items: center; padding: 0.75rem 1.25rem; }
   .lb-title { flex: 1; min-width: 0; color: var(--muted); font-size: 0.95rem; }
+  .lb-acts { display: flex; }
   .lb-bar a, .lb-bar button { flex: none; margin-left: 0.6rem; min-height: 3.25rem; line-height: 3.25rem; padding: 0 1.3rem; background: var(--raised);
     border: 1px solid var(--border); border-radius: 10px; color: var(--text); }
   .lb-bar button { line-height: normal; }
@@ -456,10 +457,28 @@
     .hfile { flex-wrap: wrap; }
     .hfile .fn { flex-basis: 100%; }
     .hfile .sz { margin-left: 0; flex: 1; }
-    .lb-bar { flex-wrap: wrap; }
-    .lb-title { flex-basis: 100%; margin-bottom: 0.5rem; }
-    .lb-bar a, .lb-bar button { flex: 1; margin: 0 0.3rem 0 0; text-align: center; padding: 0; }
-    .lb-body .nav { width: 2.6rem; height: 5rem; }
+    /* The viewer on a phone scrolls as one column: the title with Close, the picture across the whole
+       width with the arrows on it, the prompt and its settings, then the actions three to a row. The bar
+       lets its parts take their own place in that order. */
+    .lb { flex-direction: row; flex-wrap: wrap; align-content: flex-start; overflow-y: auto; }
+    .lb-bar { display: contents; }
+    .lb-title { order: 1; flex: 1 1 0; padding: 0.75rem 0 0.75rem 1rem; font-size: 0.85rem; overflow-wrap: anywhere; }
+    .lb-bar #lb-close { order: 2; align-self: center; margin: 0.5rem 1rem 0.5rem 0.75rem; min-height: 2.75rem; padding: 0 1rem; }
+    .lb-body { order: 3; flex: 0 0 100%; position: relative; padding: 0; }
+    .lb-img img, .lb-img video, .lb.withinfo .lb-img img, .lb.withinfo .lb-img video {
+      width: auto; height: auto; max-width: 100%; max-height: 65vh; border-radius: 0; }
+    .lb-body .nav { position: absolute; top: 50%; transform: translateY(-50%); z-index: 1; width: 2.75rem; height: 4.5rem;
+      font-size: 2rem; background: rgba(5, 8, 14, 0.55); border-color: transparent; }
+    #lb-prev { left: 0.4rem; }
+    #lb-next { right: 0.4rem; }
+    .lb-info { order: 4; flex: 0 0 100%; flex-direction: column; align-items: stretch; box-sizing: border-box; padding: 0.9rem 1rem 0; }
+    .lb-text { margin: 0 0 0.75rem; }
+    .lb-prompt { max-height: 9.6em; }
+    .lb-info button { min-height: 3.25rem; }
+    .lb-acts { order: 5; flex: 0 0 100%; display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.5rem; box-sizing: border-box;
+      padding: 0.9rem 1rem 1.25rem; }
+    .lb-acts a, .lb-acts button { margin: 0; padding: 0 0.3rem; text-align: center; white-space: nowrap; overflow: hidden;
+      text-overflow: ellipsis; }
   }
   /* Create tab on a PC: settings on the left, the result large on the right, in view while the settings scroll */
   @media (min-width: 721px) {
