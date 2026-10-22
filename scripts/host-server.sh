@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 # Builds sd-server natively on this machine (macOS arm64: Metal or CPU; Linux: CPU)
-# and starts it on 127.0.0.1:7860, so the web UI (ps5/webui/index.html) can be
+# and starts it on 127.0.0.1:7860, so the web UI (ps5/webui/src) can be
 # developed without a console.
 #
 # What it does:
 #   1. copies third_party/stable-diffusion.cpp to a scratch directory (the
 #      submodule checkout stays clean) and applies patches/sdcpp/005*.patch and later
 #      (PATCHES=all applies every patches/sdcpp/*.patch)
-#   2. embeds ps5/webui/index.html with scripts/embed-file.sh
+#   2. puts the web UI together (scripts/bundle-webui.sh) and embeds it with
+#      scripts/embed-file.sh
 #   3. builds it twice:
 #        SD_SERVER_LIBRARY=OFF  ->  sd-server              (the plain executable)
 #        SD_SERVER_LIBRARY=ON   ->  sd-server-lib + sd-server-host, a ten-line
@@ -27,10 +28,9 @@
 #   -h, --help
 #
 # Needs cmake (brew install cmake), git, rsync and a C++17 compiler. The page is
-# embedded when building: after editing index.html run this again (only the
-# server is rebuilt) or, quicker, pass --serve-html-path ps5/webui/index.html as
-# an extra argument to read the file from disk on every request:
-#   scripts/host-server.sh model.gguf -- --serve-html-path ps5/webui/index.html
+# embedded when building: after editing ps5/webui/src run this again (only the
+# server is rebuilt) or, quicker, use scripts/webui-dev.py, which serves the
+# parts put together on every request and passes the API through to a server.
 
 set -euo pipefail
 
@@ -136,8 +136,9 @@ fi
 
 # 2. embed the page -----------------------------------------------------------
 INDEX_H="$WORK/index_html.h"
-echo "== embedding ps5/webui/index.html"
-run "$PS5SD_ROOT/scripts/embed-file.sh" "$PS5SD_ROOT/ps5/webui/index.html" sd_server_index_html "$INDEX_H"
+echo "== embedding the web UI (ps5/webui/src)"
+run sh "$PS5SD_ROOT/scripts/bundle-webui.sh" "$WORK/index.html"
+run "$PS5SD_ROOT/scripts/embed-file.sh" "$WORK/index.html" sd_server_index_html "$INDEX_H"
 
 COMMON_FLAGS=(-DCMAKE_BUILD_TYPE=Release -DSD_BUILD_EXAMPLES=ON -DSD_SERVER_BUILD_FRONTEND=OFF "-DSD_SERVER_EMBED_INDEX=$INDEX_H" ${GPU_FLAGS[@]+"${GPU_FLAGS[@]}"})
 

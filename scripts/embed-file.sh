@@ -7,8 +7,8 @@
 # usage: scripts/embed-file.sh <input-file> <name> [<output-header>]
 #        (no output-header: written to stdout)
 #
-# Used by the build to embed ps5/webui/index.html into sd-server:
-#   scripts/embed-file.sh ps5/webui/index.html sd_server_index_html build/index_html.h
+# Used by the build to embed the web UI (scripts/bundle-webui.sh) into sd-server:
+#   scripts/embed-file.sh build/index.html sd_server_index_html build/index_html.h
 # and pass -DSD_SERVER_EMBED_INDEX=<that header> to CMake.
 #
 # POSIX sh + od + awk only (no xxd, no python).

@@ -1,0 +1,451 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PS5SD</title>
+<!--
+  The page sd-server serves on the PS5 (embedded into ps5sd.elf; see
+  scripts/embed-file.sh and the SD_SERVER_EMBED_INDEX CMake option).
+  Plain ES5 and XMLHttpRequest, one file and no external requests, because the
+  PS5 browser renders modern bundles blank: no modules, no arrow functions, no
+  let/const, no fetch, no CSS grid. Flexbox, sized from the viewport, so it
+  works with a DualSense cursor on a TV (large controls, a white focus frame)
+  and on a phone.
+
+  Talks to:
+    GET  /sdapi/v1/sd-models  /sdapi/v1/samplers  /sdapi/v1/schedulers  /v1/models
+    GET  /sdcpp/v1/capabilities                  (defaults, and "is async available")
+    POST /sdcpp/v1/img_gen, GET /sdcpp/v1/jobs/<id>, POST .../cancel   (async, with previews)
+    POST /sdcpp/v1/vid_gen, the same job API                           (video models: a WebM)
+    POST /sdapi/v1/txt2img + GET /sdapi/v1/progress                    (fallback: synchronous)
+    GET  /sdapi/v1/progress                                            (health, every few seconds)
+    GET  /ps5sd/v1/gallery, /ps5sd/v1/gallery/<file>                   (saved images, --output-dir)
+    GET  /ps5sd/v1/app/models, POST .../app/models/active              (the Models tab: library and switching)
+    PUT  /ps5sd/v1/app/uploads/<models|loras|embeddings|presets>/<name> (the Models tab: upload a file)
+    GET  /ps5sd/v1/app/docs/<MODELS.md|API.md>                          (the Help tab)
+    DELETE /ps5sd/v1/app/gallery/<name>                                 (the image viewer's Delete)
+    GET  /ps5sd/v1/app/loras, DELETE /ps5sd/v1/app/loras/<path>         (the LoRA picker and list)
+    GET/POST /ps5sd/v1/app/settings                                    (the "on the TV" switches; a 404 hides them)
+    GET /ps5sd/v1/auth, POST .../auth/login, .../auth/logout           (the API key: login cookie; "#key=" in the address signs in)
+    GET /ps5sd/v1/app/auth, POST .../app/auth/enable, .../auth/disable (the API key in Settings; a 404 hides it)
+    POST /ps5sd/v1/app/presets, GET/POST/DELETE .../app/presets/<id>   (the Presets tab)
+    POST /sdcpp/v1/upscale                                             (the Upscale button; the result is saved to the gallery)
+    GET  /ps5sd/v1/app/upscalers, DELETE .../app/upscalers/<file>      (the Models tab's upscalers)
+    init_image, mask_image, strength on /sdcpp/v1/img_gen              (image to image and inpainting)
+    POST /ps5sd/v1/app/gallery                                         (an inpainting put back together here)
+    GET  /ps5sd/v1/app/catalog, GET/POST /ps5sd/v1/app/downloads,      (downloads; a 404 hides that part)
+         DELETE .../downloads/<id>, POST .../app/hf/search
+  SPDX-License-Identifier: MIT
+-->
+<style>
+@@include app.css
+</style>
+</head>
+<body>
+<header class="top">
+  <span class="logo"></span>
+  <span class="brand">PS5SD</span>
+  <span class="ver" id="ver"></span>
+  <span class="model" id="model">connecting&hellip;</span>
+  <span class="pill off" id="pill"><span class="dot"></span><span id="pilltext">offline</span></span>
+</header>
+<nav class="tabs">
+  <button type="button" class="on" id="tab-create">Create</button>
+  <button type="button" id="tab-models">Models<span class="tabdot" id="mdot"></span></button>
+  <button type="button" id="tab-presets" style="display:none">Presets</button>
+  <button type="button" id="tab-gallery">Gallery <span id="gcount"></span></button>
+  <button type="button" id="tab-help">Help</button>
+</nav>
+
+<div class="main" id="view-create">
+  <section class="panel controls">
+    <div class="lbl" style="margin-top:0">Model</div>
+    <div class="curmodel"><span class="cm-name" id="cm-name">connecting&hellip;</span><button type="button" id="cm-change">Change</button></div>
+    <div class="bar ind" id="cm-bar" style="display:none;margin:0.5rem 0 0"><div></div></div>
+    <div class="hint" id="cm-sub" style="display:none"></div>
+
+    <label for="prompt">Prompt</label>
+    <textarea id="prompt" class="big" rows="5" placeholder="What should it draw?"></textarea>
+
+    <div class="initbar" id="init-bar">
+      <button type="button" id="init-pick">Start from an image</button>
+      <span class="hint">or Edit on any image of the gallery</span>
+    </div>
+    <input id="init-file" type="file" accept="image/*" style="display:none">
+    <div id="init-box" style="display:none">
+      <div class="lbl">Start image</div>
+      <div class="initrow">
+        <img id="init-thumb" alt="start image">
+        <div class="initmain">
+          <div class="mmeta" id="init-meta"></div>
+          <div class="initbtns">
+            <button type="button" id="init-mask">Paint a mask</button>
+            <button type="button" id="init-drop">Remove</button>
+          </div>
+        </div>
+      </div>
+      <div class="row">
+        <div>
+          <div class="lbl">Strength (how much changes)</div>
+          <div class="step"><button type="button" id="init-str-">&minus;</button><input id="init-str" type="number" min="0.05" max="1" step="0.05" value="0.6" aria-label="Strength"><button type="button" id="init-str+">+</button></div>
+        </div>
+      </div>
+      <label class="opt" id="init-crop-row" style="display:none"><input type="checkbox" id="init-crop" checked> Only the masked area, at full resolution</label>
+      <p class="hint" id="init-hint"></p>
+    </div>
+    <div id="cn-sect" style="display:none">
+      <div class="initbar" id="cn-bar">
+        <button type="button" id="cn-pick">Guide image (ControlNet)</button>
+        <span class="hint">or Guide on any image of the gallery</span>
+      </div>
+      <input id="cn-file" type="file" accept="image/*" style="display:none">
+      <div id="cn-box" style="display:none">
+        <div class="lbl">Guide image</div>
+        <div class="initrow">
+          <img id="cn-thumb" alt="guide image">
+          <div class="initmain">
+            <div class="mmeta" id="cn-meta"></div>
+            <div class="initbtns">
+              <button type="button" id="cn-drop">Remove</button>
+            </div>
+          </div>
+        </div>
+        <div class="row">
+          <div>
+            <div class="lbl">Strength (how closely it follows)</div>
+            <div class="step"><button type="button" id="cn-str-">&minus;</button><input id="cn-str" type="number" min="0.1" max="1.5" step="0.1" value="0.6" aria-label="ControlNet strength"><button type="button" id="cn-str+">+</button></div>
+          </div>
+        </div>
+        <label class="opt"><input type="checkbox" id="cn-canny" checked> Find the edges first (Canny); off for an image that is an edge map already</label>
+        <p class="hint" id="cn-hint"></p>
+      </div>
+    </div>
+
+    <div class="gorow">
+      <button type="button" class="go" id="go">Generate</button>
+      <button type="button" class="alt" id="surprise">Surprise me</button>
+    </div>
+
+    <div class="setbar">
+      <button type="button" id="set-toggle" aria-expanded="false" aria-controls="settings">Settings &#9662;</button>
+      <span class="sum" id="summary"></span>
+    </div>
+    <div id="settings" style="display:none">
+      <label for="neg">Negative prompt</label>
+      <textarea id="neg" rows="2" placeholder="What to avoid (optional)"></textarea>
+
+      <div class="lbl">Size</div>
+      <div class="presets" id="presets"></div>
+      <div class="row" style="margin-top:0.5rem">
+        <div><label for="w">Width</label><input id="w" type="number" min="64" max="2048" step="64"></div>
+        <div><label for="h">Height</label><input id="h" type="number" min="64" max="2048" step="64"></div>
+      </div>
+
+      <div class="row">
+        <div>
+          <div class="lbl">Steps</div>
+          <div class="step"><button type="button" id="steps-">&minus;</button><input id="steps" type="number" min="1" max="150" step="1"><button type="button" id="steps+">+</button></div>
+        </div>
+        <div>
+          <div class="lbl">CFG scale</div>
+          <div class="step"><button type="button" id="cfg-">&minus;</button><input id="cfg" type="number" min="0" max="30" step="0.5"><button type="button" id="cfg+">+</button></div>
+        </div>
+      </div>
+
+      <div class="row">
+        <div><label for="sampler">Sampler</label><select id="sampler"><option value="default">default</option></select></div>
+        <div><label for="scheduler">Scheduler</label><select id="scheduler"><option value="default">default</option></select></div>
+      </div>
+
+      <div class="lbl">LoRAs</div>
+      <div id="lora-sel"></div>
+      <select id="lora-add" aria-label="Add a LoRA"><option value="">Add a LoRA…</option></select>
+      <p class="hint" id="lora-hint"></p>
+
+      <div id="hr-sect">
+        <div class="lbl">Hires fix</div>
+        <label class="opt"><input type="checkbox" id="hr-on"> A second pass at a larger size</label>
+        <div id="hr-box" style="display:none">
+          <div class="row">
+            <div><label for="hr-up">Upscaler</label><select id="hr-up"><option value="Latent">Latent</option></select></div>
+            <div>
+              <div class="lbl">Scale</div>
+              <div class="step"><button type="button" id="hr-scale-">&minus;</button><input id="hr-scale" type="number" min="1" max="4" step="0.25" value="1.5" aria-label="Hires scale"><button type="button" id="hr-scale+">+</button></div>
+            </div>
+          </div>
+          <div class="row">
+            <div>
+              <div class="lbl">Steps (0: as the first pass)</div>
+              <div class="step"><button type="button" id="hr-steps-">&minus;</button><input id="hr-steps" type="number" min="0" max="150" step="1" value="0" aria-label="Hires steps"><button type="button" id="hr-steps+">+</button></div>
+            </div>
+            <div>
+              <div class="lbl">Denoising strength</div>
+              <div class="step"><button type="button" id="hr-den-">&minus;</button><input id="hr-den" type="number" min="0.05" max="1" step="0.05" value="0.5" aria-label="Hires denoising strength"><button type="button" id="hr-den+">+</button></div>
+            </div>
+          </div>
+          <p class="hint" id="hr-hint"></p>
+        </div>
+      </div>
+
+      <div class="row">
+        <div>
+          <label for="seed">Seed</label>
+          <div class="seed"><input id="seed" type="number" step="1" value="-1"><button type="button" id="rnd">Random</button></div>
+        </div>
+        <div id="batch-col">
+          <div class="lbl">Images per run</div>
+          <div class="step"><button type="button" id="batch-">&minus;</button><input id="batch" type="number" min="1" max="8" step="1" value="1" aria-label="Images per run"><button type="button" id="batch+">+</button></div>
+        </div>
+      </div>
+      <p class="hint">-1 picks a random seed. Several images take the seeds one after the other (seed, seed + 1, …).</p>
+      <div id="vid-sect" style="display:none">
+        <div class="row">
+          <div>
+            <div class="lbl">Frames</div>
+            <div class="step"><button type="button" id="frames-">&minus;</button><input id="frames" type="number" min="5" max="33" step="4" value="33" aria-label="Frames"><button type="button" id="frames+">+</button></div>
+          </div>
+          <div>
+            <div class="lbl">Frames per second</div>
+            <div class="step"><button type="button" id="fps-">&minus;</button><input id="fps" type="number" min="4" max="30" step="1" value="16" aria-label="Frames per second"><button type="button" id="fps+">+</button></div>
+          </div>
+        </div>
+        <p class="hint">Wan makes 4n+1 frames: 33 are 2 seconds at 16 per second. On the console, 33 frames at 832×480 take about 15 minutes with 20 steps, under 4 minutes with the CausVid LoRA (Models tab, LoRAs) at 4 steps and CFG 1.</p>
+      </div>
+      <p class="hint"><span id="presetnote"></span><button type="button" id="resetpreset">Use defaults</button><button type="button" id="savepreset" style="display:none">Save as preset</button></p>
+
+      <div class="lbl">When an image is done</div>
+      <label class="opt"><input type="checkbox" id="opt-sound"> Play a sound</label>
+      <label class="opt" id="opt-notify-row" style="display:none"><input type="checkbox" id="opt-notify"> Show a notification</label>
+      <p class="hint">The tab's title shows a mark too, while you are in another tab.</p>
+      <div id="opt-tv-box" style="display:none">
+        <div class="lbl">PS5 screen</div>
+        <label class="opt"><input type="checkbox" id="opt-tv"> Show images and prompts on the TV</label>
+      </div>
+      <div id="opt-up-box" style="display:none">
+        <div class="lbl">Upscale button</div>
+        <select id="opt-up" aria-label="Upscaler of the Upscale button"></select>
+        <p class="hint">The Upscale button under an image and in the gallery runs this model over the image (4 times as wide and high for most). The result goes into the gallery.</p>
+      </div>
+      <div id="opt-auth-box" style="display:none">
+        <div class="lbl">API key</div>
+        <p class="hint" id="auth-state" style="margin-top:0"></p>
+        <div id="auth-key-row" style="display:none"><code class="key" id="auth-key"></code></div>
+        <div class="authbtns">
+          <button type="button" id="auth-on">Turn on</button>
+          <button type="button" id="auth-show">Show key</button>
+          <button type="button" id="auth-new">New key</button>
+          <button type="button" id="auth-off" class="danger">Turn off</button>
+          <button type="button" id="auth-out">Sign out</button>
+        </div>
+        <label class="opt" id="opt-tvkey-row" style="display:none"><input type="checkbox" id="opt-tvkey"> Show the API key on the TV</label>
+        <p class="hint">Apps send it as <code>Authorization: Bearer &lt;key&gt;</code>, A1111 apps as the password of their API login. Help, HTTP API has the details and how to reach the console from outside your network.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel result">
+    <div class="state">
+      <div id="status">Ready.</div>
+      <button type="button" id="cancel" style="display:none">Cancel</button>
+    </div>
+    <div id="sub"></div>
+    <div class="bar" id="bar"><div id="fill"></div></div>
+    <div class="stage" id="stage"><div class="empty">Your image appears here.</div></div>
+    <div class="strip" id="strip" style="display:none"></div>
+    <div class="actions" id="actions"></div>
+  </section>
+</div>
+
+<div class="main" id="view-models" style="display:none">
+  <div class="mcol">
+    <section class="panel">
+      <div class="ph"><h2>Installed models</h2><button type="button" id="m-refresh">Refresh</button></div>
+      <div class="notice" id="swbox" style="display:none">
+        <div class="nline"><span class="spin"></span><span id="swtext"></span></div>
+        <div class="bar ind"><div></div></div>
+        <div class="hint" id="swsub"></div>
+      </div>
+      <div id="mlist"></div>
+      <p class="hint" id="mnote"></p>
+    </section>
+    <section class="panel" id="pnl-loras" style="display:none">
+      <div class="ph"><h2>LoRAs</h2></div>
+      <div id="llist"></div>
+      <div id="lsugg"></div>
+      <p class="hint">A LoRA adds a style, a character or a look to a model. It works only with models of the family it was made for (SD 1.5, SDXL, FLUX…). Pick them on the Create tab, under Settings. DMD2 (anime) and SDXL-Lightning (photos) make SDXL models fast: CFG 1, 4 to 8 steps, sampler LCM for DMD2 and Euler for Lightning. CausVid does the same for Wan 2.1 1.3B videos: CFG 1, 4 steps.</p>
+    </section>
+    <section class="panel" id="pnl-ups" style="display:none">
+      <div class="ph"><h2>Upscalers</h2></div>
+      <div id="ulist"></div>
+      <div id="usugg"></div>
+      <p class="hint">An upscaler (ESRGAN) makes an image larger and sharper: with the Upscale button, or in the hires fix on the Create tab. More of them: a link as Upscaler under Add by link, a .pth file as Upscaler under Upload, or Civitai's upscalers.</p>
+    </section>
+    <section class="panel" id="pnl-dl" style="display:none">
+      <div class="ph"><h2>Downloads</h2></div>
+      <div id="dlist"></div>
+    </section>
+  </div>
+  <div class="mcol">
+    <section class="panel" id="pnl-nodl" style="display:none">
+      <div class="ph"><h2>Get more models</h2></div>
+      <p class="hint">This version of the PS5SD app cannot download models. Copy model files into /data/PS5SD/models on the console, then press Refresh.</p>
+    </section>
+    <section class="panel" id="pnl-cat" style="display:none">
+      <div class="ph"><h2>Catalog</h2></div>
+      <div id="catlist"></div>
+    </section>
+    <section class="panel" id="pnl-url" style="display:none">
+      <div class="ph"><h2>Add by link</h2></div>
+      <div class="inrow"><select id="dl-kind" class="upkind" aria-label="What it is"><option value="">Model</option><option value="loras">LoRA</option><option value="upscalers">Upscaler</option></select><input id="dl-url" type="text" placeholder="Hugging Face or Civitai link to a model file" autocomplete="off" autocapitalize="off" spellcheck="false"><button type="button" id="dl-go">Download</button></div>
+      <p class="hint">A link to a file on huggingface.co, or a Civitai model version (a link that ends in modelVersionId=...). The file goes into the models folder on the console, or the loras folder for a LoRA; a Civitai LoRA goes there by itself.</p>
+    </section>
+    <section class="panel" id="pnl-up" style="display:none">
+      <div class="ph"><h2>Upload from this computer</h2></div>
+      <div class="inrow"><select id="up-kind" class="upkind" aria-label="What it is"><option value="models">Model</option><option value="loras">LoRA</option><option value="embeddings">Embedding</option><option value="presets">Preset (.txt)</option><option value="upscalers">Upscaler</option></select><button type="button" id="up-pick">Choose a file</button></div>
+      <input id="up-file" type="file" style="display:none">
+      <div id="up-box" style="display:none">
+        <div class="mname" id="up-name"></div>
+        <div class="bar"><div id="up-fill"></div></div>
+        <div class="upmeta"><div class="mmeta" id="up-meta"></div><button type="button" id="up-cancel" class="danger">Cancel</button></div>
+      </div>
+      <p class="hint">Any model file on this computer: your own merge or training, or one from another site. It keeps its file name. A model in several files also needs a preset; docs/MODELS.md shows how. Keep this page open until the upload is done.</p>
+    </section>
+    <section class="panel" id="pnl-hf" style="display:none">
+      <div class="ph"><h2>Search Hugging Face</h2></div>
+      <div class="inrow"><input id="hf-q" type="text" placeholder="e.g. sdxl gguf" autocomplete="off" autocapitalize="off" spellcheck="false"><button type="button" id="hf-go">Search</button></div>
+      <div id="hf-res"></div>
+    </section>
+  </div>
+</div>
+
+<div class="main" id="view-presets" style="display:none">
+  <div class="mcol">
+    <section class="panel">
+      <div class="ph"><h2>Saved presets</h2></div>
+      <div id="plist"></div>
+      <p class="hint">A preset is a model with your settings: size, steps, CFG, sampler and LoRAs. Use switches to it; when it is the model that is loaded already, at once. Delete removes only the preset, never the model.</p>
+    </section>
+  </div>
+  <div class="mcol">
+    <section class="panel">
+      <div class="ph"><h2>Save the current settings</h2></div>
+      <div class="hint" id="ps-what" style="margin-top:0"></div>
+      <div class="inrow" style="margin-top:0.8rem"><input id="ps-name" type="text" maxlength="100" placeholder="Name, e.g. Portrait fast" autocomplete="off"><button type="button" id="ps-save">Save</button></div>
+      <p class="hint">Change the settings on the Create tab first. The model's own options (VAE, tiling and so on) come along.</p>
+    </section>
+  </div>
+</div>
+
+<section class="gal" id="view-help" style="display:none">
+  <div class="docbar">
+    <button type="button" id="doc-models">Getting models on</button>
+    <button type="button" id="doc-api">HTTP API</button>
+    <a href="https://github.com/Darkatek7/PS5SD#readme" target="_blank" rel="noopener">PS5SD on GitHub</a>
+  </div>
+  <div class="doc" id="doc"></div>
+</section>
+
+<section class="gal" id="view-gallery" style="display:none">
+  <div class="galbar">
+    <h2>Gallery</h2>
+    <button type="button" id="refresh">Refresh</button>
+  </div>
+  <div class="thumbs" id="thumbs"></div>
+  <div class="none" id="none">Nothing saved yet.</div>
+  <div class="more"><button type="button" id="more" style="display:none">Show more</button></div>
+</section>
+
+<div class="foot">stable-diffusion.cpp on PlayStation 5</div>
+
+<div class="lb" id="lb" style="display:none" role="dialog" aria-modal="true" aria-label="Image viewer">
+  <div class="lb-bar">
+    <span class="lb-title" id="lb-title"></span>
+    <a id="lb-dl" href="#">Download</a>
+    <a id="lb-open" href="#" target="_blank">Open full size</a>
+    <button type="button" id="lb-up" style="display:none">Upscale</button>
+    <button type="button" id="lb-edit" title="Use as the start image on the Create tab">Edit</button>
+    <button type="button" id="lb-guide" title="Use as the guide image (ControlNet) on the Create tab">Guide</button>
+    <button type="button" class="danger" id="lb-del">Delete</button>
+    <button type="button" id="lb-close">Close</button>
+  </div>
+  <div class="lb-body">
+    <button type="button" class="nav" id="lb-prev" aria-label="Newer">&lsaquo;</button>
+    <div class="lb-img"><img id="lb-img" alt=""><video id="lb-vid" controls loop playsinline style="display:none"></video></div>
+    <button type="button" class="nav" id="lb-next" aria-label="Older">&rsaquo;</button>
+  </div>
+</div>
+<div class="dlg" id="dlg" style="display:none" role="alertdialog" aria-modal="true" aria-labelledby="dlg-title">
+  <div class="dlg-box">
+    <div class="dlg-title" id="dlg-title"></div>
+    <p class="dlg-body" id="dlg-body"></p>
+    <div class="dlg-btns">
+      <button type="button" id="dlg-cancel">Cancel</button>
+      <button type="button" class="danger" id="dlg-ok">Delete</button>
+    </div>
+  </div>
+</div>
+<div class="lb" id="me" style="display:none" role="dialog" aria-modal="true" aria-label="Mask">
+  <div class="lb-bar">
+    <span class="lb-title" id="me-title">Paint over what should change</span>
+    <button type="button" id="me-size-" aria-label="Smaller brush">&minus;</button>
+    <span class="me-size" id="me-size"></span>
+    <button type="button" id="me-size+" aria-label="Larger brush">+</button>
+    <button type="button" id="me-mode">Erase</button>
+    <button type="button" id="me-invert">Invert</button>
+    <button type="button" id="me-clear">Clear</button>
+    <button type="button" class="on" id="me-done">Done</button>
+  </div>
+  <div class="me-body" id="me-body"><canvas id="me-canvas"></canvas></div>
+</div>
+<div class="dlg" id="pe" style="display:none" role="dialog" aria-modal="true" aria-labelledby="pe-title">
+  <div class="dlg-box wide">
+    <div class="dlg-title" id="pe-title">Edit preset</div>
+    <p class="hint">One option a line, as in docs/MODELS.md. <code># name:</code> is the name, <code># defaults:</code> the settings.</p>
+    <textarea id="pe-text" rows="14" spellcheck="false" autocapitalize="off"></textarea>
+    <p class="mmeta bad" id="pe-err"></p>
+    <div class="dlg-btns">
+      <button type="button" id="pe-cancel">Cancel</button>
+      <button type="button" class="on" id="pe-save">Save</button>
+    </div>
+  </div>
+</div>
+<div class="dlg" id="login" style="display:none" role="dialog" aria-modal="true" aria-labelledby="login-title">
+  <div class="dlg-box">
+    <div class="dlg-title" id="login-title">This PS5SD needs its API key</div>
+    <p class="dlg-body">The key is on the TV, under the address. Spaces and dashes do not matter.</p>
+    <input id="login-key" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="API key">
+    <p class="mmeta bad" id="login-err"></p>
+    <div class="dlg-btns"><button type="button" class="on" id="login-go">Sign in</button></div>
+  </div>
+</div>
+<div id="toast" role="status"></div>
+
+<script>
+@@include js/00-start.js
+@@include js/01-small-helpers.js
+@@include js/02-api-key.js
+@@include js/03-model-presets.js
+@@include js/04-form-settings.js
+@@include js/05-loras.js
+@@include js/06-result-panel.js
+@@include js/07-run-state.js
+@@include js/08-done-signal.js
+@@include js/09-generation.js
+@@include js/10-controls.js
+@@include js/11-help.js
+@@include js/12-gallery.js
+@@include js/13-models.js
+@@include js/14-presets.js
+@@include js/15-downloads.js
+@@include js/16-upload.js
+@@include js/17-catalog.js
+@@include js/18-hugging-face-search.js
+@@include js/19-image-to-image-and-inpainting.js
+@@include js/20-upscalers.js
+@@include js/21-video-models.js
+@@include js/22-server-info.js
+@@include js/23-start-up.js
+</script>
+</body>
+</html>

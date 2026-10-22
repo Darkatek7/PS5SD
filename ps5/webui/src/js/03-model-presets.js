@@ -1,0 +1,61 @@
+  // ---------- model presets ----------
+  function mkPreset(label, w, steps, cfg, sampler) {
+    return { label: label, w: w, h: w, steps: steps, cfg: cfg, sampler: sampler || 'default', scheduler: 'default' };
+  }
+
+  function pickPreset(name) {
+    var n = (name || '').toLowerCase();
+    var xl = /xl|pony|juggernaut/.test(n);
+    if (/sdxs/.test(n)) return mkPreset('SDXS', 512, 1, 1);
+    if (/turbo/.test(n)) return mkPreset(xl ? 'SDXL Turbo' : 'SD Turbo', 512, 1, 1);
+    if (/lightning|hyper/.test(n)) return mkPreset('Lightning', xl ? 1024 : 512, 4, 1);
+    if (/lcm/.test(n)) return mkPreset('LCM', xl ? 1024 : 512, 4, 1.5, 'lcm');
+    if (/flux/.test(n)) return mkPreset('Flux', 1024, /schnell/.test(n) ? 4 : 20, 1);
+    if (/sd3|sd_3|stable-diffusion-3/.test(n)) return mkPreset('SD3', 1024, 28, 4.5);
+    if (xl) return mkPreset('SDXL', 1024, 25, 6);
+    return mkPreset('SD 1.x', 512, 20, 7);
+  }
+
+  // The preset of a model: the guess from its name, then what the app says (defaults of the
+  // library entry, all strings) over it.
+  function presetFor(name, entry) {
+    var p = pickPreset(name);
+    var d = entry && entry.defaults;
+    if (!d) return p;
+    var any = false, n;
+    n = parseInt(d.width, 10);
+    if (n > 0) { p.w = n; p.h = n; any = true; }
+    n = parseInt(d.height, 10);
+    if (n > 0) { p.h = n; any = true; }
+    n = parseInt(d.steps, 10);
+    if (n > 0) { p.steps = n; any = true; }
+    n = parseFloat(d.cfg);
+    if (!isNaN(n) && n >= 0) { p.cfg = n; any = true; }
+    if (d.sampler) { p.sampler = d.sampler; any = true; }
+    if (d.scheduler) { p.scheduler = d.scheduler; any = true; }
+    if (d.loras) { p.loras = parseLoras(d.loras); any = true; }
+    n = parseFloat(d.hires_scale);
+    if (n >= 1) {
+      p.hr = { on: true, scale: n, up: d.hires_upscaler ? decodeURIComponent(d.hires_upscaler) : 'Latent',
+        steps: parseInt(d.hires_steps, 10) || 0, den: parseFloat(d.hires_denoise) || 0.5 };
+      any = true;
+    }
+    if (any && entry.name) p.label = entry.name;
+    return p;
+  }
+
+  // "loras=styles/ink.gguf:0.8,detail.safetensors:1" in a preset's defaults.
+  function parseLoras(v) {
+    var out = [], parts = String(v).split(',');
+    for (var i = 0; i < parts.length; i++) {
+      var at = parts[i].lastIndexOf(':');
+      if (at > 0) out.push({ path: parts[i].substring(0, at), m: Number(parts[i].substring(at + 1)) || 0 });
+    }
+    return out;
+  }
+
+  function presetNote(p) {
+    return 'Defaults for this model (' + p.label + '): ' + p.steps + (p.steps === 1 ? ' step' : ' steps') + ', CFG ' + p.cfg + ', ' + p.w + '×' + p.h +
+      (p.loras && p.loras.length ? ', ' + p.loras.length + (p.loras.length === 1 ? ' LoRA' : ' LoRAs') : '') + '.';
+  }
+

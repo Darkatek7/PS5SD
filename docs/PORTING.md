@@ -172,7 +172,7 @@ instead of trapping, so `main.cpp` reports an out-of-memory load or generation a
   and the direct-memory figure before and after each phase in the log, the PNG (with a
   `parameters` text chunk) in `/data/PS5SD/outputs`.
 - The server: `sd_server()` from `sd-server-lib` (`build-app.sh` builds it with `SD_SERVER_LIBRARY=ON`
-  and `ps5/webui/index.html` embedded), started with the active model's arguments, `--listen-ip 0.0.0.0`,
+  and the web UI embedded, put together from `ps5/webui/src` by `scripts/bundle-webui.sh`), started with the active model's arguments, `--listen-ip 0.0.0.0`,
   `--listen-port 7860`, `--output-dir /data/PS5SD/outputs`, `--backend Vulkan`, `--auto-fit off`,
   `--lora-model-dir /data/PS5SD/loras` and `--embd-dir /data/PS5SD/embeddings` (neither has to exist;
   an empty one would stop the server at start, because sd-server checks the embeddings directory with

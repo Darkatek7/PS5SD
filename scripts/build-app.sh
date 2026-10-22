@@ -189,10 +189,11 @@ cxxflags="$flags -fexceptions -fcxx-exceptions -frtti"
 # libwebm) for the videos of vid_gen; with PS5SD_WEBM=OFF a video is an MJPEG
 # AVI, which browsers do not play.
 # The HTTP server as the library sd-server-lib (patches/sdcpp/0050, main.cpp
-# calls sd_server()), serving ps5/webui/index.html at / instead of the pnpm
-# frontend.
+# calls sd_server()), serving the web UI at / instead of the pnpm frontend: the
+# parts in ps5/webui/src put together into one page (scripts/bundle-webui.sh).
 index_h="$out/index_html.h"
-sh "$root/scripts/embed-file.sh" "$root/ps5/webui/index.html" sd_server_index_html "$index_h.new"
+sh "$root/scripts/bundle-webui.sh" "$out/index.html"
+sh "$root/scripts/embed-file.sh" "$out/index.html" sd_server_index_html "$index_h.new"
 cmp -s "$index_h.new" "$index_h" 2> /dev/null && rm -f "$index_h.new" || mv -f "$index_h.new" "$index_h"
 cmake -S "$sd" -B "$out/sd" -G Ninja \
     -DCMAKE_TOOLCHAIN_FILE="$app_src/toolchain.cmake" \
