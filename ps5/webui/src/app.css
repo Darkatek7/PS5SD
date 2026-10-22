@@ -17,6 +17,7 @@
   :focus:not(:focus-visible) { outline: none; }
 
   .top { display: flex; align-items: center; min-height: 4rem; padding: 0 2rem; }
+  .brandbox { display: flex; align-items: center; }
   .logo { width: 1.1rem; height: 1.1rem; border-radius: 0.3rem; background: var(--accent); margin-right: 0.7rem;
     box-shadow: 0 0 1.2rem rgba(45, 143, 240, 0.7); }
   .brand { color: var(--text); font-size: 1.25rem; font-weight: 600; letter-spacing: 0.04em; margin-right: 1.25rem; }
@@ -450,6 +451,23 @@
        status and the sub line above it, the actions (and the strip) below it */
     #view-create .stage img, #view-create .stage video { max-height: calc(100vh - 23.5rem); }
     #view-create .stage.with-strip img { max-height: calc(100vh - 29.5rem); }
+  }
+  /* Desktop, 1100px and up: the tabs are a sidebar on the left. The brand (logo, name, version) sits at its top;
+     the top bar (model, status) and every view start to its right, so body gets the sidebar's width as padding.
+     The sidebar is z-index 8: the image viewer (.lb, 10), the dialogs (.dlg, 15) and the toast (20) cover it. */
+  @media (min-width: 1100px) {
+    :root { --side: 14rem; }
+    body { padding-left: var(--side); }
+    .brandbox { position: fixed; left: 0; top: 0; z-index: 8; box-sizing: border-box; width: var(--side); height: 4rem;
+      padding: 0 1.25rem; background: var(--surface); border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+    .tabs { position: fixed; left: 0; top: 4rem; bottom: 0; z-index: 8; box-sizing: border-box; width: var(--side);
+      flex-direction: column; max-width: none; margin: 0; padding: 0.75rem; overflow-y: auto;
+      background: var(--surface); border-right: 1px solid var(--border); }
+    .tabs button { display: flex; align-items: center; min-height: 3rem; margin: 0 0 0.35rem; padding: 0 1rem; border-radius: 0.8rem;
+      font-size: 1.05rem; text-align: left; }
+    .tabs button:not(.on):hover { background: var(--raised); color: var(--text); }
+    .tabs button > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .tabs svg { display: block; flex: none; width: 1.3rem; height: 1.3rem; margin: 0 0.8rem 0 0; }
   }
   @media (max-width: 520px) { .thumbs .t { flex-basis: 50%; } }
   /* the narrowest phones: Generate keeps its word next to the count and the dice */
