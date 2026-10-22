@@ -117,7 +117,7 @@ ModelEntry file_entry(const std::string & id, const std::string & path) {
 bool is_model_path_option(const std::string & o) {
     static const char * const kOptions[] = {
         "-m",           "--model",       "--diffusion-model", "--high-noise-diffusion-model", "--vae",
-        "--taesd",      "--clip_l",      "--clip_g",          "--clip_vision",                "--t5xxl",
+        "--taesd",      "--tae",         "--clip_l",      "--clip_g",          "--clip_vision",                "--t5xxl",
         "--llm",        "--llm_vision",  "--control-net",     "--upscale-model",              "--photo-maker",
         "--audio-vae",  "--tokenizer",
     };

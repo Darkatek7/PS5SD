@@ -212,8 +212,8 @@ Wan 2.1 1.3B video model: use CFG 1 and the steps and sampler of the table.
 
 DMD2 is under CC BY-NC 4.0 (no commercial use); SDXL-Lightning under the OpenRAIL++ licence; CausVid under
 CC BY-NC-SA 4.0 (no commercial use). On the console, an 832x1216 image with DMD2 at 6 steps took 20 s, a
-1024x1024 image with Lightning at 8 steps 25 s. A 33-frame video at 832x480 with CausVid at 4 steps took
-3 minutes 40 s instead of about 14.5 minutes.
+1024x1024 image with Lightning at 8 steps 25 s. A 33-frame video at 832x480 with CausVid at 4 steps takes
+about 2 minutes 15 s instead of about 14.5 minutes.
 
 The Models tab lists the LoRAs under **Installed**, with their size and Delete in the **⋯** menu.
 
@@ -294,15 +294,24 @@ step, 12 minutes of sampling and 2 minutes to decode the video. The model loads 
 files are cached. The progress shows the steps, then "Decoding the video…".
 
 It is faster with the CausVid LoRA. Get it on the Models tab under **Get more** (one click), then pick it on
-the Create tab under **Style**, at strength 1. With CFG 1 and 4 steps, the same 33 frames took 3 minutes
-40 s: 1.3 minutes of sampling, and the 2-minute decode stays. 8 steps took 5 minutes and looked no better.
-Longer clips with CausVid (0.9.1, the same settings): 49 frames took 5.5 minutes (2.3 of sampling, 3.1 of
-decoding), 81 frames 10.6 minutes (5.4 and 5.1). The scene stays the same from the first frame to the last.
+the Create tab under **Style**, at strength 1. With CFG 1 and 4 steps, the same 33 frames take about
+2 minutes 15 s: 1.3 minutes of sampling and 0.9 of decoding. 8 steps took 5 minutes and looked no better.
+81 frames (5 seconds) take about 8 minutes: 5.4 of sampling and 2.2 of decoding. The scene stays the same
+from the first frame to the last. (Before 0.9.1 the preset decoded in smaller tiles that overlapped more:
+33 frames took 3 minutes 40 s, 49 frames 5.5 minutes and 81 frames 10.6 minutes.)
 CausVid has a non-commercial licence.
 
 The model, the text encoder and the VAE fit in the console's memory; after the run, 4.0 of 11.44 GiB
-were free. The VAE decode ran out of memory with 256 px tiles, so the preset decodes in 128 px tiles
-(`--vae-tile-size 128`). Keep them at 128 when you change the preset.
+were free. The preset decodes in 256 px tiles that overlap by a quarter (`--vae-tile-size 256
+--vae-tile-overlap 0.25`), less than half the time of 128 px tiles at sd.cpp's overlap of a half, with no
+seams; an overlap of 0 leaves visible seams between the tiles. 256 px tiles ran out of memory before 0.9.0.
+PS5SD 0.9.1 gives a Wan preset that 0.9.0 or older wrote, and that nobody changed, the new tiles when it
+starts.
+
+**Wan 2.1 T2V 1.3B, fast decoder** is the same model with TAEHV, a small decoder (22.6 MB, MIT, by
+madebyollin), instead of the VAE: 33 frames with CausVid in about 1 minute 45 s and 81 frames in about 6
+minutes, the decode 7 and 15 s instead of 55 and 134. The frames are a little softer. It shares the model
+files with the other Wan entry, so getting both costs 23 MB more.
 
 The video is a WebM file (VP8, about 4 MB for 33 frames and 10 MB for 81). It plays on the page in Chrome, Firefox and Edge.
 Safari on iPhone may not play WebM; download the file and play it in VLC. Videos are saved in
@@ -413,7 +422,7 @@ must fit together, plus the working memory for one image.
 | FLUX.3 Klein Q4_K / Q6_K + Qwen3-VL-4B Q4_K_M | 6.4 / 7.7 GB | yes; Q6_K up to 1024×1024 right after a start, 896×896 after other models; not 1536×1536 |
 | Z-Image Turbo Q4_K + Qwen3-4B Q4_K_M | 6.7 GB | yes |
 | FLUX.2 Klein 4B Q8_0 + Qwen3-4B Q4_K_M | 7.1 GB | yes, 1024×1024 in 4 steps in about 30 s, 3.9 GiB free after it |
-| Wan 2.1 T2V 1.3B (video) fp16 + umt5-xxl Q4_K_M + VAE | 6.7 GB | yes, up to 81 frames at 832×480 with 128 px VAE tiles; 256 px ran out of memory |
+| Wan 2.1 T2V 1.3B (video) fp16 + umt5-xxl Q4_K_M + VAE | 6.7 GB | yes, up to 81 frames at 832×480 with 256 px VAE tiles (128 px before 0.9.1) |
 | FLUX.1 dev or schnell in f16 (24 GB) | | no; use a Q4 or Q5 `.gguf` |
 
 If a model does not load, the server goes back to the last one that worked. The reason is in

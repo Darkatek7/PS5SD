@@ -1,6 +1,6 @@
 // The starter catalog: models a user can install with one click. Every URL
 // and size was checked from a PC with `curl -I -L` (2026-10-19; the
-// inpainting and Wan entries 2026-10-21); the files
+// inpainting and Wan entries 2026-10-21, the Wan TAEHV entry 2026-10-22); the files
 // are public, none needs a token. Installing an entry downloads its files
 // into /data/PS5SD/models (dest) and then writes its preset,
 // /data/PS5SD/presets/<id>.txt, so it shows in GET /ps5sd/v1/app/models.
@@ -16,7 +16,8 @@
 // FLUX.2 Klein 4B Q8_0 with Qwen3-4B Q4_K_M and the FLUX.2 VAE is 7.1 GB and leaves 3.9 GiB free
 // after a 1024x1024 image.
 // Wan 2.1 T2V 1.3B (f16) with umt5-xxl Q4_K_M and the Wan 2.1 VAE is 6.7 GB;
-// the VAE decode of 33 frames needs 128 px tiles (256 px ran out of memory).
+// the VAE decodes in 256 px tiles at an overlap of 0.25 (since 0.9.1; 128 px at 0.5 before, which
+// took twice as long, and 256 px ran out of memory before patches/mesa/0010).
 // SDXL Q8_0 with the Canny ControlNet (2.5 GB more) left 2.7 GiB free after a 1024x1024 image.
 //
 // Included by download_core.cpp only.
@@ -51,6 +52,34 @@ namespace catalog_data {
     { "https://huggingface.co/unsloth/Qwen3-4B-Instruct-2507-GGUF/resolve/main/"                          \
       "Qwen3-4B-Instruct-2507-Q4_K_M.gguf",                                                               \
       "text_encoders/Qwen3-4B-Instruct-2507-Q4_K_M.gguf", 2497281120ull, 0 }
+
+// Presets that an older PS5SD wrote for a catalog entry, byte for byte as it wrote them.
+// update_catalog_presets gives such a preset the entry's current text; one that someone changed
+// stays as it is.
+inline std::vector<std::pair<const char *, const char *>> old_presets() {
+    return {
+        // up to 0.9.0: 128 px tiles at sd.cpp's overlap of 0.5, which decodes each pixel about three
+        // times (docs/CONSOLE.md, "Faster video decoding")
+        { "wan21-t2v-1.3b",
+          "# name: Wan 2.1 T2V 1.3B (video)\n"
+          "# defaults: steps=20 cfg=6 width=832 height=480 sampler=euler\n"
+          "--diffusion-model\n"
+          "diffusion_models/wan2.1_t2v_1.3B_fp16.safetensors\n"
+          "--t5xxl\n"
+          "text_encoders/umt5-xxl-encoder-Q4_K_M.gguf\n"
+          "--vae\n"
+          "vae/wan_2.1_vae.safetensors\n"
+          "--vae-tiling\n"
+          "--vae-tile-size\n"
+          "128\n"
+          "--flow-shift\n"
+          "3\n"
+          "--video-frames\n"
+          "33\n"
+          "--fps\n"
+          "16\n" },
+    };
+}
 
 inline std::vector<CatalogEntry> entries() {
     return {
@@ -298,7 +327,7 @@ inline std::vector<CatalogEntry> entries() {
         {
             "wan21-t2v-1.3b",
             "Wan 2.1 T2V 1.3B (video)",
-            "Short videos from a prompt: 33 frames (2 s) at 832x480 in about 3 min 40 s with the CausVid LoRA, 15 min without. 6.7 GB.",
+            "Short videos from a prompt: 33 frames (2 s) at 832x480 in about 2 min 15 s with the CausVid LoRA, 81 frames (5 s) in about 8 min. 6.7 GB.",
             {
                 { "https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/"
                   "diffusion_models/wan2.1_t2v_1.3B_fp16.safetensors",
@@ -319,7 +348,9 @@ inline std::vector<CatalogEntry> entries() {
             "vae/wan_2.1_vae.safetensors\n"
             "--vae-tiling\n"
             "--vae-tile-size\n"
-            "128\n"
+            "256\n"
+            "--vae-tile-overlap\n"
+            "0.25\n"
             "--flow-shift\n"
             "3\n"
             "--video-frames\n"
@@ -328,6 +359,39 @@ inline std::vector<CatalogEntry> entries() {
             "16\n",
             true,
             "short videos",
+        },
+        // The same model with TAEHV (madebyollin, MIT; lightx2v's copy on Hugging Face, the same file):
+        // the decode of 33 frames in 6.8 s instead of 55 s, a little softer (docs/CONSOLE.md, "Faster video
+        // decoding"). lightx2v's lighttaew2_1 came out washed out and striped in sd.cpp.
+        {
+            "wan21-t2v-1.3b-tae",
+            "Wan 2.1 T2V 1.3B, fast decoder (video)",
+            "Wan 2.1 with a small decoder: 33 frames (2 s) in about 1 min 45 s with the CausVid LoRA, 81 frames in about 6 min; a little softer. Shares the model files, 23 MB more.",
+            {
+                { "https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/"
+                  "diffusion_models/wan2.1_t2v_1.3B_fp16.safetensors",
+                  "diffusion_models/wan2.1_t2v_1.3B_fp16.safetensors", 2838303560ull, 0 },
+                { "https://huggingface.co/city96/umt5-xxl-encoder-gguf/resolve/main/umt5-xxl-encoder-Q4_K_M.gguf",
+                  "text_encoders/umt5-xxl-encoder-Q4_K_M.gguf", 3655145312ull, 0 },
+                { "https://huggingface.co/lightx2v/Autoencoders/resolve/main/taew2_1.safetensors",
+                  "vae/taew2_1.safetensors", 22642902ull, 0 },
+            },
+            "# name: Wan 2.1 T2V 1.3B, fast decoder (video)\n"
+            "# defaults: steps=20 cfg=6 width=832 height=480 sampler=euler\n"
+            "--diffusion-model\n"
+            "diffusion_models/wan2.1_t2v_1.3B_fp16.safetensors\n"
+            "--t5xxl\n"
+            "text_encoders/umt5-xxl-encoder-Q4_K_M.gguf\n"
+            "--taesd\n"
+            "vae/taew2_1.safetensors\n"
+            "--flow-shift\n"
+            "3\n"
+            "--video-frames\n"
+            "33\n"
+            "--fps\n"
+            "16\n",
+            false,
+            "",
         },
     };
 }

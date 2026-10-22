@@ -8,6 +8,7 @@
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <set>
 #include <string>
 
@@ -30,6 +31,11 @@ void check(bool ok, const char * what) {
 void write(const fs::path & p, const std::string & text) {
     fs::create_directories(p.parent_path());
     std::ofstream(p, std::ios::binary) << text;
+}
+
+std::string read(const fs::path & p) {
+    std::ifstream in(p, std::ios::binary);
+    return std::string((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
 }
 
 void write_size(const fs::path & p, uint64_t bytes) {
@@ -178,6 +184,33 @@ int main() {
         check(found, "sdxl-base in the catalog JSON");
     }
     write(presets / "sdxl-base.txt", sdxl.preset);
+    {
+        // an older PS5SD's Wan preset gets the current one; a changed one and the others stay
+        const std::string wan   = find_catalog("wan21-t2v-1.3b")->preset;
+        const std::string tiles = "--vae-tile-size\n256\n--vae-tile-overlap\n0.25\n";
+        const size_t      at    = wan.find(tiles);
+        check(at != std::string::npos, "Wan decodes in 256 px tiles at 0.25");
+        // 0.9.0's, as the console has it
+        const std::string old = wan.substr(0, at) + "--vae-tile-size\n128\n" + wan.substr(at + tiles.size());
+        check(update_catalog_presets(presets.u8string()).empty(), "nothing to update without the file");
+        write(presets / "wan21-t2v-1.3b.txt", old);
+        const auto updated = update_catalog_presets(presets.u8string());
+        check(updated.size() == 1 && updated[0] == "wan21-t2v-1.3b" && read(presets / "wan21-t2v-1.3b.txt") == wan &&
+                  !fs::exists(presets / "wan21-t2v-1.3b.txt.tmp"),
+              "the old preset becomes the current one");
+        check(update_catalog_presets(presets.u8string()).empty(), "the current one is left alone");
+        const std::string changed = old + "--seed\n5\n";
+        write(presets / "wan21-t2v-1.3b.txt", changed);
+        check(update_catalog_presets(presets.u8string()).empty() && read(presets / "wan21-t2v-1.3b.txt") == changed,
+              "a preset someone changed stays");
+        check(read(presets / "sdxl-base.txt") == sdxl.preset, "other presets stay");
+        const CatalogEntry * tae = find_catalog("wan21-t2v-1.3b-tae");
+        check(tae != nullptr && !tae->featured && tae->files.size() == 3 &&
+                  std::string(tae->files[0].dest) == find_catalog("wan21-t2v-1.3b")->files[0].dest &&
+                  std::string(tae->preset).find("--taesd\nvae/taew2_1.safetensors\n") != std::string::npos,
+              "the Wan variant with TAEHV shares the model files");
+        fs::remove(presets / "wan21-t2v-1.3b.txt");
+    }
     {
         const json j = json::parse(catalog_json(models.u8string(), presets.u8string()));
         for (const auto & e : j["entries"]) {

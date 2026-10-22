@@ -1582,6 +1582,9 @@ int main(int, char **) {
     std::printf("ps5sd: version " PS5SD_VERSION ", stable-diffusion.cpp %s (%s)\n", sd_version(), sd_commit());
     load_settings();
     load_api_key();
+    for (const std::string & id : update_catalog_presets(kPresets)) {
+        std::printf("ps5sd: preset %s updated to the catalog's current settings\n", id.c_str());
+    }
     // One device-local heap over the whole pool (RADV splits an APU's 2/3 to
     // 1/3), and a HOME, which a title lacks and libraries look up.
     setenv("radv_enable_unified_heap_on_apu", "true", 1);

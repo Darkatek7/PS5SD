@@ -168,8 +168,9 @@ changes how the page is built, not what it can do; every feature stays.
 
 - [x] **Longer clips (49 and 81 frames)**: with CausVid at 4 steps, 49 frames (3 s) take 5.5 minutes and
   81 frames (5 s) 10.6 minutes; the web UI offers up to 81.
-- [ ] **Faster decoding**: the VAE decode is now about 2 of the 3 minutes 40 s. Try 192 px tiles, and a
-  small decoder for Wan (as TAESD is for images).
+- [x] **Faster decoding**: the VAE decode was about 2 of the 3 minutes 40 s. Now 256 px tiles that overlap
+  by a quarter (33 frames in 2 min 15 s, 81 in 8 min), and a catalog entry with TAEHV, a small decoder
+  (1 min 45 s and 6 min, a little softer).
 - [ ] **Image to video**: a start image. Wan 2.1 T2V 1.3B is text only, so this means Wan 2.2 TI2V 5B; first
   measure whether it fits with the Wan 2.2 VAE.
 - [ ] **Flow shift on the Create tab**, set in the preset only for now (3 for Wan 2.1).

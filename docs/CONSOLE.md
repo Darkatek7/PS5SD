@@ -649,3 +649,42 @@ start, through `POST /sdcpp/v1/vid_gen`:
   parts. The decode grows with the frames, the sampling faster (attention over all frames).
 - The 81 frames keep the scene from the first to the last (a lighthouse on a cliff, waves breaking).
 - The web UI and `mem_fit.cpp` take 81 frames as measured since 0.9.1.
+
+## Faster video decoding (2026-10-22)
+
+Half of a CausVid video's time was the VAE decode. The preset decoded in 128 px tiles at sd.cpp's default
+overlap of 0.5: a tile moves on by half its size, so each pixel is decoded about three times. The same
+33-frame video as above (seed 7), the tiling changed per request (`vae_tiling_params`):
+
+| Tiles | Overlap | VAE decode | Request |
+|---|---|---|---|
+| 128 px | 0.5 (the preset up to 0.9.0) | 125.4 s | 225.8 s |
+| 128 px | 0.25 | 69.6 s | 150.6 s |
+| 192 px | 0.25 | 68.8 s | 150.6 s |
+| 256 px | 0.25 | 54.9 s | 135.5 s |
+| 128 px | 0 | 48.7 s | 130.4 s |
+
+- Against the preset's decode, the middle frame differs by 0.7 of 255 on average at an overlap of 0.25,
+  with no pattern. At an overlap of 0 the difference image shows the tile grid: the seams are visible.
+- 256 px at 0.25 with 81 frames: decode 134.2 s instead of 305.0 s, the request 466.8 s instead of
+  636.9 s. It made a buffer of 1296 MiB of 2 blocks (`patches/mesa/0010`); 256 px tiles ran out of memory
+  before 0.9.0. The frames differ from the preset's as little as at 33.
+- The catalog's Wan preset has `--vae-tile-size 256 --vae-tile-overlap 0.25` since 0.9.1, and the title
+  gives the preset that 0.9.0 wrote the new text when it starts, unless it was changed
+  (`update_catalog_presets` in `ps5/app/download_core.cpp`).
+
+A small decoder instead of the VAE, `--taesd` (sd.cpp's TAEHV), with the same 33 and 81 frames:
+
+| Decoder | 33 frames: decode | request | 81 frames: decode | request |
+|---|---|---|---|---|
+| Wan 2.1 VAE, 256 px at 0.25 | 54.9 s | 135.5 s | 134.2 s | 466.8 s |
+| TAEHV `taew2_1` (madebyollin, 22.6 MB) | 6.85 s | 105.5 s | 14.5 s | 356.4 s |
+| lightx2v's `lighttaew2_1` (45.3 MB) | 6.81 s | 110.5 s | 14.4 s | 356.4 s |
+
+- TAEHV's frames are a little softer and darker than the VAE's (8.6 of 255 apart on average), the scene and
+  its motion the same over all 81 frames. The catalog has it as a second Wan entry, `wan21-t2v-1.3b-tae`,
+  which shares the model files.
+- `lighttaew2_1` came out washed out, with a fine pattern of stripes (28.4 apart): sd.cpp b13a482 does not
+  read it right. Not used.
+- The title passed `--tae` to sd-server unresolved (a path relative to the models folder) and the model did
+  not load; it knew only `--taesd`. 0.9.1 resolves both.

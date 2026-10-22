@@ -110,6 +110,10 @@ const CatalogEntry *              find_catalog(const std::string & id);
 
 // True when the file is in the models directory at its size (or alt_bytes).
 bool catalog_file_present(const CatalogFile & f, const std::string & models_dir);
+
+// Gives each catalog preset in presets_dir that is still byte for byte one an older PS5SD wrote
+// (catalog_data::old_presets) the entry's current text. Returns the ids it updated.
+std::vector<std::string> update_catalog_presets(const std::string & presets_dir);
 // True when every file of the entry is.
 bool catalog_files_present(const CatalogEntry & e, const std::string & models_dir);
 

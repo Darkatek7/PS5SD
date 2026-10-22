@@ -6,6 +6,8 @@
 #include <cmath>
 #include <cstdio>
 #include <filesystem>
+#include <fstream>
+#include <iterator>
 
 #include "catalog.hpp"
 #include "json.hpp"
@@ -402,6 +404,37 @@ const CatalogEntry * find_catalog(const std::string & id) {
 bool catalog_file_present(const CatalogFile & f, const std::string & models_dir) {
     const fs::path p = fs::u8path(models_dir) / fs::u8path(f.dest);
     return is_file_of_size(p, f.bytes) || (f.alt_bytes != 0 && is_file_of_size(p, f.alt_bytes));
+}
+
+std::vector<std::string> update_catalog_presets(const std::string & presets_dir) {
+    std::vector<std::string> updated;
+    for (const auto & old : catalog_data::old_presets()) {
+        const CatalogEntry * e    = find_catalog(old.first);
+        const fs::path       path = fs::u8path(presets_dir) / fs::u8path(std::string(old.first) + ".txt");
+        std::ifstream        in(path, std::ios::binary);
+        if (e == nullptr || !in) {
+            continue;
+        }
+        const std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        in.close();
+        if (text != old.second) {
+            continue;
+        }
+        const fs::path tmp = fs::u8path(path.u8string() + ".tmp");
+        {
+            std::ofstream out(tmp, std::ios::binary | std::ios::trunc);
+            out << e->preset;
+            if (!out) {
+                continue;
+            }
+        }
+        std::error_code ec;
+        fs::rename(tmp, path, ec);
+        if (!ec) {
+            updated.push_back(e->id);
+        }
+    }
+    return updated;
 }
 
 bool catalog_files_present(const CatalogEntry & e, const std::string & models_dir) {
