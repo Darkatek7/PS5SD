@@ -31,7 +31,8 @@ const Limit kLimits[] = {
     { "FLUX.2 Klein 4B", px(2048, 2048), 0, px(2048, 2048), "2048x2048" },
     { "FLUX.3 Klein", px(1024, 1024), px(1536, 1536), px(896, 896), "1024x1024" },
     { "Z-Image", px(1536, 1536), 0, px(1024, 1024), "1536x1536" },
-    { "Wan 1.3B", px(832, 480, 33), 0, px(832, 480, 33), "832x480, 33 frames" },
+    // 0.9.1: 81 frames after 33 and 49, with CausVid
+    { "Wan 1.3B", px(832, 480, 81), 0, px(832, 480, 81), "832x480, 81 frames" },
 };
 
 const Limit * limit_for(const std::string & family) {

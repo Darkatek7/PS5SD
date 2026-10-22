@@ -1,11 +1,11 @@
   // ---------- video models (Wan: capabilities vid_gen) ----------
-  // Frames are 4n+1, 5..33 for now (33 is the most measured on the console).
+  // Frames are 4n+1, 5..81 (81 is the most measured on the console, 5 s at 16 per second).
   function frames4k1(n) {
-    return Math.max(5, Math.min(33, 4 * Math.round((n - 1) / 4) + 1));
+    return Math.max(5, Math.min(81, 4 * Math.round((n - 1) / 4) + 1));
   }
 
   function snapFrames() {
-    $('frames').value = frames4k1(num('frames', 33, 5, 33));
+    $('frames').value = frames4k1(num('frames', 33, 5, 81));
     summary();
   }
 

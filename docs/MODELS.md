@@ -285,25 +285,26 @@ vae/wan_2.1_vae.safetensors
 ```
 
 The Create tab switches to video mode when the loaded model makes videos. **Frames** and **Frames per
-second** replace **Images per run**. Frames are 4n+1 (5, 9, 13, ... 33); the web UI offers 5 to 33 for now.
-33 frames at 16 frames per second is 2 seconds of video. A video has no hires fix, no start image, and no
+second** replace **Images per run**. Frames are 4n+1 (5, 9, 13, ... 81); the web UI offers 5 to 81.
+33 frames at 16 frames per second is 2 seconds of video, 81 frames 5 seconds. A video has no hires fix, no start image, and no
 Upscale or Edit.
 
 On the console, a run of 33 frames at 832x480 with 20 steps and CFG 6 took about 14.5 minutes: 36 s a
 step, 12 minutes of sampling and 2 minutes to decode the video. The model loads in a few seconds once its
-files are cached. The progress shows the steps, then "Decoding the video…". Longer clips are not measured
-yet.
+files are cached. The progress shows the steps, then "Decoding the video…".
 
 It is faster with the CausVid LoRA. Get it on the Models tab under **Get more** (one click), then pick it on
 the Create tab under **Style**, at strength 1. With CFG 1 and 4 steps, the same 33 frames took 3 minutes
 40 s: 1.3 minutes of sampling, and the 2-minute decode stays. 8 steps took 5 minutes and looked no better.
+Longer clips with CausVid (0.9.1, the same settings): 49 frames took 5.5 minutes (2.3 of sampling, 3.1 of
+decoding), 81 frames 10.6 minutes (5.4 and 5.1). The scene stays the same from the first frame to the last.
 CausVid has a non-commercial licence.
 
 The model, the text encoder and the VAE fit in the console's memory; after the run, 4.0 of 11.44 GiB
 were free. The VAE decode ran out of memory with 256 px tiles, so the preset decodes in 128 px tiles
 (`--vae-tile-size 128`). Keep them at 128 when you change the preset.
 
-The video is a WebM file (VP8, about 5 MB for 33 frames). It plays on the page in Chrome, Firefox and Edge.
+The video is a WebM file (VP8, about 4 MB for 33 frames and 10 MB for 81). It plays on the page in Chrome, Firefox and Edge.
 Safari on iPhone may not play WebM; download the file and play it in VLC. Videos are saved in
 `/data/PS5SD/outputs` as `sd_<date>_<time>_<n>.webm`.
 
@@ -412,7 +413,7 @@ must fit together, plus the working memory for one image.
 | FLUX.3 Klein Q4_K / Q6_K + Qwen3-VL-4B Q4_K_M | 6.4 / 7.7 GB | yes; Q6_K up to 1024×1024 right after a start, 896×896 after other models; not 1536×1536 |
 | Z-Image Turbo Q4_K + Qwen3-4B Q4_K_M | 6.7 GB | yes |
 | FLUX.2 Klein 4B Q8_0 + Qwen3-4B Q4_K_M | 7.1 GB | yes, 1024×1024 in 4 steps in about 30 s, 3.9 GiB free after it |
-| Wan 2.1 T2V 1.3B (video) fp16 + umt5-xxl Q4_K_M + VAE | 6.7 GB | yes, 33 frames at 832×480 with 128 px VAE tiles; 256 px ran out of memory |
+| Wan 2.1 T2V 1.3B (video) fp16 + umt5-xxl Q4_K_M + VAE | 6.7 GB | yes, up to 81 frames at 832×480 with 128 px VAE tiles; 256 px ran out of memory |
 | FLUX.1 dev or schnell in f16 (24 GB) | | no; use a Q4 or Q5 `.gguf` |
 
 If a model does not load, the server goes back to the last one that worked. The reason is in

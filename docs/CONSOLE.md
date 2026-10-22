@@ -632,3 +632,20 @@ SDXL Base Q8_0 (`sdxl-base`), one sequence right after a start, 6 steps, CFG 6, 
   1024, 896, 1024 (14.3 s the second time); Wan 2.1 T2V 1.3B 832×480 with 9 frames (65.3 s), then 33
   (165.6 s).
 - `mem_fit.cpp` has 2048×2048 as measured for FLUX.2 Klein 4B, after other runs too.
+
+## Longer videos with CausVid (2026-10-22)
+
+0.9.0 with `patches/mesa/0010`, preset `wan21-t2v-1.3b` (Wan 2.1 T2V 1.3B, VAE in 128 px tiles), the
+CausVid LoRA at 1, 832×480, 4 steps, CFG 1, euler, 16 frames per second. One sequence right after a
+start, through `POST /sdcpp/v1/vid_gen`:
+
+| Frames | Video | Request | Sampling | VAE decode |
+|---|---|---|---|---|
+| 33 | 2 s | 225.8 s | 80.4 s | 125.4 s |
+| 49 | 3 s | 331.2 s | 138.8 s | 185.1 s |
+| 81 | 5 s | 636.9 s | 325.1 s | 305.0 s |
+
+- All three ran with no error and no buffer of several blocks; after each, 4.0 GiB were free in 6 or 7
+  parts. The decode grows with the frames, the sampling faster (attention over all frames).
+- The 81 frames keep the scene from the first to the last (a lighthouse on a cliff, waves breaking).
+- The web UI and `mem_fit.cpp` take 81 frames as measured since 0.9.1.

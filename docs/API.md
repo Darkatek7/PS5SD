@@ -377,8 +377,8 @@ random seed. The job's `result` has the images of the last run only. While the j
 there when `repeat` is more than 1. A cancel stops the job before the next run: the images already saved
 stay in the gallery, and the job ends `cancelled`. A run that makes no image ends the job as `failed`.
 
-**Video**: `POST /sdcpp/v1/vid_gen` takes the `img_gen` fields and two more, `video_frames` (4n+1: 5 to 33
-for now) and `fps`. `output_format` is `webm` (the default), `webp` (animated WebP) or `avi` (MJPEG). Leave out `flow_shift` and `vae_tiling_params` to take the
+**Video**: `POST /sdcpp/v1/vid_gen` takes the `img_gen` fields and two more, `video_frames` (4n+1: 5 to 81,
+the most measured) and `fps`. `output_format` is `webm` (the default), `webp` (animated WebP) or `avi` (MJPEG). Leave out `flow_shift` and `vae_tiling_params` to take the
 loaded preset's. The job runs as the images do, and a 33-frame video takes about 15 minutes (see
 [MODELS.md](MODELS.md#video)). A finished job has the video in `result`:
 

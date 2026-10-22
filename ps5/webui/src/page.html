@@ -254,14 +254,14 @@
           <div class="row">
             <div>
               <div class="lbl">Frames</div>
-              <div class="step"><button type="button" id="frames-">&minus;</button><input id="frames" type="number" min="5" max="33" step="4" value="33" aria-label="Frames"><button type="button" id="frames+">+</button></div>
+              <div class="step"><button type="button" id="frames-">&minus;</button><input id="frames" type="number" min="5" max="81" step="4" value="33" aria-label="Frames"><button type="button" id="frames+">+</button></div>
             </div>
             <div>
               <div class="lbl">Frames per second</div>
               <div class="step"><button type="button" id="fps-">&minus;</button><input id="fps" type="number" min="4" max="30" step="1" value="16" aria-label="Frames per second"><button type="button" id="fps+">+</button></div>
             </div>
           </div>
-          <p class="hint">Wan makes 4n+1 frames; 33 is 2 seconds at 16 per second. <button type="button" class="info" data-help="help-video" aria-label="More about video length and time">&#9432;</button></p>
+          <p class="hint">Wan makes 4n+1 frames; 33 is 2 seconds at 16 per second, 81 is 5. <button type="button" class="info" data-help="help-video" aria-label="More about video length and time">&#9432;</button></p>
         </div>
       </div>
     </div>
@@ -434,8 +434,8 @@
     <h2 id="help-seed">Seed</h2>
     <p>-1 picks a random seed. A run of several images (the count next to Generate) takes the seeds one after the other (seed, seed + 1, …); with -1 each image gets a new seed.</p>
     <h2 id="help-video">Video length and time</h2>
-    <p>Wan makes 4n+1 frames: 33 are 2 seconds at 16 per second.</p>
-    <p>On the console, 33 frames at 832×480 take about 3 minutes 40 seconds with the CausVid LoRA (Models tab, LoRAs) at 4 steps and CFG 1. Without the LoRA they take about 15 minutes at 20 steps.</p>
+    <p>Wan makes 4n+1 frames: 33 are 2 seconds at 16 per second, 81 are 5 seconds.</p>
+    <p>On the console, 33 frames at 832×480 take about 3 minutes 45 seconds with the CausVid LoRA (Models tab, LoRAs) at 4 steps and CFG 1, 49 frames about 5 and a half minutes, 81 frames about 10 and a half. Without the LoRA, 33 frames take about 15 minutes at 20 steps.</p>
     <h2 id="help-saved">Saved settings</h2>
     <p>A saved setting is a model with its own size, steps, CFG, sampler and LoRAs. Delete removes only the saved setting, never the model. To make one, set up the Create tab and press Save as preset there.</p>
     <p>The settings above are saved with the model. Its own options (VAE, tiling and so on) come along. The list is under Models.</p>

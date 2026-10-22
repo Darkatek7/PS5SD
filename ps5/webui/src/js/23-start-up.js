@@ -118,8 +118,8 @@
     $('w').onchange = $('h').onchange = $('w').oninput = $('h').oninput = function () { markPreset(); persist(); };
     $('steps-').onclick = function () { stepper('steps', -1, 1, 150, 0); };
     $('steps+').onclick = function () { stepper('steps', 1, 1, 150, 0); };
-    $('frames-').onclick = function () { stepper('frames', -4, 5, 33, 0); snapFrames(); };
-    $('frames+').onclick = function () { stepper('frames', 4, 5, 33, 0); snapFrames(); };
+    $('frames-').onclick = function () { stepper('frames', -4, 5, 81, 0); snapFrames(); };
+    $('frames+').onclick = function () { stepper('frames', 4, 5, 81, 0); snapFrames(); };
     $('frames').onchange = snapFrames;
     $('fps-').onclick = function () { stepper('fps', -1, 4, 30, 0); };
     $('fps+').onclick = function () { stepper('fps', 1, 4, 30, 0); };

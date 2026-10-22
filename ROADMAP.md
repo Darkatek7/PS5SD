@@ -166,7 +166,8 @@ changes how the page is built, not what it can do; every feature stays.
 
 **Video**
 
-- [ ] **Longer clips (49 and 81 frames)**: measure memory and time with CausVid.
+- [x] **Longer clips (49 and 81 frames)**: with CausVid at 4 steps, 49 frames (3 s) take 5.5 minutes and
+  81 frames (5 s) 10.6 minutes; the web UI offers up to 81.
 - [ ] **Faster decoding**: the VAE decode is now about 2 of the 3 minutes 40 s. Try 192 px tiles, and a
   small decoder for Wan (as TAESD is for images).
 - [ ] **Image to video**: a start image. Wan 2.1 T2V 1.3B is text only, so this means Wan 2.2 TI2V 5B; first

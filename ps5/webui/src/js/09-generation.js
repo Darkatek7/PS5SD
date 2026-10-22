@@ -100,7 +100,7 @@
 
   // The request of a video: the body of POST /sdcpp/v1/vid_gen (WebM out).
   function videoBody(p) {
-    p.frames = frames4k1(num('frames', 33, 5, 33));
+    p.frames = frames4k1(num('frames', 33, 5, 81));
     p.fps = Math.round(num('fps', 16, 4, 30));
     var body = {
       prompt: p.prompt,
