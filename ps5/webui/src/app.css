@@ -254,6 +254,7 @@
   .mname { color: var(--text); font-size: 1.05rem; word-wrap: break-word; }
   .mmeta { color: var(--muted); font-size: 0.85rem; word-wrap: break-word; }
   .mmeta.bad, .empty-note.bad { color: var(--bad); }
+  .hint.bad { color: var(--warn); }
   .mrow > button { flex: none; min-width: 6.5rem; margin-left: 0.9rem; }
   .mrow.mwrap { flex-wrap: wrap; }
   .mwrap .mmain { flex: 1 1 11rem; }

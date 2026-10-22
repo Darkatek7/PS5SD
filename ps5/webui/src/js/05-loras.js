@@ -43,14 +43,31 @@
     return out;
   }
 
+  // The family of the loaded model ('' when it cannot be told), for the LoRA list.
+  function loadedFamily() {
+    var d = st.mdl;
+    var m = d && d.loaded ? findModel(d.loaded) : null;
+    return m ? familyOf(m, m.base ? findModel(m.base) : null) : '';
+  }
+
+  // A LoRA of another family than the loaded model's: its family, else ''.
+  function otherFamily(path, name, fam) {
+    var lf = loraFamily((name || '') + ' ' + path);
+    return fam && lf && lf !== fam ? lf : '';
+  }
+
   function drawLoraPicker() {
     var box = $('lora-sel');
     clear(box);
+    var fam = loadedFamily();
+    var wrong = [];
     for (var i = 0; i < loraSel.length; i++) {
       (function (s) {
         var row = el('div', 'lrow');
         var gone = !loraKnown(s.path);
-        row.appendChild(el('span', 'lname', loraName(s.path) + (gone ? ' (not on the console)' : '')));
+        var of = otherFamily(s.path, '', fam);
+        if (of) wrong.push(readable(loraName(s.path)) + ' is made for ' + of);
+        row.appendChild(el('span', 'lname', readable(loraName(s.path)) + (gone ? ' (not on the console)' : '')));
         var inp = document.createElement('input');
         inp.type = 'number';
         inp.min = '-2';
@@ -83,21 +100,29 @@
     add.appendChild(first);
     var free = 0;
     var list = loraList || [];
+    // the ones for this model's family first; the others in a group of their own, with their family
+    var others = document.createElement('optgroup');
+    others.label = 'Made for other models';
     for (var k = 0; k < list.length; k++) {
       var picked = false;
       for (var n = 0; n < loraSel.length; n++) if (loraSel[n].path === list[k].path) picked = true;
       if (picked) continue;
       var o = document.createElement('option');
       o.value = list[k].path;
-      text(o, list[k].name || loraName(list[k].path));
-      add.appendChild(o);
+      var of2 = otherFamily(list[k].path, list[k].name, fam);
+      text(o, readable(list[k].name || loraName(list[k].path)) + (of2 ? ' (' + of2 + ')' : ''));
+      (of2 ? others : add).appendChild(o);
       free++;
     }
+    if (others.childNodes.length) add.appendChild(others);
     add.value = '';
     show('lora-add', free > 0);
     text($('lora-hint'), !list.length
       ? 'No LoRAs on the console yet. Upload or download one on the Models tab.'
-      : 'Strength 1 is the full effect, 0.5 half of it. A LoRA works only with the model family it was made for.');
+      : wrong.length
+        ? wrong.join('; ') + ', not for this ' + fam + ' model: it does nothing here.'
+        : 'Strength 1 is the full effect, 0.5 half of it. A LoRA works only with the model family it was made for.');
+    $('lora-hint').className = wrong.length ? 'hint bad' : 'hint';
   }
 
   function addLora() {
