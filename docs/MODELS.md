@@ -21,8 +21,8 @@ It reads `.safetensors`, `.gguf`, `.ckpt` and `.sft` files. Everything lives und
 
 There are four ways to get a model there:
 
-1. **Download in the web UI.** On the Models tab, install from the catalog, paste a Hugging Face or
-   Civitai file link, or search Hugging Face. The console downloads the files itself, so the PC can
+1. **Download in the web UI.** On the Models tab, under **Get more**, install from the catalog, paste a
+   Hugging Face or Civitai file link, or search Hugging Face; **Downloads** shows how far they are. The console downloads the files itself, so the PC can
    be off. For a gated or login-only model, put a token in `/data/PS5SD/hf-token.txt` or
    `/data/PS5SD/civitai-token.txt`.
 2. **Upload in the web UI.** For any file on the computer the browser runs on: models from other
@@ -160,18 +160,19 @@ The same model with other settings, say a portrait size and a fast sampler, is a
 ilustmix_v111.safetensors
 ```
 
-The web UI makes these: set up the Create tab, then **Presets**, **Save the current settings**. It
-copies the model's own options (VAE, tiling, `--type`) into the preset. On the Presets tab:
+The web UI makes these: set up the Create tab, then press **Save as preset** at its top. It copies the
+model's own options (VAE, tiling, `--type`) into the preset. On the Models tab, under **Installed**, the
+saved presets of a model are listed under it (as "saved settings"), and the Create tab's preset menu
+offers them too:
 
 - **Use** switches to the preset. When it loads the same files with the same options as the model that
   is loaded, the switch is at once, without loading anything. Its settings take effect at once too: they
   are the defaults of the API, set without a restart. Other files or options restart the server (the
   model loads again, about a minute for SDXL).
-- **Edit** shows the preset file to change.
-- **Delete** removes the preset file only, never the model.
+- **Edit** (in the **⋯** menu) shows the preset file to change.
+- **Delete** (in the **⋯** menu) removes the preset file only, never the model.
 
-The Models tab lists the models only, not their saved presets. Deleting a model there deletes its saved
-presets too. A preset without `# base:` (the catalog's, or your own of a model in several files) is a
+Deleting a model on the Models tab deletes its saved presets too. A preset without `# base:` (the catalog's, or your own of a model in several files) is a
 model: it is on the Models tab, and the checkpoint it loads is not listed again apart from it. The model
 lists of the A1111 and OpenAI APIs count the same way: models only, never a saved preset. A client can
 still ask for a saved preset by its id. Deleting a saved preset, in the web UI or with
@@ -195,12 +196,12 @@ With a model of another family it does nothing.
 
 Getting one onto the console:
 
-- **Upload**: on the Models tab, under **Upload from this computer**, pick **LoRA**.
+- **Upload**: on the Models tab, under **Get more**, **Upload from this computer**, pick **LoRA**.
 - **Download**: under **Add by link**, pick **LoRA** and paste the link. A Civitai link to a LoRA goes
   to the loras folder by itself.
 - **FTP**: into `/data/PS5SD/loras`; subfolders work.
 
-The LoRAs panel offers three with one click. DMD2 and SDXL-Lightning make an SDXL model fast, CausVid a
+The Models tab offers three with one click, under **Get more**. DMD2 and SDXL-Lightning make an SDXL model fast, CausVid a
 Wan 2.1 1.3B video model: use CFG 1 and the steps and sampler of the table.
 
 | | For | Settings | Size |
@@ -214,9 +215,9 @@ CC BY-NC-SA 4.0 (no commercial use). On the console, an 832x1216 image with DMD2
 1024x1024 image with Lightning at 8 steps 25 s. A 33-frame video at 832x480 with CausVid at 4 steps took
 3 minutes 40 s instead of about 14.5 minutes.
 
-The Models tab lists the LoRAs, with their size and a Delete button.
+The Models tab lists the LoRAs under **Installed**, with their size and Delete in the **⋯** menu.
 
-Using them: on the Create tab, open **Settings** and pick them under **LoRAs**, each with a strength.
+Using them: on the Create tab, open **Style** and pick them there, each with a strength.
 1 is the full effect, 0.5 half of it, and a negative strength works against the LoRA. Several LoRAs
 work together. The web UI keeps the picks per model, with the model's other settings. Many LoRAs also
 need their trigger words in the prompt (the LoRA's page names them), for example `pixel art` for
@@ -234,10 +235,10 @@ requests with the same LoRAs run at full speed. The measurements are in [CONSOLE
 
 An upscaler makes an image larger and sharper. PS5SD uses one in two places: the **Upscale** button
 under an image and in the gallery (the result goes into the gallery), and the **Hires fix** on the Create
-tab (Settings), which generates, scales up and samples again at the larger size. The hires fix works
+tab (its own group), which generates, scales up and samples again at the larger size. The hires fix works
 without one, with the built-in `Latent`, `Lanczos` and `Nearest`; a model keeps more detail.
 
-The Models tab offers two with one click:
+The Models tab offers two with one click, under **Get more**:
 
 | | For | Size |
 |---|---|---|
@@ -293,8 +294,8 @@ step, 12 minutes of sampling and 2 minutes to decode the video. The model loads 
 files are cached. The progress shows the steps, then "Decoding the video…". Longer clips are not measured
 yet.
 
-It is faster with the CausVid LoRA. Pick it on the Models tab's LoRAs panel (one click), then on the Create
-tab under **Settings**, **LoRAs**, at strength 1. With CFG 1 and 4 steps, the same 33 frames took 3 minutes
+It is faster with the CausVid LoRA. Get it on the Models tab under **Get more** (one click), then pick it on
+the Create tab under **Style**, at strength 1. With CFG 1 and 4 steps, the same 33 frames took 3 minutes
 40 s: 1.3 minutes of sampling, and the 2-minute decode stays. 8 steps took 5 minutes and looked no better.
 CausVid has a non-commercial licence.
 
@@ -330,7 +331,7 @@ A ControlNet makes the new image follow a guide image. The Canny kind takes the 
 layout stays and the prompt sets the rest. sd.cpp loads ControlNets for SD 1.5, SD 2 and SDXL, in the
 original or the diffusers layout.
 
-The catalog has one for SDXL, **SDXL Base 1.0 (Q8_0) + Canny ControlNet**, on the Models tab, not featured.
+The catalog has one for SDXL, **SDXL Base 1.0 (Q8_0) + Canny ControlNet**, on the Models tab under **Get more**, not featured.
 One click installs it, 7.9 GB in all. A file that is there already (the SDXL GGUF or the VAE, from another
 entry) is not fetched again.
 
@@ -380,8 +381,8 @@ lines to that model's preset, among its other options:
 controlnet/xinsir-canny-sdxl-v2.safetensors
 ```
 
-Edit the preset on the Presets tab, or in `/data/PS5SD/presets`. A checkpoint with no preset of its own
-needs one first: set up the Create tab, then press **Presets**, **Save the current settings**, which copies
+Edit the preset on the Models tab (**⋯**, **Edit**), or in `/data/PS5SD/presets`. A checkpoint with no
+preset of its own needs one first: set up the Create tab, then press **Save as preset**, which copies
 the model's VAE and tiling options. Changed settings count from the next load of the preset, so press
 **Use** on it.
 
@@ -408,7 +409,7 @@ must fit together, plus the working memory for one image.
 | SDXL `.safetensors` f16 (6.9 GB) | with `--type q8_0` | yes, about 2.5 s per step at 1024×1024 |
 | SDXL Q8_0 `.gguf` (5.0 GB) | as is | yes |
 | SDXL Q8_0 + Canny ControlNet (fp16) | 7.9 GB | yes, 2.7 GiB free after a 1024x1024 image |
-| FLUX.3 Klein Q4_K / Q6_K + Qwen3-VL-4B Q4_K_M | 6.4 / 7.7 GB | yes |
+| FLUX.3 Klein Q4_K / Q6_K + Qwen3-VL-4B Q4_K_M | 6.4 / 7.7 GB | yes; Q6_K up to about 1 megapixel (896×896, 832×1216), not 1024×1024 |
 | Z-Image Turbo Q4_K + Qwen3-4B Q4_K_M | 6.7 GB | yes |
 | Wan 2.1 T2V 1.3B (video) fp16 + umt5-xxl Q4_K_M + VAE | 6.7 GB | yes, 33 frames at 832×480 with 128 px VAE tiles; 256 px ran out of memory |
 | FLUX.1 dev or schnell in f16 (24 GB) | | no; use a Q4 or Q5 `.gguf` |

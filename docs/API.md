@@ -225,7 +225,7 @@ it is in use, or a switch is running; `404` that there is no such entry.
 ### Saved presets
 
 A saved preset is a model with other settings: a preset file with `# base: <id>` (see
-[MODELS.md](MODELS.md#presets-models-of-several-files-and-options)). The web UI's Presets tab uses these.
+[MODELS.md](MODELS.md#presets-models-of-several-files-and-options)). The web UI's Models tab and its Save as preset box use these.
 
 | Route | |
 |---|---|

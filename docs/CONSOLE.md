@@ -470,3 +470,25 @@ The same model at 2048x2048, 4 steps, failed after 24 s in the first sampling st
 
 The job's error was only `generate_image returned no results` until `patches/sdcpp/0065`. After the run,
 5.71 of 11.44 GiB of the pool were free again.
+
+## The catalog's models, one image each (2026-10-22)
+
+For the catalog's "about … an image": each model with its own defaults (size, steps, sampler), the prompt
+`a stone lighthouse on a cliff above the sea, evening light, detailed`, seed 42, one image through
+`POST /sdapi/v1/txt2img`, timed on the PC around the whole request. The first image after a switch, then a
+second one ("warm").
+
+| Model | Size, steps | First | Warm |
+|---|---|---|---|
+| FLUX.3 Image Klein Q4_K | 1024×1024, 16 | 136 s | 121 s |
+| Z-Image Turbo Q4_K | 1024×1024, 8 | 87 s | 74 s |
+| SDXL Base 1.0 Q8_0 (GGUF) | 1024×1024, 25 | 77 s | 68 s |
+| SDXL Base 1.0 f16, loaded as Q8_0 | 1024×1024, 25 | 82 s | 68 s |
+| SD-Turbo Q8_0 | 512×512, 4, CFG 1 | 2.7 s | 1.6 s |
+| SDXS-512 Q8_0 | 512×512, 1, CFG 1 | 2.3 s | 0.3 s |
+
+FLUX.3 Image Klein **Q6_K does not fit at 1024×1024**: with the model (7.18 GB of weights) loaded, 4.96 GiB
+of the pool is free, and the first sampling step asks for 5,366 MB on the GPU against 5,078 MB available
+(`model manager cannot make enough memory available`). The run fails after 0.24 s with the out-of-memory
+reason of 0.7.1. Smaller sizes fit: 896×896 in 114 s, 768×768 in 78 s, 1024×768 in 105 s, 832×1216 in
+130 s. The catalog's preset now defaults to 896×896.

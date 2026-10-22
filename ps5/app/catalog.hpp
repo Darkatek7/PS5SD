@@ -48,7 +48,7 @@ inline std::vector<CatalogEntry> entries() {
         {
             "sdxl-full",
             "SDXL Base 1.0",
-            "The classic, works with LoRAs and finetunes.",
+            "The classic, works with LoRAs and finetunes. About 70 s an image.",
             {
                 { "https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0/resolve/main/"
                   "sd_xl_base_1.0.safetensors",
@@ -72,7 +72,7 @@ inline std::vector<CatalogEntry> entries() {
         {
             "flux3-klein-q4",
             "FLUX.3 Image Klein (Q4_K)",
-            "Best quality, writes text, slower.",
+            "Best quality, writes text, slower: about 2 min an image.",
             {
                 { "https://huggingface.co/leejet/flux-3-image-klein-GGUF/resolve/main/flux3-image-klein-Q4_K.gguf",
                   "diffusion_models/flux3-image-klein-Q4_K.gguf", 3514023104ull, 0 },
@@ -96,7 +96,7 @@ inline std::vector<CatalogEntry> entries() {
         {
             "z-image-turbo",
             "Z-Image Turbo (Q4_K)",
-            "Fast photoreal, 8 steps.",
+            "Photoreal in 8 steps, about 75 s an image.",
             {
                 { "https://huggingface.co/leejet/Z-Image-Turbo-GGUF/resolve/main/z_image_turbo-Q4_K.gguf",
                   "diffusion_models/z_image_turbo-Q4_K.gguf", 3864250304ull, 0 },
@@ -124,7 +124,7 @@ inline std::vector<CatalogEntry> entries() {
         {
             "flux3-klein-q6",
             "FLUX.3 Image Klein (Q6_K)",
-            "FLUX.3 Klein in Q6_K: closer to the original than Q4_K, with the same text encoder and VAE. 7.7 GB.",
+            "FLUX.3 Klein in Q6_K: closer to the original than Q4_K, with the same text encoder and VAE. Up to about 1 megapixel: 896x896 in about 2 min; 1024x1024 does not fit. 7.7 GB.",
             {
                 { "https://huggingface.co/leejet/flux-3-image-klein-GGUF/resolve/main/flux3-image-klein-Q6_K.gguf",
                   "diffusion_models/flux3-image-klein-Q6_K.gguf", 4874083520ull, 0 },
@@ -132,7 +132,7 @@ inline std::vector<CatalogEntry> entries() {
                 PS5SD_KLEIN_VAE,
             },
             "# name: FLUX.3 Image Klein (Q6_K)\n"
-            "# defaults: steps=16 cfg=1 width=1024 height=1024 sampler=euler\n"
+            "# defaults: steps=16 cfg=1 width=896 height=896 sampler=euler\n"
             "--diffusion-model\n"
             "diffusion_models/flux3-image-klein-Q6_K.gguf\n"
             "--llm\n"
@@ -148,7 +148,7 @@ inline std::vector<CatalogEntry> entries() {
         {
             "sdxl-base",
             "SDXL Base 1.0 (Q8_0)",
-            "SDXL already in Q8_0 (gpustack's GGUF), with the fp16-fix VAE; loads faster than the full one. 5.4 GB.",
+            "SDXL already in Q8_0 (gpustack's GGUF), with the fp16-fix VAE; loads faster than the full one. About 70 s an image. 5.4 GB.",
             {
                 { "https://huggingface.co/gpustack/stable-diffusion-xl-base-1.0-GGUF/resolve/main/"
                   "stable-diffusion-xl-base-1.0-Q8_0.gguf",
@@ -252,7 +252,7 @@ inline std::vector<CatalogEntry> entries() {
         {
             "sd-turbo",
             "SD-Turbo (Q8_0)",
-            "Stable Diffusion 2.1 distilled for 1 to 4 steps at 512x512. 2.0 GB.",
+            "Stable Diffusion 2.1 distilled for 1 to 4 steps at 512x512, about 2 s an image. 2.0 GB.",
             {
                 { "https://huggingface.co/Green-Sky/SD-Turbo-GGUF/resolve/main/sd_turbo-f16-q8_0.gguf",
                   "sd_turbo-f16-q8_0.gguf", 2023745376ull, 0 },
@@ -267,7 +267,7 @@ inline std::vector<CatalogEntry> entries() {
         {
             "wan21-t2v-1.3b",
             "Wan 2.1 T2V 1.3B (video)",
-            "Short videos from a prompt: 33 frames (2 s) at 832x480 in about 15 minutes. 6.7 GB.",
+            "Short videos from a prompt: 33 frames (2 s) at 832x480 in about 3 min 40 s with the CausVid LoRA, 15 min without. 6.7 GB.",
             {
                 { "https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/"
                   "diffusion_models/wan2.1_t2v_1.3B_fp16.safetensors",
