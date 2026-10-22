@@ -16,7 +16,8 @@
   Talks to:
     GET  /sdapi/v1/sd-models  /sdapi/v1/samplers  /sdapi/v1/schedulers  /v1/models
     GET  /sdcpp/v1/capabilities                  (defaults, and "is async available")
-    POST /sdcpp/v1/img_gen, GET /sdcpp/v1/jobs/<id>, POST .../cancel   (async, with previews)
+    POST /sdcpp/v1/img_gen (with "repeat": n), GET /sdcpp/v1/jobs/<id>, POST .../cancel   (async, with previews)
+    GET  /ps5sd/v1/jobs, POST /ps5sd/v1/jobs/cancel                    (the queue: followed after a reload, Cancel all)
     POST /sdcpp/v1/vid_gen, the same job API                           (video models: a WebM)
     POST /sdapi/v1/txt2img + GET /sdapi/v1/progress                    (fallback: synchronous)
     GET  /sdapi/v1/progress                                            (health, every few seconds)
@@ -237,12 +238,8 @@
               <label for="seed">Seed</label>
               <div class="seed"><input id="seed" type="number" step="1" value="-1"><button type="button" id="rnd">Random</button></div>
             </div>
-            <div id="batch-col">
-              <div class="lbl">Images per run</div>
-              <div class="step"><button type="button" id="batch-">&minus;</button><input id="batch" type="number" min="1" max="8" step="1" value="1" aria-label="Images per run"><button type="button" id="batch+">+</button></div>
-            </div>
           </div>
-          <p class="hint">-1 picks a random seed. Several images take the seeds one after the other (seed, seed + 1, …).</p>
+          <p class="hint">-1 picks a random seed. A run of several images (the count next to Generate) takes the seeds one after the other (seed, seed + 1, …); with -1 each image gets a new seed.</p>
         </div>
       </div>
 
@@ -266,6 +263,11 @@
 
     <div class="gorow" id="gorow">
       <button type="button" class="go" id="go" title="Generate (Ctrl+Enter)">Generate</button>
+      <div class="count" id="count-box" style="display:none">
+        <button type="button" id="count-" aria-label="One image less">&minus;</button>
+        <input id="count" type="number" min="1" max="100000" step="1" value="1" aria-label="Images in this run" title="How many images this Generate makes, one after the other">
+        <button type="button" id="count+" aria-label="One image more">+</button>
+      </div>
       <button type="button" class="dice" id="surprise" title="Surprise me: a random prompt" aria-label="Surprise me"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="3.5" width="17" height="17" rx="3.5"/><circle cx="8.5" cy="8.5" r="1.5"/><circle cx="15.5" cy="15.5" r="1.5"/><circle cx="12" cy="12" r="1.5"/></svg></button>
     </div>
   </section>
@@ -275,8 +277,11 @@
       <div id="status">Ready.</div>
       <button type="button" id="cancel" style="display:none">Cancel</button>
     </div>
+    <div class="waitrow" id="waitrow" style="display:none"><span id="waitnum"></span><button type="button" id="waitcancel" title="Cancel every queued image, and stop the one that is making now">Cancel all</button></div>
     <div id="sub"></div>
+    <div class="runprompt" id="runprompt" style="display:none"></div>
     <div class="bar" id="bar"><div id="fill"></div></div>
+    <p class="hint" id="runnote" style="display:none">Keep this page open: each image is put back into the picture here.</p>
     <div class="stage" id="stage"><div class="empty">Your image appears here.</div></div>
     <div class="strip" id="strip" style="display:none"></div>
     <div class="actions" id="actions"></div>
@@ -490,6 +495,7 @@
 @@include js/07-run-state.js
 @@include js/08-done-signal.js
 @@include js/09-generation.js
+@@include js/09b-runs-and-queue.js
 @@include js/10-controls.js
 @@include js/10b-create-layout.js
 @@include js/11-help.js

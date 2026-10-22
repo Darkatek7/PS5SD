@@ -9,12 +9,12 @@
     summary();
   }
 
-  // A video model: no hires fix, no batch; the Video group (frames, fps) shows instead, and the
+  // A video model: no hires fix, no count; the Video group (frames, fps) shows instead, and the
   // mode switch shows only Video. A start image or guide stays where it is, unused.
   function applyVideoMode(caps) {
     var vid = caps && caps.defaults_by_mode && caps.defaults_by_mode.vid_gen;
     show('hr-sect', !st.video);
-    show('batch-col', !st.video);
+    drawCount();
     show('vid-sect', st.video);
     drawGuide();
     drawMode();

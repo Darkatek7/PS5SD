@@ -10,7 +10,15 @@
     $('bar').className = 'bar' + (st.busy && fraction <= 0 ? ' ind' : '');
   }
 
-  function showImage(src, label) {
+  // dims: the size a live preview is drawn at (the size of the final image: the preview is a small
+  // picture, and CSS scales it up). A finished image has none and keeps its own size.
+  // The strip under the stage: shown or hidden; the stage makes room for it (see app.css, with-strip).
+  function stripBox(on) {
+    show('strip', on, 'flex');
+    $('stage').className = on ? 'stage with-strip' : 'stage';
+  }
+
+  function showImage(src, label, dims) {
     var stage = $('stage');
     var img = stage.getElementsByTagName('img')[0];
     if (!img) {
@@ -20,6 +28,9 @@
       stage.appendChild(img);
     }
     img.alt = label || 'generated image';
+    img.style.width = dims ? dims.w + 'px' : '';
+    img.style.height = dims ? dims.h + 'px' : '';
+    img.onload = label === 'preview' ? null : function () { st.shownDims = { w: img.naturalWidth, h: img.naturalHeight }; };
     img.src = src;
   }
 
@@ -49,7 +60,8 @@
     if (withParams && st.last) {
       var r = st.results && st.results[st.pick];
       var seed = r ? r.seed : st.last.seed;
-      box.appendChild(actionButton('Use seed ' + seed, function () {
+      // a run's image from the server has no seed the page knows
+      if (seed !== null && seed !== undefined && seed !== '') box.appendChild(actionButton('Use seed ' + seed, function () {
         $('seed').value = seed; persist(); toast('Seed ' + seed + ' is set. Open Settings to see it.');
       }));
       box.appendChild(actionButton('Run again', function () {

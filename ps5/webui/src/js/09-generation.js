@@ -1,12 +1,15 @@
   // ---------- generation ----------
+  // readParams() reads the form into a request, generate() sends it. The count next to Generate makes a
+  // run (09b-runs-and-queue.js): the server repeats the request, or the page sends one job after the other.
   function readParams() {
     var f = getForm();
-    if (isNaN(f.seed) || f.seed < 0) f.seed = Math.floor(Math.random() * 2147483647);
+    f.named = !isNaN(f.seed) && f.seed >= 0;   // a named seed counts up over a run; else each image gets a new one
+    if (!f.named) f.seed = Math.floor(Math.random() * 2147483647);
     f.prompt = $('prompt').value;
     f.negative = $('neg').value;
-    f.batch = batchCount();
+    f.batch = 1;   // one image per job; the count goes as "repeat"
+    f.repeat = 1;
     f.req = null;
-    if (st.video) { f.batch = 1; f.req = null; }
     // only the image of the active mode goes with the request (an Edit image waits while in Image mode)
     if (st.mode === 'edit' && st.init && !st.video) {
       f.strength = num('init-str', 0.6, 0.05, 1);
@@ -16,15 +19,7 @@
     return f;
   }
 
-  // Images per run: for every model, kept apart from the per-model settings.
-  function batchCount() {
-    var n = Math.round(num('batch', 1, 1, st.maxBatch));
-    $('batch').value = n;
-    return n;
-  }
-
   function generate() {
-    if (st.busy) return;
     if (st.sw) { toast('The model is switching. Try again in a moment.'); return; }
     if (st.mdl && st.mdl.standby) { toast('No model is loaded. Pick or download one first.'); setView('models'); return; }
     if (st.mode === 'edit' && !st.init) { status('Pick a start image first, or press Edit on an image of the gallery.', true); return; }
@@ -35,69 +30,36 @@
       $('prompt').focus();
       return;
     }
+    var n = runCount();
+    // while something runs, the same settings wait in the server's queue
+    if (st.busy) { addToQueue(p, n); return; }
     persist();
     wakeAudio();
     document.title = st.title;
     st.seed = p.seed;
     st.last = p;
     st.results = null;
+    st.runMode = false;
+    st.run = null;
+    st.stageItem = null;
     st.pick = 0;
+    st.followPrompt = '';
     drawStrip();
     st.t0 = new Date().getTime();
-    st.known = null;
-    if (galleryLoaded) {
-      st.known = {};
-      for (var i = 0; i < galleryList.length; i++) st.known[galleryList[i].name] = true;
-    }
+    st.known = snapshotGallery();
     status('Sending…');
     showActions(null);
     // on a phone the result comes into view (the settings are above it)
     if (window.innerWidth <= 720) {
       try { $('view-create').getElementsByClassName('result')[0].scrollIntoView(); } catch (e) {}
     }
+    if (pageRunNeeded(p, n)) { startPageRun(p, n); return; }
+    p.repeat = n;
     if (st.useJobs) startAsync(p); else startSync(p);
   }
 
-  // A video: the same job API, WebM out. No fallback to the synchronous route.
-  function startVideo(p) {
-    p.frames = frames4k1(num('frames', 33, 5, 33));
-    p.fps = Math.round(num('fps', 16, 4, 30));
-    var body = {
-      prompt: p.prompt,
-      negative_prompt: p.negative,
-      width: p.w,
-      height: p.h,
-      seed: p.seed,
-      video_frames: p.frames,
-      fps: p.fps,
-      sample_params: { sample_steps: p.steps, guidance: { txt_cfg: p.cfg } },
-      preview: 'proj',
-      preview_interval: 1,
-      output_format: 'webm'
-    };
-    if (p.sampler !== 'default') body.sample_params.sample_method = p.sampler;
-    if (p.scheduler !== 'default') body.sample_params.scheduler = p.scheduler;
-    if (loraBody(p).length) body.lora = loraBody(p);
-    begin(null);
-    var token = st.token;
-    req('POST', '/sdcpp/v1/vid_gen', body, function (code, data) {
-      if (token !== st.token) return;
-      if (code === 202 && data && data.id) {
-        st.job = data.id;
-        save('job', data.id + ' ' + st.t0 + ' ' + st.seed);
-        status('Queued…');
-        pollJob();
-      } else {
-        setOnline(code !== 0);
-        fail(code === 0 ? 'Cannot reach the server.' :
-          'The server refused the request' + (data && data.error ? ': ' + (data.message || data.error) : ' (' + code + ').'));
-      }
-    });
-  }
-
-  // Asynchronous: the server queues a job; we poll it once a second.
-  function startAsync(p) {
-    if (st.video) { startVideo(p); return; }
+  // The request of a picture: the body of POST /sdcpp/v1/img_gen.
+  function imageBody(p) {
     var body = {
       prompt: p.prompt,
       negative_prompt: p.negative,
@@ -128,16 +90,51 @@
       body.control_strength = num('cn-str', 0.6, 0.1, 1.5);
       if ($('cn-canny').checked) body.image_preprocess = 'target=control,canny=true';
     }
+    if (p.repeat > 1) body.repeat = p.repeat;
+    return body;
+  }
+
+  // The request of a video: the body of POST /sdcpp/v1/vid_gen (WebM out).
+  function videoBody(p) {
+    p.frames = frames4k1(num('frames', 33, 5, 33));
+    p.fps = Math.round(num('fps', 16, 4, 30));
+    var body = {
+      prompt: p.prompt,
+      negative_prompt: p.negative,
+      width: p.w,
+      height: p.h,
+      seed: p.seed,
+      video_frames: p.frames,
+      fps: p.fps,
+      sample_params: { sample_steps: p.steps, guidance: { txt_cfg: p.cfg } },
+      preview: 'proj',
+      preview_interval: 1,
+      output_format: 'webm'
+    };
+    if (p.sampler !== 'default') body.sample_params.sample_method = p.sampler;
+    if (p.scheduler !== 'default') body.sample_params.scheduler = p.scheduler;
+    if (loraBody(p).length) body.lora = loraBody(p);
+    return body;
+  }
+
+  // Posts a job (an image or a video, by the model in use). cb(code, data) when the server answers.
+  function postJob(p, cb) {
+    if (st.video) req('POST', '/sdcpp/v1/vid_gen', videoBody(p), cb);
+    else req('POST', '/sdcpp/v1/img_gen', imageBody(p), cb);
+  }
+
+  // Asynchronous: the server queues a job; the page follows it (pollJob) once a second.
+  function startAsync(p) {
     begin(null);
     var token = st.token;
-    req('POST', '/sdcpp/v1/img_gen', body, function (code, data) {
+    postJob(p, function (code, data) {
       if (token !== st.token) return;
       if (code === 202 && data && data.id) {
         st.job = data.id;
         save('job', data.id + ' ' + st.t0 + ' ' + st.seed);
         status('Queued…');
         pollJob();
-      } else if (code === 404 || code === 405 || code === 501) {
+      } else if (!st.video && (code === 404 || code === 405 || code === 501)) {
         // an older server without the job API
         st.useJobs = false;
         end();
@@ -169,8 +166,12 @@
       if (!st.online) { st.online = true; setPill(); }
       if (code === 404 || code === 410) { fail('The server no longer has this job.'); return; }
       if (!data) { setTimeout(pollJob, 1000); return; }
+      // a run of several images on the server: its count, and the images it has saved
+      if (data.repeat && data.repeat.total > 1) syncRun(data.repeat);
+      var served = !!(st.run && st.run.server);
 
       if (data.status === 'completed') {
+        if (served) { finishServerRun(data, 'completed'); return; }
         if (data.result && data.result.b64_json && /^video\//.test(data.result.mime_type || '')) {
           succeedVideo(data.result.b64_json, data.result.mime_type, st.seed);
           return;
@@ -184,11 +185,12 @@
         return;
       }
       if (data.status === 'failed' || data.status === 'cancelled') {
+        if (served) { finishServerRun(data, data.status); return; }
         fail(data.error && data.error.message ? data.error.message : (data.status === 'cancelled' ? 'Cancelled.' : 'Generation failed.'));
         return;
       }
       if (data.status === 'queued') {
-        status(data.queue_position > 1 ? 'Queued, ' + (data.queue_position - 1) + ' ahead of you…' : 'Queued…');
+        status(runLead() + (data.queue_position > 1 ? 'Queued, ' + (data.queue_position - 1) + ' ahead of you…' : 'Queued…'));
         st.sub = '';
       } else {
         text($('cancel'), st.canCancelGen ? 'Cancel' : 'Stop waiting');
@@ -199,51 +201,15 @@
           progress(0);
           st.sub = '';
         } else if (pv && pv.total_steps > 0) {
-          // pass counts the sampling passes: the images of a batch, then (hires fix) the second
-          // pass of each, in the same order
-          var n = st.video ? 1 : ((st.last && st.last.batch) || 1);
-          var hr = !st.video && !!(st.last && st.last.hr && st.last.hr.on && !st.last.req);
-          var passes = hr ? 2 * n : n;
-          var pass = Math.min(passes, Math.max(1, pv.pass || 1)) - 1;
-          var second = pass >= n;
-          var at = second ? pass - n : pass;
-          var frac = (pass + pv.step / pv.total_steps) / passes;
-          var lead = n > 1 ? 'Image ' + (at + 1) + ' of ' + n + ' · ' : '';
-          var what = second ? 'hires pass · step ' : 'step ';
-          if (!lead && second) what = 'Hires pass · step ';
-          else if (!lead) what = 'Step ';
-          status(lead + what + pv.step + ' of ' + pv.total_steps);
-          progress(frac);
-          st.sub = pace(pass * pv.total_steps + pv.step, passes * pv.total_steps);
-          if (pv.b64_json) showImage(dataUrl(pv.b64_json), 'preview');
+          showRunProgress(pv);
         } else {
-          status('Generating…');
+          status(runLead() + 'Generating…');
           st.sub = '';
+          showRunNewest();
         }
       }
       setTimeout(pollJob, 1000);
     });
-  }
-
-  // The pace of a run, from its steps: seconds a step since the first step seen (so the model's
-  // warm-up is left out), and the time left for the steps still to do. done and all count steps.
-  function pace(done, all) {
-    var now = new Date().getTime();
-    var p = st.pace;
-    if (!p || p.t0 !== st.t0 || done < p.n0) p = st.pace = { t0: st.t0, n0: done, at: now };
-    if (done <= p.n0 || done >= all) return '';
-    var perStep = (now - p.at) / (done - p.n0) / 1000;
-    var left = perStep * (all - done);
-    var when = left < 60 ? Math.max(1, Math.round(left)) + ' s' : clock(left);
-    return perStep.toFixed(1) + ' s a step · about ' + when + ' left';
-  }
-
-  // frac: how much of the run is done, 0..1
-  function eta(frac) {
-    if (frac <= 0 || frac >= 1) return '';
-    var elapsed = (new Date().getTime() - st.t0) / 1000;
-    // the clock started before the first step (model warm-up), so this reads long early on
-    return 'about ' + clock(elapsed / frac * (1 - frac)) + ' left';
   }
 
   // Synchronous (older servers): one long POST, progress from /sdapi/v1/progress.
@@ -305,24 +271,46 @@
         status((n > 1 ? 'Image ' + (at + 1) + ' of ' + n + ' · step ' : 'Step ') + state.sampling_step + ' of ' + state.sampling_steps);
         progress(data.progress || 0);
         st.sub = eta(data.progress || 0);
-        if (data.current_image) showImage(dataUrl(data.current_image), 'preview');
+        if (data.current_image) showImage(dataUrl(data.current_image), 'preview', null);
       }
       setTimeout(function () { pollProgress(token, task); }, 1000);
     });
   }
 
+  // Synchronous runs only: the time left for the progress of one long request.
+  function eta(frac) {
+    if (frac <= 0 || frac >= 1) return '';
+    var elapsed = (new Date().getTime() - st.t0) / 1000;
+    // the clock started before the first step (model warm-up), so this reads long early on
+    return 'about ' + clock(elapsed / frac * (1 - frac)) + ' left';
+  }
+
+  // Cancel: a run on the server stops after the image it makes now (pollJob ends it, the saved images stay);
+  // a queued job is removed; a job that is making its image cannot always be stopped, so the page then
+  // stops waiting for it and the image still lands in the gallery.
   function cancel() {
     if (!st.busy) return;
     var job = st.job;
+    if (st.run && st.run.server && job) {
+      st.run.cancelling = true;
+      st.run.userCancel = true;
+      status('Cancelling…');
+      req('POST', '/sdcpp/v1/jobs/' + job + '/cancel', {}, function (code) {
+        if (code === 200 || code === 202) return;
+        if (st.run) st.run.cancelling = false;
+        status('Could not cancel it. The run goes on.', true);
+      });
+      return;
+    }
     var queued = st.useJobs && job;
+    if (job) st.gone[job] = true;
     end();
     text($('sub'), '');
     if (queued) {
-      // A queued job is cancelled; one that is generating cannot always be interrupted,
-      // so the page then stops waiting and the image still lands in the gallery.
       status('Cancelling…');
       req('POST', '/sdcpp/v1/jobs/' + job + '/cancel', {}, function (code) {
         if (code === 200) status('Cancelled.');
+        else if (code === 202) status('Stopped. The server ends this job after its current step.');
         else status('Stopped waiting. The server finishes this image; it will appear in the gallery.');
         setTimeout(refreshGallery, 2000);
       });
@@ -331,7 +319,7 @@
     }
   }
 
-  // Back on the page while a job is still running on the server.
+  // Back on the page while a job is still running on the server (or waiting): the page follows it.
   function resume() {
     if (st.resumed) return;
     st.resumed = true;
@@ -342,15 +330,10 @@
     req('GET', '/sdcpp/v1/jobs/' + parts[0], null, function (code, data) {
       if (code !== 200 || !data) { drop('job'); return; }
       if (st.busy) return;
-      st.t0 = parseInt(parts[1], 10) || new Date().getTime();
-      st.seed = parts[2];
       if (data.status === 'completed' || data.status === 'queued' || data.status === 'generating') {
-        begin(parts[0]);
-        status('Back on a running job…');
-        pollJob();
+        follow(parts[0], { t0: parseInt(parts[1], 10) || new Date().getTime(), seed: parts[2], prompt: data.prompt || '', repeat: data.repeat });
       } else {
         drop('job');
       }
     });
   }
-

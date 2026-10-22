@@ -95,11 +95,14 @@
     $('auth-off').onclick = askAuthOff;
     $('auth-out').onclick = signOut;
     $('auth-show').onclick = function () { auth.shown = !auth.shown; drawAuth(); };
-    var b = parseInt(load('batch'), 10);
-    $('batch').value = b >= 1 ? b : 1;
-    $('batch').onchange = $('batch').oninput = persist;
-    $('batch-').onclick = function () { stepper('batch', -1, 1, st.maxBatch, 0); };
-    $('batch+').onclick = function () { stepper('batch', 1, 1, st.maxBatch, 0); };
+    // the count next to Generate: typing is free, the value is clamped when the box is left
+    var c = parseInt(load('count'), 10);
+    $('count').value = c >= 1 ? c : 1;
+    $('count').oninput = function () { updateGo(); };
+    $('count').onchange = function () { drawCount(); save('count', countValue()); };
+    $('count-').onclick = function () { stepCount(-1); };
+    $('count+').onclick = function () { stepCount(1); };
+    $('waitcancel').onclick = cancelAll;
     var v = load('prompt'); if (v !== null) $('prompt').value = v;
     v = load('neg'); if (v !== null) $('neg').value = v;
     applyModel('', null);
@@ -178,6 +181,7 @@
     summary();
     setPill();
     health();
+    queueWatch();
     loadGallery(null);
     drawModels();
     dlPoll();

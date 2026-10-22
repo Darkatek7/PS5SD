@@ -48,7 +48,18 @@
     view: 'create',
     preset: null,
     last: null,          // settings of the last run
-    maxBatch: 8,         // images per run the server allows (capabilities' limits.max_batch_count)
+    maxRepeat: 100000,   // images per run (the count next to Generate): limits.max_repeat, else the page makes the run
+    serverRepeat: false, // the server makes a run itself ("repeat" on img_gen)
+    run: null,           // the run on screen: {total, done, server, items, ...} (09b-runs-and-queue.js)
+    runMode: false,      // st.results holds a run's images (the strip opens them in the viewer)
+    stageItem: null,     // the finished image of a run that the stage shows (null while a preview is shown)
+    shownDims: null,     // the size of the last finished image (a live preview is drawn at the size of the final one)
+    waiting: 0,          // jobs queued on the server, after the one running
+    queueBusy: false,    // a GET /ps5sd/v1/jobs is under way
+    queued: {},          // the request of each job this page queued, by job id (for when it is followed)
+    gone: {},            // jobs this page stopped waiting for: the queue does not take them up again
+    followPrompt: '',    // the prompt of a job this page follows but did not start
+    ticking: false,      // the clock of the result line runs (see tick())
     results: null,       // the last run's images: [{src, seed, url, name}]
     pick: 0,             // which of them is shown
     sizes: null,         // the size buttons: built-in and own
@@ -59,6 +70,6 @@
     cn: null,            // the guide image (ControlNet): {canvas, name}
     cnModel: '',         // the loaded entry's ControlNet file, '' for none
     mode: 'image',       // what the request is made from: image, edit (st.init), guide (st.cn), video
-    pace: null           // the step timing of the run on screen (see pace() in 09-generation.js)
+    pace: null           // the step timing of the run on screen (see pace() in 09b-runs-and-queue.js)
   };
 

@@ -7,6 +7,7 @@
         req('GET', '/sdcpp/v1/capabilities', null, function (c3, caps) {
           st.useJobs = false;
           st.video = false;
+          st.serverRepeat = false;
           if (c3 === 200 && caps) {
             var modes = caps.supported_modes || [];
             var hasImg = false, hasVid = false;
@@ -18,13 +19,12 @@
             st.video = hasVid && !hasImg;
             st.canCancelGen = !!(caps.features && caps.features.cancel_generating);
             setUpscalers(caps.upscalers || []);
-            var mb = caps.limits && caps.limits.max_batch_count;
-            if (typeof mb === 'number' && mb >= 1) {
-              st.maxBatch = Math.floor(mb);
-              $('batch').max = st.maxBatch;
-              batchCount();
-              summary();
-            }
+            // "repeat" on img_gen (the count next to Generate); without it the page makes the run itself
+            var mr = caps.limits && caps.limits.max_repeat;
+            st.serverRepeat = typeof mr === 'number' && mr >= 1;
+            if (st.serverRepeat) st.maxRepeat = Math.floor(mr);
+            drawCount();
+            summary();
             applyVideoMode(caps);
           } else {
             applyVideoMode(null);

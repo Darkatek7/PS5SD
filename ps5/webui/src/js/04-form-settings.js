@@ -75,7 +75,6 @@
 
   function persist() {
     save('prompt', $('prompt').value);
-    save('batch', batchCount());
     save('neg', $('neg').value);
     save('set.' + (st.mkey || '_'), JSON.stringify(getForm()));
     summary();
@@ -85,15 +84,13 @@
   function summary() {
     var seed = parseInt($('seed').value, 10);
     var steps = Math.round(num('steps', 20, 1, 150));
-    var n = batchCount();
     var scale = num('hr-scale', 1.5, 1, 4);
     text($('grp-size-s'), parseInt($('w').value, 10) + '×' + parseInt($('h').value, 10));
     text($('grp-quality-s'), steps + (steps === 1 ? ' step' : ' steps') + ' · CFG ' + num('cfg', 7, 0, 30) +
       ($('sampler').value !== 'default' ? ' · ' + $('sampler').value : ''));
     text($('grp-style-s'), loraSel.length ? loraSel.length + (loraSel.length === 1 ? ' LoRA' : ' LoRAs') : 'none');
     text($('hr-sect-s'), !$('hr-on').checked ? 'off' : scale === 1 ? 'refine pass' : '×' + scale);
-    text($('grp-seed-s'), (isNaN(seed) || seed < 0 ? 'random' : String(seed)) +
-      (st.video ? '' : ' · ' + n + (n === 1 ? ' image' : ' images')));
+    text($('grp-seed-s'), isNaN(seed) || seed < 0 ? 'random' : String(seed));
     text($('vid-sect-s'), parseInt($('frames').value, 10) + ' frames · ' + parseInt($('fps').value, 10) + ' fps');
     drawHires();
     if ($('ps-box').style.display !== 'none') drawSaveBox();

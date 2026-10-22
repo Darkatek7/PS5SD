@@ -1,8 +1,12 @@
   // ---------- run state ----------
+  // Generate: "Generate" or "Generate 3" (the count); while something runs it adds to the queue.
   function updateGo() {
     var b = $('go');
-    b.disabled = st.busy || !!st.sw;
-    text(b, st.busy ? 'Generating…' : (st.sw ? 'Switching model…' : 'Generate'));
+    var n = runCount();
+    var queue = st.busy && st.useJobs;
+    b.disabled = !!st.sw || (st.busy && !queue);
+    text(b, st.sw ? 'Switching model…' : st.busy ? (n > 1 ? 'Add ' + n + ' to queue' : 'Add to queue')
+      : (n > 1 ? 'Generate ' + n : 'Generate'));
   }
 
   function setBusy(busy) {
@@ -13,8 +17,9 @@
     setPill();
   }
 
+  // one clock for the page: begin() is called again for every image of a run
   function tick() {
-    if (!st.busy) return;
+    if (!st.busy) { st.ticking = false; return; }
     var elapsed = (new Date().getTime() - st.t0) / 1000;
     text($('sub'), (st.sub ? st.sub + ' · ' : '') + clock(elapsed) + ' elapsed');
     setTimeout(tick, 1000);
@@ -28,15 +33,20 @@
     st.others = false;
     setBusy(true);
     progress(0);
-    tick();
+    if (!st.ticking) { st.ticking = true; tick(); }
+    drawRunInfo();
   }
 
+  // The run (if any) is over with this job: the page keeps no run after it.
   function end() {
     st.token++;
     st.job = null;
+    st.run = null;
+    st.followPrompt = '';
     drop('job');
     setBusy(false);
     progress(0);
+    drawRunInfo();
   }
 
   function fail(message) {

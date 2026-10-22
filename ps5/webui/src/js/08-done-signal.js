@@ -130,6 +130,8 @@
       var sd = isNaN(first) ? seed : first + i;
       results.push({ src: dataUrl(images[i]), seed: sd, url: null, name: 'sd_' + sd + '.png' });
     }
+    // a page run (09b): this image goes to the run, and the next one is made
+    if (st.run && !st.run.server) { pageRunImage(results, edited); return; }
     st.results = results;
     end();
     progress(1);
@@ -213,10 +215,11 @@
   }
 
   function drawStrip() {
+    if (st.runMode) { drawRunStrip(); return; }
     var box = $('strip');
     clear(box);
     var r = st.results;
-    show('strip', !!(r && r.length > 1), 'flex');
+    stripBox(!!(r && r.length > 1));
     if (!r || r.length < 2) return;
     for (var i = 0; i < r.length; i++) {
       (function (idx) {
@@ -235,6 +238,7 @@
   }
 
   function pickResult(i) {
+    if (st.runMode) { showRunItem(i); return; }
     var r = st.results && st.results[i];
     if (!r) return;
     st.pick = i;
@@ -242,13 +246,18 @@
       var b = $('pick' + k);
       if (b) b.className = k === i ? 'on' : '';
     }
-    showImage(r.src, 'generated image');
+    showImage(r.src, 'generated image', null);
     var l = st.last;
-    var nth = st.results.length > 1 ? 'image ' + (i + 1) + ' of ' + st.results.length + ' · ' : '';
-    var size = l ? l.w + '×' + l.h : '';
-    if (l && l.req) size = (l.req.crop ? 'masked area, made at ' : '') + l.req.w + '×' + l.req.h + (l.req.mask ? ' · inpainted' : ' · from an image');
-    else if (l && l.hr && l.hr.on) size += ' → ' + Math.round(l.w * l.hr.scale / 8) * 8 + '×' + Math.round(l.h * l.hr.scale / 8) * 8 + ' (hires)';
-    text($('sub'), nth + (l ? size + ' · ' + l.steps + (l.steps === 1 ? ' step' : ' steps') + ' · CFG ' + l.cfg + ' · ' : '') + 'seed ' + r.seed);
+    var bits = [];
+    if (st.results.length > 1) bits.push('image ' + (i + 1) + ' of ' + st.results.length);
+    if (l) {
+      var size = l.w + '×' + l.h;
+      if (l.req) size = (l.req.crop ? 'masked area, made at ' : '') + l.req.w + '×' + l.req.h + (l.req.mask ? ' · inpainted' : ' · from an image');
+      else if (l.hr && l.hr.on) size += ' → ' + Math.round(l.w * l.hr.scale / 8) * 8 + '×' + Math.round(l.h * l.hr.scale / 8) * 8 + ' (hires)';
+      bits.push(size, l.steps + (l.steps === 1 ? ' step' : ' steps'), 'CFG ' + l.cfg);
+    }
+    if (r.seed !== null && r.seed !== undefined && r.seed !== '') bits.push('seed ' + r.seed);
+    text($('sub'), bits.join(' · '));
     showActions(r.url || r.src, r.name, r.url, true);
   }
 

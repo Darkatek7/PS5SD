@@ -398,6 +398,7 @@
         }
         setTimeout(function () { loadGallery(null); }, 300);
         if (!st.busy && st.results === results) pickResult(st.pick);
+        if (st.runMode) drawStrip();   // a page run's strip gets the names of its images
         return;
       }
       var r = results[k];
