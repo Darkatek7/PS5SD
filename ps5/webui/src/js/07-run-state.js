@@ -15,6 +15,7 @@
     show('cancel', busy, 'block');
     text($('cancel'), 'Cancel');
     setPill();
+    if (!busy) scheduleFit();
   }
 
   // one clock for the page: begin() is called again for every image of a run

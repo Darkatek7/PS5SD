@@ -42,7 +42,7 @@
     }
     text($('hr-hint'), 'The image comes out at about ' + t.w + '×' + t.h + '. ' +
       (big > 4096 ? 'That is larger than the server allows (4096).'
-        : big > 2048 ? 'Over 2048 px is not measured on the console yet; with SDXL it may not fit in memory.'
+        : big > 2048 ? 'Over 2048 px is not measured on the console.'
           : 'A latent upscaler is quickest; a model (ESRGAN) keeps more detail. Strength 0.3 to 0.6 keeps the picture and adds detail.'));
   }
 

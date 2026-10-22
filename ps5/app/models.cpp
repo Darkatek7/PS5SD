@@ -636,10 +636,7 @@ bool ModelLibrary::remove_variant(const std::string & id_in, std::string & error
     return true;
 }
 
-namespace {
-
-// The network an entry runs (net_family.hpp): that of its diffusion model, else its checkpoint.
-std::string family_of(const ModelEntry & e) {
+std::string model_family(const ModelEntry & e) {
     for (const char * opt : { "--diffusion-model", "-m", "--model" }) {
         for (size_t i = 0; i + 1 < e.args.size(); i++) {
             if (e.args[i] == opt) {
@@ -649,8 +646,6 @@ std::string family_of(const ModelEntry & e) {
     }
     return "";
 }
-
-}  // namespace
 
 std::string models_json(const ModelLibrary & library, const std::string & active, const std::string & loaded,
                         bool switching, bool standby) {
@@ -668,7 +663,7 @@ std::string models_json(const ModelLibrary & library, const std::string & active
                          { "missing", e.missing },
                          { "base", e.base },
                          { "control_net", control_net_name(e) },
-                         { "family", family_of(e) },
+                         { "family", model_family(e) },
                          { "defaults", defaults } });
     }
     nlohmann::json out = { { "active", active }, { "loaded", loaded }, { "switching", switching }, { "standby", standby }, { "models", list } };

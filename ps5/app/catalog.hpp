@@ -155,7 +155,7 @@ inline std::vector<CatalogEntry> entries() {
         {
             "flux3-klein-q6",
             "FLUX.3 Image Klein (Q6_K)",
-            "FLUX.3 Klein in Q6_K: closer to the original than Q4_K, with the same text encoder and VAE. Up to about 1 megapixel: 896x896 in about 2 min; 1024x1024 does not fit. 7.7 GB.",
+            "FLUX.3 Klein in Q6_K: closer to the original than Q4_K, with the same text encoder and VAE. 896x896 in about 2 min; 1024x1024 fits right after a start of PS5SD, 1536x1536 does not. 7.7 GB.",
             {
                 { "https://huggingface.co/leejet/flux-3-image-klein-GGUF/resolve/main/flux3-image-klein-Q6_K.gguf",
                   "diffusion_models/flux3-image-klein-Q6_K.gguf", 4874083520ull, 0 },

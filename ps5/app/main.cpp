@@ -73,6 +73,7 @@
 #include "upload.hpp"
 #include "models.hpp"
 #include "json.hpp"
+#include "mem_fit.hpp"
 #include "server_hooks.h"
 #include "stable-diffusion.h"
 #include "version.hpp"
@@ -179,6 +180,11 @@ std::atomic<bool> g_server_done{false};
 std::atomic<bool> g_worker_busy{false};
 std::atomic<int>  g_server_port{kPort};
 std::atomic<int>  g_generation{0};  // counts the server's starts
+// For the memory hint (mem_fit.hpp): the models loaded since PS5SD started, the largest
+// width x height that worked since the last one loaded, and the size of the request running.
+std::atomic<int>     g_model_loads{0};
+std::atomic<int64_t> g_largest_ok{0};
+std::atomic<int64_t> g_job_size{0};
 std::atomic<bool> g_quit_requested{false};
 std::atomic<bool> g_quit_file{false};  // kQuit seen by watch_quit_file()
 
@@ -793,6 +799,8 @@ void announce_when_listening() {
         g_loaded_id = !active.empty() && g_library.find(active[0], entry, ignored) ? entry.id : std::string();
         g_good_id   = g_loaded_id;
     }
+    ++g_model_loads;
+    g_largest_ok = 0;
     log_memory("after loading");
     std::printf("ps5sd: listening on port %s\n", port.c_str());
     set_phase("Ready", "API and web UI on port " + port);
@@ -952,6 +960,7 @@ std::string current_checkpoint() {
 // progress reaches the app only through these.
 extern "C" void sd_activity_job_begin(const char * kind, const char * prompt, int w, int h, int steps) {
     std::printf("ps5sd: request %s, %dx%d, %d steps\n", kind, w, h, steps);
+    g_job_size = (int64_t) w * h;
     g_status.set_progress(0, steps, 0);
     set_phase("Generating", prompt != nullptr && *prompt != '\0' ? prompt : kind);
 }
@@ -1312,6 +1321,23 @@ extern "C" int sd_app_request(const char * method, const char * path, const char
                                  g_standby && !g_switching);
             status = 200;
         }
+    } else if (m == "POST" && p == "fit") {
+        // An img_gen or vid_gen body: will it fit in memory (mem_fit.hpp)? Nothing runs.
+        FitQuery    q;
+        std::string error;
+        if (!fit_query_from_body(body != nullptr ? std::string(body, body_len) : std::string(), q, error)) {
+            out    = error_json(error);
+            status = 400;
+        } else {
+            ModelEntry        entry;
+            std::string       ignored;
+            const std::string id = loaded_id();
+            q.family             = !id.empty() && g_library.find(id, entry, ignored) ? model_family(entry) : "";
+            q.largest_ok         = g_largest_ok;
+            q.other_model_before = g_model_loads > 1;
+            out                  = fit_json(q, check_fit(q));
+            status               = 200;
+        }
     } else if (m == "GET" && p == "loras") {
         out    = loras_json(kLoras);
         status = 200;
@@ -1454,6 +1480,9 @@ static bool is_png_path(const std::string & path) {
 
 extern "C" void sd_activity_job_end(int ok, const char * output_path) {
     log_memory("after a request");
+    if (ok && g_job_size > g_largest_ok) {
+        g_largest_ok = g_job_size.load();
+    }
     if (!ok) {
         // The server's reason for the failure ("Cancelled", out of memory, the
         // last error), when it knows one (patches/sdcpp/0065).

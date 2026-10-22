@@ -471,6 +471,8 @@ The same model at 2048x2048, 4 steps, failed after 24 s in the first sampling st
 The job's error was only `generate_image returned no results` until `patches/sdcpp/0065`. After the run,
 5.71 of 11.44 GiB of the pool were free again.
 
+In 0.8.1 this size fits: the run came after smaller images, see "Memory: what fits" below.
+
 ## The catalog's models, one image each (2026-10-22)
 
 For the catalog's "about … an image": each model with its own defaults (size, steps, sampler), the prompt
@@ -493,6 +495,9 @@ of the pool is free, and the first sampling step asks for 5,366 MB on the GPU ag
 reason of 0.7.1. Smaller sizes fit: 896×896 in 114 s, 768×768 in 78 s, 1024×768 in 105 s, 832×1216 in
 130 s. The catalog's preset now defaults to 896×896.
 
+This run came after FLUX.3 Klein Q4_K at 1024×1024 in the same session. Right after a start, and after a
+switch from SDXL at 1024×1024, Q6_K fits at 1024×1024; see "Memory: what fits" below.
+
 ## FLUX.2 Klein 4B (2026-10-22)
 
 leejet's GGUFs of FLUX.2 Klein 4B (Apache 2.0), with the Qwen3-4B Instruct 2507 Q4_K_M text encoder that
@@ -506,3 +511,42 @@ the FLUX.2 VAE, CFG 1, Euler, the lighthouse prompt of the catalog measurements,
 
 The warm Q8_0 image: 34.4 s of sampling the first time, 24.1 s after; the text encoder 5.6 s once (cached
 for the same prompt), the VAE decode about 6 s. The catalog has Q8_0.
+
+## Memory: what fits, and why runs failed (2026-10-22)
+
+Each run below right after a start of the title (`ps5sd-app.sh close` and `launch`), one step, with
+`-v` in `server-args.txt` so that sd.cpp logs its compute buffers. The weights load when the first request
+needs them and the model manager evicts them block by block when memory runs short, so what a run needs
+depends on the run before it.
+
+| Model | Size | 0.8.0 | 0.8.1 (`patches/sdcpp/0067`) |
+|---|---|---|---|
+| SDXL Base Q8_0, CFG 6 | 1024×1024 | fits (UNet 984 MB) | 13.0 s, the same |
+| SDXL Base Q8_0, CFG 6 | 1536×1536 | the batched step fails, the step without batching runs (32.7 s) | batched, in 17 segments (31.7 s) |
+| SDXL Base Q8_0 | 2048×2048 | fits right after a start (17 segments, 58.7 s); fails after 1024 and 1536 | fits after them too (17 segments, 42.5 s) |
+| FLUX.2 Klein 4B Q8_0 | 1024×1024 | fits (diffusion 1,120 MB) | the same |
+| FLUX.2 Klein 4B Q8_0 | 1536×1536 | fails | fits, 27 segments (60 s) |
+| FLUX.2 Klein 4B Q8_0 | 2048×2048 | fails | fails: one segment needs 4,489 MB, 4,089 MB free |
+| FLUX.3 Klein Q6_K | 1024×1024 | fits (794 MB), also after a switch from SDXL | the same |
+| FLUX.3 Klein Q6_K | 1536×1536 | fails | fails: sd.cpp has no cut points for this network |
+| Z-Image Turbo Q4_K | 1536×1536 | fits | |
+| Wan 2.1 T2V 1.3B | 832×480, 33 frames | fits (diffusion 670 MB, VAE 826 MB at 128 px tiles) | |
+
+What made runs fail:
+
+- **The plan picks one piece when two would be needed.** sd.cpp runs a graph whole when it estimates that
+  it fits next to the weights, and in segments (weights streamed per block) when it does not. On the
+  console the estimate says "fits", the allocation goes through, and the check after it finds no room:
+  `unet segment 1/1 (graph) failed during allocated capacity check`. `patches/sdcpp/0067` builds the graph
+  again and runs it in segments then (`[W] unet does not fit in one piece; retrying in segments`).
+- **Memory that earlier runs freed is not all usable again.** Freed GPU memory does not go back to the
+  title's pool (`pool free` stays where it was), and the model manager sees less free memory after each
+  larger run. A size that ran once keeps running, and so does a smaller one. A larger one can fail where it
+  would run right after a start.
+
+Two older measurements were such runs: FLUX.3 Klein Q6_K at 1024×1024 ("The catalog's models, one image
+each") failed after FLUX.3 Klein Q4_K at the same size. It fits right after a start and after a switch from
+SDXL. SDXL at 2048×2048 ("Hires fix at x1") failed after smaller images, and it fits now.
+
+The web UI says before a run when it may not fit (`POST /ps5sd/v1/app/fit`, `ps5/app/mem_fit.cpp` has the
+sizes of this table).

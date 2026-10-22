@@ -37,6 +37,11 @@ add_executable(test_net_family test_net_family.cpp ../net_family.cpp)
 target_include_directories(test_net_family PRIVATE .. "${SD_DIR}/thirdparty")
 add_test(NAME net_family COMMAND test_net_family)
 
+# Will a run fit in memory (mem_fit.hpp).
+add_executable(test_mem_fit test_mem_fit.cpp ../mem_fit.cpp)
+target_include_directories(test_mem_fit PRIVATE .. "${SD_DIR}/thirdparty")
+add_test(NAME mem_fit COMMAND test_mem_fit)
+
 add_executable(test_sd_plan test_sd_plan.cpp ../sd_plan.cpp ../gen_args.cpp)
 target_include_directories(test_sd_plan PRIVATE ..)
 target_link_libraries(test_sd_plan PRIVATE stable-diffusion)

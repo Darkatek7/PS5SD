@@ -153,6 +153,9 @@ std::string openai_models_json(const ModelLibrary & library);
 // them, with sizes), sorted by path.
 std::string loras_json(const std::string & dir);
 
+// The network an entry runs (net_family.hpp): that of its diffusion model, else of its checkpoint.
+std::string model_family(const ModelEntry & e);
+
 // GET /ps5sd/v1/app/upscalers: {"upscalers": [{"name", "file", "bytes"}]},
 // the upscaler files (.pth, .pt, .safetensors, .gguf) directly in dir, as
 // sd-server lists them (name is the file name without its extension), sorted.
