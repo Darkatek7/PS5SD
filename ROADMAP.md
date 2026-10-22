@@ -10,6 +10,8 @@ can rely on.
 
 ## Done
 
+- **0.9.2**: SDXL in 30 s instead of 70 (dpm++2m with the `ays` schedule at 10 steps, larger VAE tiles,
+  the weights loaded at the start), and DMD2, Lightning and CausVid set their own settings when added.
 - **0.9.1**: videos of up to 81 frames (5 s); the video decode in half the time (larger tiles that overlap
   less) and Wan 2.1 with TAEHV, a small decoder; the gallery viewer on a phone.
 - **0.9.0**: edit with a reference image (FLUX.2 Klein); gallery thumbnails, the settings saved in each PNG
@@ -173,6 +175,24 @@ changes how the page is built, not what it can do; every feature stays.
 - [x] **Faster decoding**: the VAE decode was about 2 of the 3 minutes 40 s. Now 256 px tiles that overlap
   by a quarter (33 frames in 2 min 15 s, 81 in 8 min), and a catalog entry with TAEHV, a small decoder
   (1 min 30 s and 6 min, a little softer).
+
+## 0.9.2: faster SDXL, done
+
+- [x] **SDXL presets**: dpm++2m with the `ays` schedule at 10 steps instead of euler_a at 25, the same
+  picture; 640 px VAE tiles (1024x1024 in 4 tiles instead of 9); `--eager-load`, so that the first image
+  after a switch is not slower. 68 s an image before, 29 s now; the presets of 0.9.1 are updated when the
+  title starts.
+- [x] **Fast LoRAs set their settings**: adding DMD2 sets `lcm`, 4 steps and CFG 1 (11 s an SDXL image),
+  Lightning, CausVid and LCM-LoRA theirs; removing it brings the old ones back.
+- [x] Measured in [CONSOLE.md](docs/CONSOLE.md#faster-sdxl-2026-10-22): which LoRA suits which finetune,
+  the VAE tiles at 1024 to 2048 px.
+
+## 0.9.3: the console on the TV and in the web UI
+
+- [ ] **Temperature, power, GPU and CPU load, fan**: on the TV and in the web UI, now and over the last
+  minutes, as PS5LM's Console page shows them. Temperature, the SoC's power and the fan's duty through
+  ps5-exporter (the ELF loader's), CPU load from `getrusage`; the GPU load from the time sd-server spends
+  computing. A fan speed is not readable, only its duty.
 
 ## Later in 0.9.x
 
