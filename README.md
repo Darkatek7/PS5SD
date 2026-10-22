@@ -50,7 +50,8 @@ done signal, the TV and the API key, and **Help** explains the rest.
   - elfldr (port 9021)
   - ftpsrv (port 2121), optional: the model downloader and the web UI's uploads write their files
     through an FTP server, because the console slows a title's own writes to about 2 MB/s after
-    1.4 GB. When nothing answers on 2121, the title starts the copy of
+    1.4 GB. When nothing answers on 2121, or the server there fails a test write (an ftpsrv without
+    a command PS5SD needs), the title starts the copy of
     [ftpsrv](https://github.com/drakmor/ftpsrv) it carries (GPL-3.0+, John Törnblom and drakmor;
     `third_party/ftpsrv` at 1.16-ng-stable with `patches/ftpsrv`). That copy listens on
     127.0.0.1:2122 only, so it opens nothing on the LAN. It runs until the console restarts.

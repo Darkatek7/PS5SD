@@ -180,21 +180,41 @@ bool FtpWriter::connect(std::string & error) {
     return true;
 }
 
-// EPSV: "229 Entering Extended Passive Mode (|||port|)".
+// EPSV: "229 Entering Extended Passive Mode (|||port|)"; or, for a server
+// that does not know it (500, 502, 504), PASV: "227 Entering Passive Mode
+// (h1,h2,h3,h4,p1,p2)". The address is the server's own, so only the port is
+// taken.
 bool FtpWriter::open_data(std::string & error) {
     int         code = 0;
     std::string text;
-    if (!command("EPSV", code, text, error)) {
+    if (!pasv_) {
+        if (!command("EPSV", code, text, error)) {
+            return false;
+        }
+        const size_t a = text.find("(|||");
+        const size_t b = a == std::string::npos ? a : text.find('|', a + 4);
+        if (code == 229 && b != std::string::npos) {
+            data_ = dial(std::atoi(text.substr(a + 4, b - a - 4).c_str()), error);
+            return data_ >= 0;
+        }
+        if (code != 500 && code != 502 && code != 504) {
+            error = "ftpsrv: " + text;
+            return false;
+        }
+        pasv_ = true;
+    }
+    if (!command("PASV", code, text, error)) {
         return false;
     }
-    const size_t a = text.find("(|||");
-    const size_t b = a == std::string::npos ? a : text.find('|', a + 4);
-    if (code != 229 || b == std::string::npos) {
+    const size_t a = text.find('(');
+    const size_t b = a == std::string::npos ? a : text.find(')', a);
+    int          h[6];
+    if (code != 227 || b == std::string::npos ||
+        std::sscanf(text.c_str() + a + 1, "%d,%d,%d,%d,%d,%d", &h[0], &h[1], &h[2], &h[3], &h[4], &h[5]) != 6) {
         error = "ftpsrv: " + text;
         return false;
     }
-    const int port = std::atoi(text.substr(a + 4, b - a - 4).c_str());
-    data_          = dial(port, error);
+    data_ = dial(h[4] * 256 + h[5], error);
     return data_ >= 0;
 }
 
@@ -266,8 +286,9 @@ bool FtpWriter::rename(const std::string & from, const std::string & to, std::st
     }
     int         code = 0;
     std::string text;
+    // RNTO: 250, or 226 from ftpsrv up to 0.15
     if (!command("RNFR " + from, code, text, error) || code != 350 || !command("RNTO " + to, code, text, error) ||
-        code != 250) {
+        code / 100 != 2) {
         if (error.empty()) {
             error = "ftpsrv: " + text;
         }
@@ -337,6 +358,31 @@ bool send_own_ftpsrv(std::string & error) {
     return true;
 }
 
+// One byte through the user's ftpsrv, once per run: a server without a command
+// PS5SD needs (an old ftpsrv answers 502) fails here instead of in every piece
+// of a download.
+bool user_ftpsrv_works(FtpWriter & ftp, std::string & error) {
+    static std::mutex m;
+    static int        works = -1;  // not checked yet
+    std::lock_guard<std::mutex> lock(m);
+    if (works < 0) {
+        std::string check_error;
+        works = ftp.write_at(kFtpCheckFile, 0, "x", 1, check_error) ? 1 : 0;
+        ::unlink(kFtpCheckFile);
+        if (works) {
+            std::printf("ps5sd: ftpsrv: the one on %d works\n", kFtpsrvPort);
+        } else {
+            error = check_error;
+            std::printf("ps5sd: ftpsrv: the one on %d cannot write for PS5SD (%s); using PS5SD's own copy on %d\n",
+                        kFtpsrvPort, check_error.c_str(), kOwnFtpsrvPort);
+        }
+    }
+    if (!works && error.empty()) {
+        error = "it failed a test write";
+    }
+    return works == 1;
+}
+
 }  // namespace
 
 bool connect_ftp_writer(FtpWriter & ftp, std::string & error) {
@@ -345,7 +391,10 @@ bool connect_ftp_writer(FtpWriter & ftp, std::string & error) {
     std::string       error_2121, error_2122;
     ftp.set_port(kFtpsrvPort);
     if (ftp.connect(error_2121)) {
-        return true;
+        if (user_ftpsrv_works(ftp, error_2121) && ftp.connect(error_2121)) {
+            return true;
+        }
+        ftp.close();
     }
     ftp.set_port(kOwnFtpsrvPort);
     if (ftp.connect(error_2122)) {

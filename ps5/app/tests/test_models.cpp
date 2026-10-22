@@ -77,6 +77,12 @@ int main() {
     check(j["active"] == "sdxl" && j["loaded"] == "sdxs.gguf" && j["switching"] == true, "json header");
     check(j["models"].size() == 4 && j["models"][1]["defaults"]["cfg"] == "6", "json models");
     check(j["models"][0]["missing"].size() == 1, "json missing files");
+    check(j["load_error"].is_null() && j["models"][0]["part"] == "", "json without a load error, no parts");
+    ps5sd::set_load_error("sdxl", "SDXL did not load: a reason");
+    const auto jl = nlohmann::json::parse(ps5sd::models_json(lib, "sdxl", "", false));
+    check(jl["load_error"]["id"] == "sdxl" && jl["load_error"]["message"] == "SDXL did not load: a reason", "json load error");
+    ps5sd::set_load_error("", "");
+    check(nlohmann::json::parse(ps5sd::models_json(lib, "", "", false))["load_error"].is_null(), "load error cleared");
 
     check(nlohmann::json::parse(ps5sd::error_json("no \"x\""))["error"] == "no \"x\"", "error json");
     check(!ps5sd::error_json("bad \xff byte").empty(), "error json with a byte that is not UTF-8");

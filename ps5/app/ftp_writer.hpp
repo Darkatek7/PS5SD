@@ -7,9 +7,13 @@
 // the end is refused (551). So a file is written from its start, in order: one
 // STOR per piece, at the end of what is already there.
 //
-// connect_ftp_writer finds the server: the user's ftpsrv on 2121, else PS5SD's
-// own copy on 2122 (third_party/ftpsrv with patches/ftpsrv, loopback only),
-// which the title sends to the ELF loader itself when neither answers.
+// The data connection is passive: EPSV, or PASV for a server without it
+// (ftpsrv up to 0.15 answers EPSV with 502).
+//
+// connect_ftp_writer finds the server: the user's ftpsrv on 2121 when a test
+// write through it works, else PS5SD's own copy on 2122 (third_party/ftpsrv
+// with patches/ftpsrv, loopback only), which the title sends to the ELF loader
+// itself when nothing answers there.
 #pragma once
 
 #include <cstddef>
@@ -58,6 +62,7 @@ private:
     int         port_;
     int         timeout_ = 30;
     bool        refused_ = false;
+    bool        pasv_    = false;  // the server does not know EPSV
     int         ctrl_    = -1;
     int         data_    = -1;
     std::string inbox_;  // control bytes read past the last reply line
@@ -67,10 +72,14 @@ constexpr int kFtpsrvPort      = 2121;  // the user's ftpsrv
 constexpr int kOwnFtpsrvPort   = 2122;  // PS5SD's copy (patches/ftpsrv)
 constexpr int kElfLoaderPort   = 9021;
 constexpr const char * kOwnFtpsrvElf = "/app0/ftpsrv/ps5sd-ftpsrv.elf";
+constexpr const char * kFtpCheckFile = "/data/PS5SD/.ps5sd-ftp-check";
 
-// Connects ftp (not connected yet) to 2121, else 2122. When nothing listens on
-// either, the first call sends kOwnFtpsrvElf to the ELF loader on 9021 and
-// waits up to 5 s for 2122; that happens at most once per app run, also when
-// several threads get here at once. False with error when no server answers:
-// the caller writes the file itself then.
+// Connects ftp (not connected yet) to 2121, else 2122. The first time 2121
+// answers, one byte is written to kFtpCheckFile through it; when that fails
+// (an ftpsrv without a command PS5SD needs), 2121 is left alone for the rest
+// of the run. When nothing listens on 2122, the first call that needs it sends
+// kOwnFtpsrvElf to the ELF loader on 9021 and waits up to 5 s for it; that
+// happens at most once per app run, also when several threads get here at
+// once. False with error when no server answers: the caller writes the file
+// itself then.
 bool connect_ftp_writer(FtpWriter & ftp, std::string & error);

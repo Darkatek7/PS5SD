@@ -140,7 +140,7 @@
     }
     var shown = 0;
     for (var i = 0; i < d.models.length; i++) {
-      if (!isModel(d.models[i], d)) continue;
+      if (!isModel(d.models[i], d) || d.models[i].part) continue;
       box.appendChild(cmRow(d.models[i], d));
       shown++;
     }

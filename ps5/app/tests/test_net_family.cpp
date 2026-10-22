@@ -210,13 +210,47 @@ void test_files() {
     fs::remove_all(dir);
 }
 
+// What part of a model a file is (net_part_of), with the names the real files use.
+void test_parts() {
+    const auto part = [](const T & t, const std::string & want, const std::string & what) {
+        const std::string got = net_part_of(t);
+        check(got == want, what + ": part \"" + got + "\", not \"" + want + "\"");
+    };
+    part({ { "model.diffusion_model.input_blocks.1.1.transformer_blocks.0.attn2.to_k.weight", { 320, 768 } },
+           { "cond_stage_model.transformer.text_model.encoder.layers.0.self_attn.q_proj.weight", { 768, 768 } },
+           { "first_stage_model.decoder.conv_in.weight", { 512, 4, 3, 3 } } },
+         "", "SD 1.5 checkpoint");
+    part({ { "model.diffusion_model.input_blocks.4.1.transformer_blocks.0.attn2.to_k.weight", { 640, 2048 } },
+           { "conditioner.embedders.1.model.transformer.resblocks.0.attn.in_proj_weight", { 3840, 1280 } } },
+         "", "SDXL checkpoint");
+    part({ { "model.diffusion_model.double_blocks.0.img_attn.qkv.weight", { 9216, 3072 } },
+           { "text_encoders.t5xxl.transformer.encoder.block.0.layer.0.SelfAttention.q.weight", { 4096, 4096 } } },
+         "", "FLUX.1 all in one");
+    part({ { "double_blocks.0.img_attn.qkv.weight", { 9216, 3072 } }, { "double_blocks.0.img_mlp.0.weight", { 18432, 3072 } } },
+         "diffusion model", "FLUX.2 Klein diffusion model");
+    part({ { "layers.0.attention.to_q.weight", { 3840, 3840 } }, { "noise_refiner.0.attention.to_q.weight", { 3840, 3840 } } },
+         "diffusion model", "Z-Image diffusion model");
+    part({ { "blocks.0.self_attn.q.weight", { 1536, 1536 } }, { "blocks.0.cross_attn.k.weight", { 1536, 4096 } } },
+         "diffusion model", "Wan diffusion model");
+    part({ { "token_embd.weight", { 151936, 2560 } }, { "blk.0.attn_q.weight", { 4096, 2560 } } }, "text encoder",
+         "Qwen3 GGUF");
+    part({ { "model.layers.0.self_attn.q_proj.weight", { 4096, 2560 } } }, "text encoder", "Qwen3 safetensors");
+    part({ { "encoder.block.0.layer.0.SelfAttention.q.weight", { 4096, 4096 } } }, "text encoder", "T5");
+    part({ { "text_model.encoder.layers.0.self_attn.q_proj.weight", { 768, 768 } } }, "text encoder", "CLIP-L");
+    part({ { "decoder.conv_in.weight", { 512, 16, 3, 3 } }, { "encoder.conv_in.weight", { 128, 3, 3, 3 } } }, "VAE",
+         "FLUX VAE");
+    part({ { "decoder.conv1.weight", { 384, 16, 3, 3, 3 } }, { "decoder.upsamples.0.residual.0.gamma", { 384 } } }, "VAE",
+         "Wan VAE");
+    part({}, "", "nothing to tell");
+}
+
 }  // namespace
 
 int main(int argc, char ** argv) {
     if (argc > 1) {
         for (int i = 1; i < argc; i++) {
-            const std::string f = net_family(argv[i]);
-            std::printf("%-18s %s\n", f.empty() ? "?" : f.c_str(), argv[i]);
+            const std::string f = net_family(argv[i]), p = net_part(argv[i]);
+            std::printf("%-18s %-16s %s\n", f.empty() ? "?" : f.c_str(), p.empty() ? "-" : p.c_str(), argv[i]);
         }
         return 0;
     }
@@ -224,6 +258,7 @@ int main(int argc, char ** argv) {
     test_unets();
     test_others();
     test_files();
+    test_parts();
     std::printf("%s (%d failure%s)\n", failures == 0 ? "ok" : "FAILED", failures, failures == 1 ? "" : "s");
     return failures == 0 ? 0 : 1;
 }

@@ -9,6 +9,7 @@
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
+#include <mutex>
 #include <sstream>
 
 #include "json.hpp"
@@ -647,6 +648,37 @@ std::string model_family(const ModelEntry & e) {
     return "";
 }
 
+std::string part_reason(const ModelEntry & e) {
+    if (e.kind != "file" || e.files.empty()) {
+        return "";
+    }
+    const std::string part = net_part(e.files[0]);
+    if (part.empty()) {
+        return "";
+    }
+    const std::string family = net_family(e.files[0]);
+    const std::string what   = part == "diffusion model" && !family.empty() ? "the " + family + " diffusion model" : "the " + part;
+    const std::string others = part == "diffusion model" ? "a text encoder and a VAE"
+                               : part == "text encoder"  ? "a diffusion model and a VAE"
+                                                         : "a diffusion model and a text encoder";
+    return fs::u8path(e.files[0]).filename().u8string() + " is only a part of a model (" + what + "): it runs together with " +
+           others + ". Install the model from Get more, which brings all its files and a preset, or write a preset "
+           "that names them (Help, Models: Presets).";
+}
+
+namespace {
+
+std::mutex  g_load_error_mutex;
+std::string g_load_error_id, g_load_error_message;
+
+}  // namespace
+
+void set_load_error(const std::string & id, const std::string & message) {
+    std::lock_guard<std::mutex> lock(g_load_error_mutex);
+    g_load_error_id      = id;
+    g_load_error_message = id.empty() ? "" : message;
+}
+
 std::string models_json(const ModelLibrary & library, const std::string & active, const std::string & loaded,
                         bool switching, bool standby) {
     nlohmann::json list = nlohmann::json::array();
@@ -664,9 +696,18 @@ std::string models_json(const ModelLibrary & library, const std::string & active
                          { "base", e.base },
                          { "control_net", control_net_name(e) },
                          { "family", model_family(e) },
+                         { "part", e.kind == "file" && !e.files.empty() ? net_part(e.files[0]) : "" },
                          { "defaults", defaults } });
     }
-    nlohmann::json out = { { "active", active }, { "loaded", loaded }, { "switching", switching }, { "standby", standby }, { "models", list } };
+    nlohmann::json load_error = nullptr;
+    {
+        std::lock_guard<std::mutex> lock(g_load_error_mutex);
+        if (!g_load_error_id.empty()) {
+            load_error = { { "id", g_load_error_id }, { "message", g_load_error_message } };
+        }
+    }
+    nlohmann::json out = { { "active", active }, { "loaded", loaded }, { "switching", switching },
+                           { "standby", standby }, { "load_error", load_error }, { "models", list } };
     // A file name that is not UTF-8 must not throw on an HTTP thread.
     return out.dump(-1, ' ', false, nlohmann::json::error_handler_t::replace);
 }

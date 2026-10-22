@@ -227,7 +227,7 @@
         beginSwitch(m.id, titleOf(m), waits);
         if (data && data.models) setModels(data);
       } else {
-        toast(errText(code, data, 'Could not switch'), 6000);
+        toast(errText(code, data, 'Could not switch'), code === 422 ? 12000 : 6000);
         loadModels(null);
       }
     }, 15000);
@@ -297,8 +297,9 @@
       toast(sw.name + ' is ready.');
     } else {
       var back = data.loaded ? findModel(data.loaded) : null;
-      toast('Could not load ' + sw.name + '. ' + (data.loaded ? 'Back on ' + (back ? titleOf(back) : data.loaded) + '.'
-        : 'No model is loaded now; /data/PS5SD/app.log says why.'), 7000);
+      var why = data.load_error && data.load_error.id === sw.id ? data.load_error.message : '';
+      toast((why || 'Could not load ' + sw.name + '.') + ' ' + (data.loaded ? 'Back on ' + (back ? titleOf(back) : data.loaded) + '.'
+        : why ? 'No model is loaded now.' : 'No model is loaded now; /data/PS5SD/app.log says why.'), why ? 14000 : 7000);
     }
     loadInfo();
   }

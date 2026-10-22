@@ -130,9 +130,12 @@ struct PresetSettings {
 PresetSettings preset_settings(const std::vector<std::pair<std::string, std::string>> & defaults);
 
 // The library as JSON for GET /ps5sd/v1/app/models: {"active", "loaded",
-// "switching", "standby", "models": [{"id", "name", "kind", "bytes", "files",
-// "missing", "base", "control_net", "defaults": {...}}]}. control_net: the file
-// name of the preset's --control-net, or "". standby: the server runs without a model.
+// "switching", "standby", "load_error", "models": [{"id", "name", "kind",
+// "bytes", "files", "missing", "base", "control_net", "family", "part",
+// "defaults": {...}}]}. control_net: the file name of the preset's
+// --control-net, or "". part: what a single file is when it is only a part of a
+// model (net_part), else "". standby: the server runs without a model.
+// load_error: set_load_error's, or null.
 std::string models_json(const ModelLibrary & library, const std::string & active, const std::string & loaded,
                         bool switching, bool standby = false);
 
@@ -155,6 +158,16 @@ std::string loras_json(const std::string & dir);
 
 // The network an entry runs (net_family.hpp): that of its diffusion model, else of its checkpoint.
 std::string model_family(const ModelEntry & e);
+
+// For a single file that is only a part of a model (net_part: "diffusion
+// model", "text encoder" or "VAE"), why it cannot be loaded on its own and what
+// to do; "" for a preset and for a file that can run alone.
+std::string part_reason(const ModelEntry & e);
+
+// The last entry that did not load and why, which models_json reports as
+// "load_error": {"id", "message"} until the next model loads (an empty id
+// clears it); safe from several threads.
+void set_load_error(const std::string & id, const std::string & message);
 
 // GET /ps5sd/v1/app/upscalers: {"upscalers": [{"name", "file", "bytes"}]},
 // the upscaler files (.pth, .pt, .safetensors, .gguf) directly in dir, as

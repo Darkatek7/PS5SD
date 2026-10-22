@@ -223,6 +223,14 @@ apart, and still silent) or `no ELF loader`. Without it those
 - `base` is set for a saved preset (below): the id of the model it is a preset of.
 
 - `active` is the entry `model.txt` names.
+- `load_error` is `{"id", "message"}` when the last model asked for did not load, with the reason: what
+  sd.cpp logged as an error, or what the file is (below). It is `null` otherwise, and is cleared by the
+  next switch.
+- `part` is set for a single file that is only a part of a model, told from its tensor names:
+  `diffusion model` (a network without its text encoder, as FLUX, Z-Image and Wan come), `text encoder`
+  (CLIP, T5, an LLM such as Qwen3) or `VAE`. Such a file runs only in a preset that names the other
+  files ([MODELS.md](MODELS.md#presets-models-of-several-files-and-options)), and a switch to it is
+  refused with `422`. `""` for a preset and for a file that runs alone.
 - `loaded` is the entry the server has ready. It is `""` while a model loads and in standby.
 - `missing` lists the entry's files that are not on the console. An entry with missing files cannot be
   loaded.
@@ -248,6 +256,7 @@ apart, and still silent) or `no ELF loader`. Without it those
 | `400` | the body is not `{"id": "..."}` |
 | `404` | there is no such entry |
 | `409` | a switch is already running, or the title is stopping |
+| `422` | the entry is a single file that is only a part of a model (`part`); `error` says what is missing and what to do |
 | `500` | `model.txt` could not be written |
 
 `DELETE /ps5sd/v1/app/models/<id>` deletes an entry:

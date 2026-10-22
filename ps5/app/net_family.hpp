@@ -42,4 +42,14 @@ std::string net_family_of(const std::vector<NetTensor> & tensors);
 // from a cache; safe from several threads.
 std::string net_family(const std::string & path);
 
+// What part of a model a file is, when it cannot run on its own: "diffusion
+// model" (a network without its text encoder, as FLUX, Z-Image and Wan come),
+// "text encoder" (CLIP, T5, an LLM such as Qwen3) or "VAE". "" for a whole
+// checkpoint (network and text encoder in one file) and for a file that
+// cannot be told (.ckpt).
+std::string net_part_of(const std::vector<NetTensor> & tensors);
+
+// The part of a file, cached as net_family is.
+std::string net_part(const std::string & path);
+
 }  // namespace ps5sd

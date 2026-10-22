@@ -79,6 +79,11 @@
 #include "stable-diffusion.h"
 #include "version.hpp"
 
+// patches/sdcpp/0065 (server_activity.h): the WARN and ERROR lines sd.cpp logged
+// since begin(), read back as a reason; here for a model that does not load.
+void        sd_server_failure_log_begin();
+std::string sd_server_failure_reason(const std::string & fallback);
+
 #include <ps5platform/heap.h>
 #include <ps5platform/kernel.h>
 
@@ -743,9 +748,30 @@ void run_server() {
             } else {
                 apply_preset_settings(nullptr);
             }
+            sd_server_failure_log_begin();
             rc = sd_server((int) plan.args.size(), argv.data());
         }
         std::printf("ps5sd: sd_server returned %d\n", rc);
+        if (rc != 0 && !standby && !plan.id.empty() && !g_quit_requested && !g_restart) {
+            // Why, for the web UI (GET models' load_error) and the log: what
+            // sd.cpp said, or what the file is when it is only a part of a model.
+            ModelEntry  entry;
+            std::string ignored;
+            std::string why = sd_server_failure_reason("");
+            const std::string prefix = "Generation failed: ";
+            if (why.compare(0, prefix.size(), prefix) == 0) {
+                why.erase(0, prefix.size());
+            }
+            if (why.empty() && g_library.find(plan.id, entry, ignored)) {
+                why = part_reason(entry);
+            }
+            if (why.empty()) {
+                why = "sd.cpp stopped while loading it and did not say why; /data/PS5SD/app.log has its last lines. "
+                      "A damaged or incomplete file, or a model PS5SD's stable-diffusion.cpp does not know, ends so.";
+            }
+            std::printf("ps5sd: %s did not load: %s\n", plan.id.c_str(), why.c_str());
+            set_load_error(plan.id, plan.name + " did not load: " + why);
+        }
         log_memory("after the server");
         if (g_quit_requested) {
             set_phase("Server stopped");
@@ -934,10 +960,19 @@ int ask_switch(const std::string & id, std::string & out) {
         out = error_json(error);
         return 404;
     }
+    // Only a part of a model (a diffusion model without its text encoder, a
+    // text encoder, a VAE): sd.cpp would stop while reading it, without a word.
+    const std::string part = part_reason(entry);
+    if (!part.empty()) {
+        std::printf("ps5sd: switch to %s refused: %s\n", entry.id.c_str(), part.c_str());
+        out = error_json(part);
+        return 422;
+    }
     if (g_switching || g_quit_requested) {
         out = error_json("the server is switching the model or stopping");
         return 409;
     }
+    set_load_error("", "");  // a new try: the last failure is old news
     if (entry.id == loaded_id()) {
         out = models_json(g_library, entry.id, entry.id, false);
         return 200;

@@ -207,8 +207,12 @@
     if (loaded) nm.appendChild(el('span', 'badge ok', 'In use'));
     else if (loading) nm.appendChild(el('span', 'badge warn', 'Loading…'));
     if (miss) nm.appendChild(el('span', 'badge bad', 'Incomplete'));
+    if (m.part) nm.appendChild(el('span', 'badge warn', 'Part of a model'));
     main.appendChild(nm);
     if (m.kind === 'file' && m.files && m.files[0]) main.appendChild(el('div', 'mfile', baseName(m.files[0])));
+    // only the diffusion model, text encoder or VAE: it runs in a preset that names the others
+    if (m.part) main.appendChild(el('div', 'mmeta', 'Only the ' + m.part + ' of a model, so it cannot run on its own. ' +
+      'Get more installs a model with all its files and a preset; Help, Models: Presets shows how to write one.'));
     addTags(main, tagsOf(m.name || m.id, m.files, videoOf(m, d), !!m.control_net, m.family));
     main.appendChild(el('div', 'mmeta', specOf(m)));
     if (miss) {
@@ -220,7 +224,7 @@
     row.appendChild(main);
     var acts = el('div', 'macts');
     if (!loaded) {
-      var usable = !loading && !miss && !st.sw;
+      var usable = !loading && !miss && !st.sw && !m.part;
       var b = actionButton(loading ? 'Loading…' : 'Use', function () { useModel(m); });
       b.disabled = !usable;
       if (usable) b.className = 'on';

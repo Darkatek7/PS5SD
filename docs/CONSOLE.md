@@ -804,5 +804,6 @@ A build with the 0.9.3 changes, FW 13.00, `GET /ps5sd/v1/app/console` and the TV
 - "GPU busy" is the share of a second in which a job runs, not a reading of the GPU: it is 100% from
   the request to the image. For the first 20 s of that request it was 100% while the power stayed at
   20 W, the idle value, before the steps began.
-- The exporter was already running when this build started (sent by hand earlier), so PS5SD's own start of
-  it through the ELF loader (`payloads/ps5-exporter.elf` to port 9021) is not measured yet.
+- After a restart of the console (the exporter not running), PS5SD logged `ps5-exporter does not answer
+  on 9100; sent the bundled copy to the ELF loader` at its first look, and the readings were there
+  within seconds (0.9.3 with the 0.9.4 changes, 2026-10-22).

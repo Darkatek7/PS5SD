@@ -39,9 +39,13 @@ There are four ways to get a model there:
 
 - The file keeps its name, and an existing file is not replaced. To replace one, delete it first.
 - A model goes into `/data/PS5SD/models` itself. A model of several files needs a preset that names
-  them (below); upload the preset last, as a Preset.
+  them (below); upload the preset last, as a Preset. Until then the Models tab marks each of its files
+  **Part of a model** (the diffusion model, the text encoder, the VAE), and they cannot be used alone.
+  **Get more** installs such models with all their files and the preset.
 - Over wired gigabit Ethernet, a 3 GB file took 36.5 s (82 MB/s). The app passes the file on to
   ftpsrv; without ftpsrv it writes the file itself, which slows to a few MB/s after about 1.4 GB.
+  Any ftpsrv on port 2121 will do, also one up to 0.15 (without EPSV). If yours cannot write a test
+  byte, PS5SD starts its own copy on 2122 and uses that instead.
 - From a terminal it is one `curl` (`docs/API.md`, "Uploading files"):
 
 ```sh

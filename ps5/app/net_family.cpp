@@ -319,12 +319,42 @@ std::string net_family_of(const std::vector<NetTensor> & tensors) {
     return "";
 }
 
-std::string net_family(const std::string & path) {
-    struct Seen {
-        uint64_t                  size;
-        fs::file_time_type        time;
-        std::string               family;
-    };
+std::string net_part_of(const std::vector<NetTensor> & tensors) {
+    bool text_encoder = false, vae = false;
+    for (const NetTensor & t : tensors) {
+        const std::string k = key_of(t.name).k;
+        // CLIP (text_model, OpenCLIP's resblocks), T5 (encoder.block), an LLM
+        // (llama.cpp's blk.N and token_embd, or Hugging Face's layers.N.self_attn),
+        // and the text encoders inside a checkpoint (cond_stage_model, conditioner)
+        if (k.find("text.model.") != std::string::npos || k.find("resblocks.") != std::string::npos ||
+            k.find("encoder.block.") != std::string::npos || starts(k, "blk.") || starts(k, "enc.blk.") ||
+            starts(k, "token.embd") || (k.find("layers.") != std::string::npos && k.find(".self.attn.") != std::string::npos) ||
+            starts(k, "cond.stage.model.") || starts(k, "conditioner.embedders.")) {
+            text_encoder = true;
+        }
+        // a VAE's decoder (ldm and diffusers: conv_in; Wan: conv1 and upsamples)
+        if (k.find("decoder.conv.in") != std::string::npos || k.find("decoder.conv1") != std::string::npos ||
+            k.find("decoder.upsamples.") != std::string::npos) {
+            vae = true;
+        }
+    }
+    const bool net = !net_family_of(tensors).empty();
+    if (net) {
+        return text_encoder ? "" : "diffusion model";
+    }
+    return text_encoder ? "text encoder" : vae ? "VAE" : "";
+}
+
+namespace {
+
+struct Seen {
+    uint64_t           size;
+    fs::file_time_type time;
+    std::string        family, part;
+};
+
+// A file's family and part, read once per path, size and modification time.
+bool seen(const std::string & path, Seen & out) {
     static std::mutex                   mu;
     static std::map<std::string, Seen> cache;
 
@@ -332,21 +362,38 @@ std::string net_family(const std::string & path) {
     const fs::path  p    = fs::u8path(path);
     const uint64_t  size = fs::file_size(p, ec);
     if (ec) {
-        return "";
+        return false;
     }
     const fs::file_time_type time = fs::last_write_time(p, ec);
     {
         std::lock_guard<std::mutex> lock(mu);
         const auto                  it = cache.find(path);
         if (it != cache.end() && it->second.size == size && it->second.time == time) {
-            return it->second.family;
+            out = it->second;
+            return true;
         }
     }
     std::vector<NetTensor> tensors;
-    const std::string      family = read_net_tensors(path, tensors) ? net_family_of(tensors) : "";
+    out = Seen{ size, time, "", "" };
+    if (read_net_tensors(path, tensors)) {
+        out.family = net_family_of(tensors);
+        out.part   = net_part_of(tensors);
+    }
     std::lock_guard<std::mutex> lock(mu);
-    cache[path] = Seen{ size, time, family };
-    return family;
+    cache[path] = out;
+    return true;
+}
+
+}  // namespace
+
+std::string net_part(const std::string & path) {
+    Seen s;
+    return seen(path, s) ? s.part : "";
+}
+
+std::string net_family(const std::string & path) {
+    Seen s;
+    return seen(path, s) ? s.family : "";
 }
 
 }  // namespace ps5sd
