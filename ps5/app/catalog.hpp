@@ -18,6 +18,8 @@
 // Wan 2.1 T2V 1.3B (f16) with umt5-xxl Q4_K_M and the Wan 2.1 VAE is 6.7 GB;
 // the VAE decodes in 256 px tiles at an overlap of 0.25 (since 0.9.1; 128 px at 0.5 before, which
 // took twice as long, and 256 px ran out of memory before patches/mesa/0010).
+// The SDXL presets sample with dpm++2m and the ays schedule at 10 steps and decode in 640 px tiles
+// (since 0.9.2; euler_a at 25 steps and 512 px before, about 70 s an image instead of 30).
 // SDXL Q8_0 with the Canny ControlNet (2.5 GB more) left 2.7 GiB free after a 1024x1024 image.
 //
 // Included by download_core.cpp only.
@@ -78,6 +80,31 @@ inline std::vector<std::pair<const char *, const char *>> old_presets() {
           "33\n"
           "--fps\n"
           "16\n" },
+        // up to 0.9.1: euler_a at 25 steps (dpm++2m with the ays schedule needs 10 for the same picture), 512 px
+        // tiles (640 px decode a 1024x1024 image in 4 tiles instead of 9), and the weights loaded at the first
+        // image instead of at the start (docs/CONSOLE.md, "Faster SDXL")
+        { "sdxl-full",
+          "# name: SDXL Base 1.0\n"
+          "# defaults: steps=25 cfg=6 width=1024 height=1024 sampler=euler_a\n"
+          "-m\n"
+          "sd_xl_base_1.0.safetensors\n"
+          "--vae\n"
+          "vae/sdxl_vae_fp16_fix.safetensors\n"
+          "--type\n"
+          "q8_0\n"
+          "--vae-tiling\n"
+          "--vae-tile-size\n"
+          "512\n" },
+        { "sdxl-base",
+          "# name: SDXL Base 1.0 (Q8_0)\n"
+          "# defaults: steps=25 cfg=6 width=1024 height=1024 sampler=euler_a\n"
+          "-m\n"
+          "stable-diffusion-xl-base-1.0-Q8_0.gguf\n"
+          "--vae\n"
+          "vae/sdxl_vae_fp16_fix.safetensors\n"
+          "--vae-tiling\n"
+          "--vae-tile-size\n"
+          "512\n" },
     };
 }
 
@@ -86,7 +113,7 @@ inline std::vector<CatalogEntry> entries() {
         {
             "sdxl-full",
             "SDXL Base 1.0",
-            "The classic, works with LoRAs and finetunes. About 70 s an image.",
+            "The classic, works with LoRAs and finetunes. About 30 s an image, 11 s with the DMD2 LoRA.",
             {
                 { "https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0/resolve/main/"
                   "sd_xl_base_1.0.safetensors",
@@ -94,7 +121,7 @@ inline std::vector<CatalogEntry> entries() {
                 PS5SD_SDXL_VAE,
             },
             "# name: SDXL Base 1.0\n"
-            "# defaults: steps=25 cfg=6 width=1024 height=1024 sampler=euler_a\n"
+            "# defaults: steps=10 cfg=6 width=1024 height=1024 sampler=dpm++2m scheduler=ays\n"
             "-m\n"
             "sd_xl_base_1.0.safetensors\n"
             "--vae\n"
@@ -103,7 +130,8 @@ inline std::vector<CatalogEntry> entries() {
             "q8_0\n"
             "--vae-tiling\n"
             "--vae-tile-size\n"
-            "512\n",
+            "640\n"
+            "--eager-load\n",
             true,
             "LoRAs, finetunes, classic SDXL look",
         },
@@ -208,7 +236,7 @@ inline std::vector<CatalogEntry> entries() {
         {
             "sdxl-base",
             "SDXL Base 1.0 (Q8_0)",
-            "SDXL already in Q8_0 (gpustack's GGUF), with the fp16-fix VAE; loads faster than the full one. About 70 s an image. 5.4 GB.",
+            "SDXL already in Q8_0 (gpustack's GGUF), with the fp16-fix VAE; loads faster than the full one. About 30 s an image. 5.4 GB.",
             {
                 { "https://huggingface.co/gpustack/stable-diffusion-xl-base-1.0-GGUF/resolve/main/"
                   "stable-diffusion-xl-base-1.0-Q8_0.gguf",
@@ -216,14 +244,15 @@ inline std::vector<CatalogEntry> entries() {
                 PS5SD_SDXL_VAE,
             },
             "# name: SDXL Base 1.0 (Q8_0)\n"
-            "# defaults: steps=25 cfg=6 width=1024 height=1024 sampler=euler_a\n"
+            "# defaults: steps=10 cfg=6 width=1024 height=1024 sampler=dpm++2m scheduler=ays\n"
             "-m\n"
             "stable-diffusion-xl-base-1.0-Q8_0.gguf\n"
             "--vae\n"
             "vae/sdxl_vae_fp16_fix.safetensors\n"
             "--vae-tiling\n"
             "--vae-tile-size\n"
-            "512\n",
+            "640\n"
+            "--eager-load\n",
             false,
             "",
         },

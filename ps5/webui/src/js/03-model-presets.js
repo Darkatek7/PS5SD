@@ -12,7 +12,12 @@
     if (/lcm/.test(n)) return mkPreset('LCM', xl ? 1024 : 512, 4, 1.5, 'lcm');
     if (/flux/.test(n)) return mkPreset('Flux', 1024, /schnell/.test(n) ? 4 : 20, 1);
     if (/sd3|sd_3|stable-diffusion-3/.test(n)) return mkPreset('SD3', 1024, 28, 4.5);
-    if (xl) return mkPreset('SDXL', 1024, 25, 6);
+    if (xl) {
+      // dpm++2m with the ays schedule: the picture of euler_a at 25 steps in 10 (docs/CONSOLE.md, "Faster SDXL")
+      var p = mkPreset('SDXL', 1024, 10, 6, 'dpm++2m');
+      p.scheduler = 'ays';
+      return p;
+    }
     return mkPreset('SD 1.x', 512, 20, 7);
   }
 

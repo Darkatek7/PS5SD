@@ -693,3 +693,90 @@ A small decoder instead of the VAE, `--taesd` (sd.cpp's TAEHV), with the same 33
   90.4 s, with no error; the frame differs from the fallback's by 0.35 of 255. The catalog entry does that.
 - The title passed `--tae` to sd-server unresolved (a path relative to the models folder) and the model did
   not load; it knew only `--taesd`. 0.9.1 resolves both.
+
+## Faster SDXL (2026-10-22)
+
+0.9.1's release build, FW 13.00. `POST /sdcpp/v1/img_gen`, seed 5, the request time on the PC and the
+phases from `app.log` (sampling, `decode_first_stage`). Each request came after one that had loaded the
+model and, with a LoRA, after one that had merged it into the weights.
+
+SDXL Base 1.0 Q8_0 (preset `sdxl-base`), 1024x1024, a windmill above a village:
+
+| Settings | Sampling | VAE decode | Request |
+|---|---|---|---|
+| euler_a, 25 steps, CFG 6 (the preset up to 0.9.1) | 61.7 s | 5.7 s | 68.1 s |
+| dpm++2m, `ays`, 10 steps, CFG 6 | 24.6 s | 5.7 s | 31.6 s |
+| DMD2 LoRA, `lcm`, 4 steps, CFG 1 | 6.4 s | 5.7 s | 13.3 s |
+| DMD2 LoRA, `lcm`, 6 steps, CFG 1 | 9.6 s | 5.7 s | 16.3 s |
+| SDXL-Lightning 8-step LoRA, euler, `sgm_uniform`, 8 steps, CFG 1 | 12.9 s | 5.7 s | 20.4 s |
+
+- All five images are clean. `ays` at 10 steps is as detailed as euler_a at 25, with another layout of
+  the same scene.
+- A step takes 2.46 s at CFG 6 and 1.6 s at CFG 1, where the pass for the negative prompt is left out.
+
+Illustrious finetunes, the prompt in tags (`no humans, scenery, stone lighthouse on a cliff, sea,
+sunset, ...`):
+
+| Model, size | Settings | Request |
+|---|---|---|
+| Raehoshi IllustXL 1.1, 1024x1024 | euler_a, 28 steps, CFG 6 (its preset) | 75.3 s |
+| | dpm++2m, `ays`, 10 steps, CFG 6 | 31.6 s |
+| | DMD2, `lcm`, 4 steps, CFG 1 | 12.2 s, grey and flat |
+| | DMD2, `lcm`, 8 steps, CFG 1.5 | 26.5 s |
+| iLustMix v11.1, 832x1216 | dpm++2m, `ays`, 10 steps, CFG 6 (its preset) | 30.6 s |
+| | DMD2, `lcm`, 4 steps, CFG 1 | 10.2 s |
+| | DMD2, `lcm`, 6 steps, CFG 1 | 13.3 s |
+
+- iLustMix with DMD2 is clean at 4 steps.
+- IllustXL with DMD2 at CFG 1 comes out grey and flat, with a fine pattern: with `lcm` and with
+  `sgm_uniform`, at 4 and 6 steps, at a strength of 1 and of 0.8, and with euler. At CFG 1.5 and 8 steps
+  it is clean, but then each step computes the negative prompt again: 26.5 s (sampling 19.6 s), against
+  31.6 s for `ays` at 10 steps without the LoRA.
+
+The VAE decode, with DMD2 at 4 steps (IllustXL; iLustMix for 832x1216):
+
+| Size | 512 px tiles | 640 px tiles |
+|---|---|---|
+| 1024x1024 | 5.7 s (3x3 tiles) | 3.6 s (2x2) |
+| 1536x1536 | 10.1 s | 8.0 s |
+| 2048x2048 | 15.9 s | 14.2 s |
+| 832x1216 | 3.9 s | 3.7 s |
+
+- The images with 640 px tiles differ from the ones with 512 px by 0.5 to 0.7 of 255 on average, with no
+  seams.
+- No 640 px run fell back to smaller tiles (`app.log` has no "Reducing VAE decode tiles from 640x640").
+- Whole (no tiles), 1024x640 and 1024x768 tiles at 1024x1024 ran out of memory, and sd.cpp retried with
+  tiles of half the size. 1024x512 tiles took 4.3 s (3 tiles), 768 px tiles 5.3 s; at 832x1216 576 px
+  took 4.4 s, and 448x640 2.6 s, but that suits only a portrait image.
+- An overlap of 0.25 in the request changed nothing at 1536 and 2048 px: the image and the time were
+  those of a request without `vae_tiling_params`. An overlap of 0.5 in the request made 1536x1536 slower
+  (16.2 s instead of 10.4 s, 5x5 tiles instead of 4x4). So an image request without tiling settings is
+  decoded as at 0.25, not at the 0.5 that `/sdcpp/v1/capabilities` lists; the reason is not found. Videos
+  are decoded at 0.5 (see "Faster video decoding").
+- At 1024 px the overlap cannot matter: sd.cpp's plan (`src/runtime/tiling.cpp`) needs neighbouring tiles
+  to overlap and no point covered by three, which leaves 3 tiles of 512 px on a 1024 px side at any
+  overlap. For the same reason 0 and 0.25 gave the same image at 1536 px.
+
+`--eager-load` loads the weights when the model starts instead of at the first image.
+`POST /sdapi/v1/txt2img` at the preset's defaults, right after switching to the preset:
+
+| Preset | Switch | First image | Second image |
+|---|---|---|---|
+| `sdxl-base` up to 0.9.1 (euler_a, 25 steps, 512 px tiles) | 3.1 s | 77.3 s | 68.0 s |
+| `ays`, 10 steps, 640 px tiles, `--eager-load` | 11.6 s | 29.3 s | 28.8 s |
+
+- The same in a second round (12.1 s, 29.3 s, 28.8 s).
+
+On a build with these changes (before 0.9.2), after the title had updated the presets that 0.9.1 wrote (`app.log`: "preset sdxl-full
+updated to the catalog's current settings", the same for `sdxl-base`):
+
+| Preset | Switch | First image | Second image |
+|---|---|---|---|
+| `sdxl-full` (the f16 checkpoint, converted to Q8_0 while it loads) | 17.7 s | 29.1 s | 28.7 s |
+| `sdxl-base` | 8.6 s | 29.2 s | 28.8 s |
+| `sdxl-base`, DMD2, `lcm`, 4 steps, CFG 1 | | 12.2 s | 11.2 s (decode 3.5 s) |
+
+- 4.7 GiB of the pool free after the DMD2 images, no allocation failed.
+- The catalog's `sdxl-base` and `sdxl-full` have these settings since 0.9.2, and the title gives the
+  presets that 0.9.1 wrote the new text when it starts, unless they were changed. Adding DMD2, Lightning,
+  CausVid or LCM-LoRA on the Create tab sets their sampler, steps and CFG.

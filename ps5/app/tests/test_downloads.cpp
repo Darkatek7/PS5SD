@@ -177,7 +177,7 @@ int main() {
                 check(e["files"].size() == 2 && e["files"][1]["dest"] == "vae/sdxl_vae_fp16_fix.safetensors",
                       "files in the JSON");
                 check(e["bytes"] == 5040957760ull + 334641162ull, "bytes add up");
-                check(e["preset"].get<std::string>().find("--vae-tile-size\n512") != std::string::npos,
+                check(e["preset"].get<std::string>().find("--vae-tile-size\n640") != std::string::npos,
                       "the preset's text");
             }
         }
@@ -210,6 +210,22 @@ int main() {
                   std::string(tae->preset).find("--taesd\nvae/taew2_1.safetensors\n") != std::string::npos,
               "the Wan variant with TAEHV shares the model files");
         fs::remove(presets / "wan21-t2v-1.3b.txt");
+    }
+    {
+        // 0.9.1's SDXL preset: euler_a at 25 steps, 512 px tiles, no --eager-load
+        const std::string now   = sdxl.preset;
+        const std::string ays   = "steps=10 cfg=6 width=1024 height=1024 sampler=dpm++2m scheduler=ays\n";
+        const std::string tiles = "--vae-tile-size\n640\n--eager-load\n";
+        const size_t      a     = now.find(ays);
+        const size_t      t     = now.find(tiles);
+        check(a != std::string::npos && t != std::string::npos && t + tiles.size() == now.size(),
+              "SDXL samples with ays at 10 steps and decodes in 640 px tiles");
+        const std::string old = now.substr(0, a) + "steps=25 cfg=6 width=1024 height=1024 sampler=euler_a\n" +
+                                now.substr(a + ays.size(), t - a - ays.size()) + "--vae-tile-size\n512\n";
+        write(presets / "sdxl-base.txt", old);
+        const auto updated = update_catalog_presets(presets.u8string());
+        check(updated.size() == 1 && updated[0] == "sdxl-base" && read(presets / "sdxl-base.txt") == now,
+              "0.9.1's SDXL preset becomes the current one");
     }
     {
         const json j = json::parse(catalog_json(models.u8string(), presets.u8string()));
