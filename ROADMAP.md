@@ -10,6 +10,11 @@ can rely on.
 
 ## Done
 
+- **0.8.0**: a clearer web UI: five tabs (Create, Gallery, Models, Settings, Help) with the tabs at the
+  bottom on a phone; the Create tab with the model picker in place, one mode at a time, settings in groups,
+  the result next to them, a count next to Generate that queues any number of images; the Models tab in
+  Installed, Get more and Downloads with readable names and tags; the catalog with the measured time per
+  image; a gallery filter for images and videos; the long explanations in Help.
 - **0.7.1**: the hires fix at ×1 (a refine pass at the same size), a reason for every failed run (out of
   memory, the last error, cancelled) in the web UI, the API and on the TV, whole error lines in `app.log`,
   and no sideways scrolling on a phone.
@@ -45,7 +50,7 @@ Small, and promised in the issue.
 - [x] **No sideways scrolling on a phone**: the tab bar was wider than a phone screen, so Help was cut off
   and the whole page scrolled sideways; now the bar scrolls inside itself.
 
-## 0.8.0: a clearer web UI
+## 0.8.0: a clearer web UI, done
 
 The web UI grew one feature at a time, and it shows. Measured on 0.7.0: the Create tab's Settings drawer
 is 2,329 px tall, with 29 fields, 47 buttons and 14 hint paragraphs in one list, where the steps of an
@@ -54,53 +59,53 @@ changes how the page is built, not what it can do; every feature stays.
 
 **Where things are**
 
-- [ ] **Five tabs: Create, Gallery, Models, Settings, Help.** The Presets tab goes into Create (pick a
+- [x] **Five tabs: Create, Gallery, Models, Settings, Help.** The Presets tab goes into Create (pick a
   preset at the top) and Models (manage them).
-- [ ] **A Settings tab** for everything about the app, not the image: the done signal, the TV (images,
+- [x] **A Settings tab** for everything about the app, not the image: the done signal, the TV (images,
   API key), the Upscale button's model, the API key, and the version and sd.cpp build. The Create tab keeps
   only what makes the image.
-- [ ] **On a phone, the tabs sit at the bottom** of the screen, where a thumb reaches them, and the
+- [x] **On a phone, the tabs sit at the bottom** of the screen, where a thumb reaches them, and the
   Generate button stays in view while the settings scroll.
 
 **The Create tab**
 
-- [ ] **The model is picked where it is used**: a list of the installed models (with what each is: SDXL,
+- [x] **The model is picked where it is used**: a list of the installed models (with what each is: SDXL,
   FLUX, video, ControlNet) opens on the Create tab instead of jumping to the Models tab. A switch shows its
   progress in place.
-- [ ] **One mode at a time**: Image, Edit (a start image, with the mask), Guide (ControlNet, with a model
+- [x] **One mode at a time**: Image, Edit (a start image, with the mask), Guide (ControlNet, with a model
   that has one) and Video (with a video model). The mode shows only its own fields, so a video model never
   shows the hires fix and an SD 1.5 model never shows ControlNet.
-- [ ] **Settings in groups**: Size, Quality (steps, CFG, sampler, scheduler), Style (LoRAs), Hires fix,
+- [x] **Settings in groups**: Size, Quality (steps, CFG, sampler, scheduler), Style (LoRAs), Hires fix,
   Seed and batch. Each group is closed by default and shows its values in one line, as the Settings
   summary does now. The fields of a group open in place.
-- [ ] **The result is the biggest thing on the page**: on a PC it stays in view next to the settings, at
+- [x] **The result is the biggest thing on the page**: on a PC it stays in view next to the settings, at
   the size of the window; on a phone it comes first after a run.
-- [ ] **Progress that means something**: the step, the time per step and the time left; for video, which
+- [x] **Progress that means something**: the step, the time per step and the time left; for video, which
   part is running (text, steps, decoding).
-- [ ] **Less text on the page**: a hint is shown where a choice needs one (a LoRA of the wrong family, a
+- [x] **Less text on the page**: a hint is shown where a choice needs one (a LoRA of the wrong family, a
   size that will not fit), not as a paragraph under every field. The long explanations go to Help, one tap
   away (an ⓘ next to the field).
-- [ ] **Keys**: Ctrl+Enter generates, Escape cancels or closes the viewer, the arrows step through the
-  gallery.
+- [x] **Keys**: Ctrl+Enter generates, Escape closes the viewer, menus and boxes (it does not cancel a run:
+  too easy to press by mistake), the arrows step through the gallery.
 
 **The Models tab**
 
-- [ ] **Three parts: Installed, Get more, Downloads.** Installed lists models, LoRAs and upscalers, each in
+- [x] **Three parts: Installed, Get more, Downloads.** Installed lists models, LoRAs and upscalers, each in
   its own group; Get more has the catalog, a link, an upload and the Hugging Face search; Downloads shows
   what is running, and the finished ones can be cleared.
-- [ ] **Names a person reads**: "iLustMix v11.1", not `ilustmix_v111`; a tag for the family (SD 1.5, SDXL,
+- [x] **Names a person reads**: "iLustMix v11.1", not `ilustmix_v111`; a tag for the family (SD 1.5, SDXL,
   FLUX, Z-Image, Wan) and one for what it does (video, ControlNet, inpainting); "Model" and "Settings for a
   model" instead of "Checkpoint" and "Model with options".
-- [ ] **The catalog says what each model is good at**: photos, anime, fast, video; with the time an image
-  takes on the console, measured.
-- [ ] **Delete is out of the way**: in a menu on each entry, not a button as large as Use.
+- [x] **The catalog says what each model is good at**: photos, anime, fast, video; with the time an image
+  takes on the console, measured (not yet for the ControlNet and the two inpainting entries).
+- [x] **Delete is out of the way**: in a menu on each entry, not a button as large as Use.
 
 **Under the page**
 
-- [ ] **The web UI in parts**: `ps5/webui/index.html` is 4,500 lines of HTML, CSS and script in one file.
+- [x] **The web UI in parts**: `ps5/webui/index.html` is 4,500 lines of HTML, CSS and script in one file.
   It becomes a few files (`app.css`, one script per tab) that the build puts back into one page, as
   `embed-file.sh` embeds it now; still no npm and no framework.
-- [ ] **Screenshots in the README and the store listing**, taken from the new page on a phone and a PC.
+- [x] **Screenshots in the README and the store listing**, taken from the new page on a phone and a PC.
 
 ## 0.9.0: gallery and video
 
@@ -111,8 +116,8 @@ changes how the page is built, not what it can do; every feature stays.
 - [ ] **What made an image**: the prompt, model, seed and settings saved with each image (in the PNG, as
   A1111 does, so other tools read them too), shown in the viewer, with **Use these settings** to make it
   again or change it.
-- [ ] **Find and tidy**: images or videos only, newest or oldest first, a search in the prompts, and
-  several images selected for one delete or download.
+- [ ] **Find and tidy**: newest or oldest first, a search in the prompts, and several images selected for
+  one delete or download (images or videos only is in 0.8.0).
 - [ ] **The gallery in pages** in the API, with each image's prompt and settings.
 
 **Video**
