@@ -10,6 +10,9 @@ can rely on.
 
 ## Done
 
+- **0.9.5**: a zoom in the gallery viewer, copy buttons, names and tags for images, images that are not
+  kept on the console, CLIP skip, prompt starters in a preset and Danbooru tag completion
+  ([issue 6](https://github.com/Darkatek7/PS5SD/issues/6)).
 - **0.9.4**: downloads and uploads work with ftpsrv up to 0.15 (PASV), or through PS5SD's own copy when
   the one on 2121 cannot write; a file that is only a part of a model is marked and says what it needs,
   and a model that does not load says why ([issue 5](https://github.com/Darkatek7/PS5SD/issues/5)).
@@ -200,7 +203,7 @@ changes how the page is built, not what it can do; every feature stays.
   CPU load from `getrusage`; "GPU busy" is the share of the time a job runs. A fan speed is not
   readable, only its duty.
 
-## 0.9.5: gallery, prompts and presets ([issue 6](https://github.com/Darkatek7/PS5SD/issues/6))
+## 0.9.5: gallery, prompts and presets ([issue 6](https://github.com/Darkatek7/PS5SD/issues/6)), done
 
 What blurymind asked for in issue 6. Some of it is in 0.9.0 already: the prompt, model, seed and settings in
 each PNG, shown in the viewer with **Use these settings**, a search in the prompts, and several images
