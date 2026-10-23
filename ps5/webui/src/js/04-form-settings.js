@@ -64,6 +64,7 @@
     setSelect('sampler', o.sampler || 'default');
     setSelect('scheduler', o.scheduler || 'default');
     setSelect('clipskip', String(o.clip > 0 ? o.clip : -1), '-1');
+    if ($('clipskip').options[$('clipskip').selectedIndex].disabled) $('clipskip').value = '-1';   // a 1 kept for SDXL
     $('shift').value = o.shift > 0 ? o.shift : '';
     if (o.seed !== undefined && o.seed !== null && !isNaN(o.seed)) $('seed').value = o.seed;
     loraSel = [];
@@ -102,7 +103,8 @@
     sel.options[1].hidden = sel.options[1].disabled = !one;
     if (!one && sel.value === '1') sel.value = '-1';
     text($('cliphint-t'), sd1 ? 'Auto is 1 for SD 1.5; some anime models want 2.'
-      : fam ? 'Auto is 2 for ' + fam + ' (Pony and Illustrious too); 1 makes noise there, so it is not offered.'
+      : fam === 'SDXL' ? 'Auto is 2 for SDXL (Pony and Illustrious too); 1 makes noise there, so it is not offered.'
+      : fam ? 'Auto is 2 for ' + fam + '; the server ignores a 1 for it, so it is not offered.'
       : 'Auto is 1 for SD 1.5 and 2 for SDXL.');
   }
 
