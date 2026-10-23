@@ -65,6 +65,8 @@ void test_verdicts() {
     is(query("Wan 1.3B", 832, 480, 33), "fits", "Wan 33 frames");
     is(query("Wan 1.3B", 832, 480, 81), "fits", "Wan 81 frames, measured");
     is(query("Wan 1.3B", 832, 480, 97), "tight", "Wan 97 frames, not measured");
+    is(query("Wan 5B", 1280, 704, 33), "fits", "Wan 2.2 TI2V 1280x704, 33 frames, measured");
+    is(query("Wan 5B", 1280, 704, 49), "tight", "Wan 2.2 TI2V 49 frames at 1280x704, not measured");
     is(query("", 768, 768), "fits", "an unknown family at a usual size");
 
     // after other runs

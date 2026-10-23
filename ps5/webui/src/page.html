@@ -151,6 +151,24 @@
         <p class="hint" id="init-hint"></p>
       </div>
     </div>
+    <div id="vinit-sect" style="display:none">
+      <div class="initbar" id="vinit-bar">
+        <button type="button" id="vinit-pick">Start from an image</button>
+        <span class="hint">or Edit on any image of the gallery</span>
+      </div>
+      <input id="vinit-file" type="file" accept="image/*" style="display:none">
+      <div id="vinit-box" style="display:none">
+        <div class="lbl">Start image</div>
+        <div class="initrow">
+          <img id="vinit-thumb" alt="start image">
+          <div class="initmain">
+            <div class="mmeta" id="vinit-meta"></div>
+            <div class="initbtns"><button type="button" id="vinit-drop">Remove</button></div>
+          </div>
+        </div>
+        <p class="hint">The video starts with this picture; the prompt says what happens in it. <button type="button" class="info" data-help="help-vstart" aria-label="More about a start image for video">&#9432;</button></p>
+      </div>
+    </div>
     <div id="cn-sect" style="display:none">
       <div class="initbar" id="cn-bar">
         <button type="button" id="cn-pick">Guide image (ControlNet)</button>
@@ -215,7 +233,7 @@
             </div>
             <div></div>
           </div>
-          <p class="hint" id="cliphint">Auto is 1 for SD 1.5; some anime models want 2. <button type="button" class="info" data-help="help-clipskip" aria-label="More about CLIP skip">&#9432;</button></p>
+          <p class="hint" id="cliphint"><span id="cliphint-t">Auto is 1 for SD 1.5; some anime models want 2.</span> <button type="button" class="info" data-help="help-clipskip" aria-label="More about CLIP skip">&#9432;</button></p>
         </div>
       </div>
 
@@ -282,6 +300,14 @@
             </div>
           </div>
           <p class="hint">Wan makes 4n+1 frames; 33 is 2 seconds at 16 per second, 81 is 5. <button type="button" class="info" data-help="help-video" aria-label="More about video length and time">&#9432;</button></p>
+          <div class="row">
+            <div>
+              <label for="shift">Flow shift</label>
+              <input id="shift" type="number" min="0.5" max="20" step="0.5" placeholder="Auto" aria-label="Flow shift">
+            </div>
+            <div></div>
+          </div>
+          <p class="hint">Auto is the preset's: 3 for Wan 2.1, 5 for Wan 2.2 TI2V. Higher spends more of the steps on the large shapes and the motion, lower on the details.</p>
         </div>
       </div>
     </div>
@@ -464,7 +490,7 @@
     <h2 id="help-seed">Seed</h2>
     <p>-1 picks a random seed. A run of several images (the count next to Generate) takes the seeds one after the other (seed, seed + 1, …); with -1 each image gets a new seed.</p>
     <h2 id="help-clipskip">CLIP skip</h2>
-    <p>Which layer of the text encoder the prompt is read from, counted from the end. Auto is what stable-diffusion.cpp does by itself: 1 for SD 1.5 and 2 for SDXL models (Pony and Illustrious too). Some SD 1.5 anime models want 2. The setting shows only for SD 1.5 models: SDXL, FLUX and the others use their own, and the server ignores a 1 for them, because with it an SDXL model makes noise. A preset can set it with <code>clip_skip=2</code> in its <code># defaults:</code> line.</p>
+    <p>Which layer of the text encoder the prompt is read from, counted from the end. Auto is what stable-diffusion.cpp does by itself: 1 for SD 1.5 and 2 for SDXL models (Pony and Illustrious too). Some SD 1.5 anime models want 2. The setting shows for the models that read the prompt with CLIP (SD 1.5, SD 2.1, SDXL); FLUX, Wan and the others read it with another encoder. The field says what Auto is for the loaded model. 1 is offered only for SD 1.5: with it an SDXL model makes noise, so the server ignores a 1 for every other model. A preset can set it with <code>clip_skip=2</code> in its <code># defaults:</code> line.</p>
     <h2 id="help-starters">Prompt starters</h2>
     <p>Some models want each prompt to begin the same way: Pony models with <code>score_9, score_8_up, score_7_up</code>, and a negative prompt with <code>score_4, score_5</code>. A preset can carry them in a <code># prompt:</code> and a <code># negative:</code> line. While it is loaded, the server puts them before the prompts of every run, from this page and from the API, and the Create tab shows them above the fields. A prompt that starts with them already does not get them twice.</p>
     <h2 id="help-nokeep">Images that are not kept</h2>
@@ -475,6 +501,10 @@
     <h2 id="help-video">Video length and time</h2>
     <p>Wan makes 4n+1 frames: 33 are 2 seconds at 16 per second, 81 are 5 seconds.</p>
     <p>On the console, 33 frames at 832×480 take about 2 minutes 15 seconds with the CausVid LoRA (Models tab, LoRAs) at 4 steps and CFG 1, 81 frames about 8 minutes. Without the LoRA, 33 frames take up to 15 minutes at 20 steps.</p>
+    <p>Flow shift (Video group) moves the steps between the large shapes and motion (higher) and the details (lower). Auto takes the preset's: 3 for Wan 2.1, 5 for Wan 2.2 TI2V.</p>
+    <h2 id="help-vstart">A start image for video</h2>
+    <p>Wan 2.2 TI2V 5B (Models tab, Get more) makes a video from a picture: the first frame is the picture, and the prompt says what moves. The size follows the picture's aspect, and the picture is cut to it at the middle. Press Edit on an image of the gallery to start from it.</p>
+    <p>On the console, 33 frames at 1280×704 take about 16 minutes at 20 steps, at 832×480 about 6. Without a start image this model needs its own size, 1280×704: smaller videos from a prompt alone come out washed out. For video from a prompt alone, Wan 2.1 is faster.</p>
     <h2 id="help-saved">Saved settings</h2>
     <p>A saved setting is a model with its own size, steps, CFG, sampler and LoRAs. Delete removes only the saved setting, never the model. To make one, set up the Create tab and press Save as preset there.</p>
     <p>The settings above are saved with the model. Its own options (VAE, tiling and so on) come along. The list is under Models.</p>
@@ -652,6 +682,7 @@
 @@include js/19-image-to-image-and-inpainting.js
 @@include js/20-upscalers.js
 @@include js/21-video-models.js
+@@include js/21b-video-start.js
 @@include js/22-server-info.js
 @@include js/22b-console.js
 @@include js/23-start-up.js

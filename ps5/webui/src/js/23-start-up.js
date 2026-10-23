@@ -58,6 +58,9 @@
     $('init-pick').onclick = function () { $('init-file').click(); };
     $('init-file').onchange = initFile;
     $('init-drop').onclick = dropInit;
+    $('vinit-pick').onclick = function () { $('vinit-file').click(); };
+    $('vinit-file').onchange = vinitFile;
+    $('vinit-drop').onclick = dropVideoStart;
     $('init-mask').onclick = openMask;
     $('init-crop').onchange = drawInit;
     $('init-ref').onchange = drawInit;
@@ -122,6 +125,7 @@
     $('frames-').onclick = function () { stepper('frames', -4, 5, 81, 0); snapFrames(); };
     $('frames+').onclick = function () { stepper('frames', 4, 5, 81, 0); snapFrames(); };
     $('frames').onchange = snapFrames;
+    $('shift').onchange = persist;
     $('fps-').onclick = function () { stepper('fps', -1, 4, 30, 0); };
     $('fps+').onclick = function () { stepper('fps', 1, 4, 30, 0); };
     $('cfg-').onclick = function () { stepper('cfg', -0.5, 0, 30, 1); };

@@ -5,7 +5,7 @@ PS5SD runs the models stable-diffusion.cpp supports:
 - SD 1.x, SD 2.x, SDXL and their finetunes;
 - SD 3.x;
 - FLUX.1, FLUX.2 and FLUX.3 Klein;
-- Wan 2.1, for short videos; see **Video** below;
+- Wan 2.1 and Wan 2.2 TI2V 5B, for short videos (the second also from a picture); see **Video** below;
 - Z-Image, Qwen-Image and others; see stable-diffusion.cpp's [docs](https://github.com/leejet/stable-diffusion.cpp/tree/master/docs).
 
 It reads `.safetensors`, `.gguf`, `.ckpt` and `.sft` files. Everything lives under `/data/PS5SD` on the console:
@@ -206,7 +206,7 @@ still ask for a saved preset by its id. Deleting a saved preset, in the web UI o
 `DELETE /ps5sd/v1/app/models/<id>`, removes its file only.
 
 The catalog's presets in [ps5/app/catalog.hpp](../ps5/app/catalog.hpp) are working examples for SDXL,
-FLUX.2 Klein 4B, FLUX.3 Klein, Z-Image Turbo and Wan 2.1.
+FLUX.2 Klein 4B, FLUX.3 Klein, Z-Image Turbo, Wan 2.1 and Wan 2.2 TI2V 5B.
 
 Put the preset in place like a model file, with FTP or the script:
 
@@ -319,8 +319,9 @@ vae/wan_2.1_vae.safetensors
 
 The Create tab switches to video mode when the loaded model makes videos. **Frames** and **Frames per
 second** replace **Images per run**. Frames are 4n+1 (5, 9, 13, ... 81); the web UI offers 5 to 81.
-33 frames at 16 frames per second is 2 seconds of video, 81 frames 5 seconds. A video has no hires fix, no start image, and no
-Upscale or Edit.
+33 frames at 16 frames per second is 2 seconds of video, 81 frames 5 seconds. A video has no hires fix, and no
+Upscale or Edit. **Flow shift** in the Video group overrides the preset's `--flow-shift` for a run (empty is
+Auto, the preset's). Wan 2.1 takes no start image; Wan 2.2 TI2V does (below).
 
 On the console, a run of 33 frames at 832x480 with 20 steps and CFG 6 took about 14.5 minutes: 36 s a
 step, 12 minutes of sampling and 2 minutes to decode the video. The model loads in a few seconds once its
@@ -352,6 +353,34 @@ Safari on iPhone may not play WebM; download the file and play it in VLC. Videos
 
 The gallery shows a video with a ▶ mark. Its viewer plays it, and Download and Delete work as they do for
 images. The TV shows the progress of a video run, but not the video: the dashboard draws images only.
+
+### Video from a picture: Wan 2.2 TI2V 5B
+
+Wan 2.2 TI2V 5B makes a video from a picture, which becomes its first frame, or from a prompt alone. Its
+catalog entry is **Wan 2.2 TI2V 5B (video from a picture)**, featured on the Models tab: QuantStack's Q8_0
+of the model, the same text encoder as Wan 2.1, and the Wan 2.2 VAE, 10.5 GB in all (Apache 2.0).
+
+| File | Size | From |
+|---|---|---|
+| `diffusion_models/Wan2.2-TI2V-5B-Q8_0.gguf` | 5.40 GB | [QuantStack/Wan2.2-TI2V-5B-GGUF](https://huggingface.co/QuantStack/Wan2.2-TI2V-5B-GGUF) |
+| `text_encoders/umt5-xxl-encoder-Q4_K_M.gguf` | 3.66 GB | city96/umt5-xxl-encoder-gguf, as for Wan 2.1 |
+| `vae/wan2.2_vae.safetensors` | 1.41 GB | [Comfy-Org/Wan_2.2_ComfyUI_Repackaged](https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged) |
+
+With it loaded, the Create tab shows **Start from an image** (or press **Edit** on an image of the gallery).
+The size follows the picture's aspect; the picture is cut to it at the middle. The API takes the picture as
+`init_image` in `POST /sdcpp/v1/vid_gen`.
+
+Measured on the console, right after a start:
+
+| Size, 33 frames | A step | Decoding | 20 steps in all |
+|---|---|---|---|
+| 1280x704 | 36 s | 196 s | about 16 minutes |
+| 832x480 | 11.7 s | 88 s | about 6 minutes |
+
+From a prompt alone the model needs its own size, 1280x704: at 832x480 and smaller the videos came out
+washed out, with or without more steps, while the same sizes from a picture are clean. For video from a
+prompt, Wan 2.1 is faster. The preset uses the model's own settings: CFG 5, flow shift 5, 24 frames per
+second. After the 1280x704 run, 2.48 GiB were free in one block; longer videos at that size are not measured.
 
 ## Inpainting
 

@@ -429,6 +429,44 @@ inline std::vector<CatalogEntry> entries() {
             false,
             "",
         },
+        // Wan 2.2 TI2V 5B (QuantStack's Q8_0) with its own VAE: a start image as the first frame. Measured on
+        // the console (docs/CONSOLE.md, "Image to video"): 1280x704 with 33 frames 36 s a step and 196 s to
+        // decode, 832x480 11.7 s and 88 s. From a prompt alone it needs 1280x704; smaller comes out washed out.
+        {
+            "wan22-ti2v-5b",
+            "Wan 2.2 TI2V 5B (video from a picture)",
+            "Video from a picture, which is the first frame, or from a prompt: 33 frames at 1280x704 in about 16 min, at 832x480 from a picture in about 6 min. 10.5 GB.",
+            {
+                { "https://huggingface.co/QuantStack/Wan2.2-TI2V-5B-GGUF/resolve/main/Wan2.2-TI2V-5B-Q8_0.gguf",
+                  "diffusion_models/Wan2.2-TI2V-5B-Q8_0.gguf", 5400179040ull, 0 },
+                { "https://huggingface.co/city96/umt5-xxl-encoder-gguf/resolve/main/umt5-xxl-encoder-Q4_K_M.gguf",
+                  "text_encoders/umt5-xxl-encoder-Q4_K_M.gguf", 3655145312ull, 0 },
+                { "https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/vae/"
+                  "wan2.2_vae.safetensors",
+                  "vae/wan2.2_vae.safetensors", 1409400960ull, 0 },
+            },
+            "# name: Wan 2.2 TI2V 5B (video from a picture)\n"
+            "# defaults: steps=20 cfg=5 width=1280 height=704 sampler=euler\n"
+            "--diffusion-model\n"
+            "diffusion_models/Wan2.2-TI2V-5B-Q8_0.gguf\n"
+            "--t5xxl\n"
+            "text_encoders/umt5-xxl-encoder-Q4_K_M.gguf\n"
+            "--vae\n"
+            "vae/wan2.2_vae.safetensors\n"
+            "--vae-tiling\n"
+            "--vae-tile-size\n"
+            "256\n"
+            "--vae-tile-overlap\n"
+            "0.25\n"
+            "--flow-shift\n"
+            "5\n"
+            "--video-frames\n"
+            "33\n"
+            "--fps\n"
+            "24\n",
+            true,
+            "video from a picture",
+        },
     };
 }
 

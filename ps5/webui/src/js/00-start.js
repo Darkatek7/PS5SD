@@ -68,6 +68,7 @@
     known: null,         // gallery names before the current run
     lb: -1,
     cn: null,            // the guide image (ControlNet): {canvas, name}
+    vinit: null,         // the start image of a video (Wan 2.2 TI2V): {canvas, name}
     cnModel: '',         // the loaded entry's ControlNet file, '' for none
     mode: 'image',       // what the request is made from: image, edit (st.init), guide (st.cn), video
     pace: null           // the step timing of the run on screen (see pace() in 09b-runs-and-queue.js)

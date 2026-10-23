@@ -33,6 +33,9 @@ const Limit kLimits[] = {
     { "Z-Image", px(1536, 1536), 0, px(1024, 1024), "1536x1536" },
     // 0.9.1: 81 frames after 33 and 49, with CausVid
     { "Wan 1.3B", px(832, 480, 81), 0, px(832, 480, 81), "832x480, 81 frames" },
+    // 0.9.6: Wan 2.2 TI2V 5B, 1280x704 with 33 frames right after a start (2.48 GiB left in one block);
+    // 832x480 with 33 frames after smaller runs
+    { "Wan 5B", px(1280, 704, 33), 0, px(832, 480, 33), "1280x704, 33 frames" },
 };
 
 const Limit * limit_for(const std::string & family) {

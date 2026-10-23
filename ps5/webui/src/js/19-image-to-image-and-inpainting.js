@@ -22,6 +22,7 @@
   }
 
   function setInit(src, name) {
+    if (vidStartCapable()) { setVideoStart(src, name); return; }   // a video model that starts from a picture
     var img = new Image();
     img.onload = function () {
       var w = img.naturalWidth || img.width, h = img.naturalHeight || img.height;

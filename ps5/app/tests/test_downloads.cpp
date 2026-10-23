@@ -209,6 +209,12 @@ int main() {
                   std::string(tae->files[0].dest) == find_catalog("wan21-t2v-1.3b")->files[0].dest &&
                   std::string(tae->preset).find("--taesd\nvae/taew2_1.safetensors\n") != std::string::npos,
               "the Wan variant with TAEHV shares the model files");
+        const CatalogEntry * ti2v = find_catalog("wan22-ti2v-5b");
+        check(ti2v != nullptr && ti2v->files.size() == 3 &&
+                  std::string(ti2v->files[1].dest) == find_catalog("wan21-t2v-1.3b")->files[1].dest &&
+                  std::string(ti2v->preset).find("--vae\nvae/wan2.2_vae.safetensors\n") != std::string::npos &&
+                  std::string(ti2v->preset).find("width=1280 height=704") != std::string::npos,
+              "Wan 2.2 TI2V shares the text encoder, has its own VAE and its own size");
         fs::remove(presets / "wan21-t2v-1.3b.txt");
     }
     {
@@ -254,9 +260,10 @@ int main() {
                       "per-file installed");
             }
         }
-        check(featured == 5 && find_catalog("sdxl-full")->featured && find_catalog("z-image-turbo")->featured &&
-                  find_catalog("wan21-t2v-1.3b")->featured && find_catalog("flux2-klein-4b")->featured,
-              "SDXL full, Klein Q4, FLUX.2 Klein 4B, Z-Image Turbo and Wan 2.1 are featured");
+        check(featured == 6 && find_catalog("sdxl-full")->featured && find_catalog("z-image-turbo")->featured &&
+                  find_catalog("wan21-t2v-1.3b")->featured && find_catalog("flux2-klein-4b")->featured &&
+                  find_catalog("wan22-ti2v-5b")->featured,
+              "SDXL full, Klein Q4, FLUX.2 Klein 4B, Z-Image Turbo, Wan 2.1 and Wan 2.2 TI2V are featured");
         check(j["entries"][0]["id"] == "sdxl-full" && j["entries"][1]["id"] == "flux3-klein-q4" &&
                   j["entries"][2]["id"] == "z-image-turbo" && j["entries"][0]["good_for"].is_string(),
               "featured order and good_for");

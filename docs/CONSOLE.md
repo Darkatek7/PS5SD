@@ -807,3 +807,20 @@ A build with the 0.9.3 changes, FW 13.00, `GET /ps5sd/v1/app/console` and the TV
 - After a restart of the console (the exporter not running), PS5SD logged `ps5-exporter does not answer
   on 9100; sent the bundled copy to the ELF loader` at its first look, and the readings were there
   within seconds (0.9.3 with the 0.9.4 changes, 2026-10-22).
+
+## Image to video: Wan 2.2 TI2V 5B (2026-10-23)
+
+QuantStack's Q8_0 of Wan 2.2 TI2V 5B (5.40 GB), umt5-xxl Q4_K_M and the Wan 2.2 VAE (1.41 GB, f16), each test
+right after a start of the title, with `--vae-tiling --vae-tile-size 256 --vae-tile-overlap 0.25`:
+
+- sd.cpp counts 9977 MB of weights (text encoder 3480, model 5153, VAE 1344); they load as each part runs.
+- From a picture (`init_image`), 1280x704 with 33 frames: 36 s a step, 196 s to decode, 2.48 GiB free in
+  one block afterwards. 832x480 with 33 frames from a prompt: 11.7 s a step, 88 s to decode, 1.98 GiB left.
+  512x288 with 9 frames: about 60 s at 6 steps.
+- From a prompt alone, only 1280x704 came out right (9 frames, 20 steps, 222 s). At 832x480 and 512x288 the
+  frames were washed out, almost white, with the shapes of the scene in them, at 6, 10 and 20 steps, at
+  CFG 5 and 6 and flow shift 3 and 5, and with the VAE's tiling on or off. From a picture the same sizes
+  were clean: the first frame is the picture and the last a little changed, so the VAE decodes right. The
+  model is trained at 1280x704 (and 704x1280).
+- `--tensor-type-rules "^vae\.=f32"` did not change the VAE's type (still f16, 1344 MB), and the VAE on
+  the CPU (`--vae-on-cpu`) does not fit: the title has about 2 GB of CPU memory.

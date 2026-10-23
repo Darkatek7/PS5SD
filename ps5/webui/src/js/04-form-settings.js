@@ -5,6 +5,7 @@
       steps: Math.round(num('steps', 20, 1, 150)), cfg: num('cfg', 7, 0, 30),
       sampler: $('sampler').value, scheduler: $('scheduler').value,
       clip: clipSkipShown() && parseInt($('clipskip').value, 10) > 0 ? parseInt($('clipskip').value, 10) : -1,
+      shift: parseFloat($('shift').value) > 0 ? Math.min(20, parseFloat($('shift').value)) : 0,
       seed: parseInt($('seed').value, 10),
       loras: loraSel.slice(),
       hr: {
@@ -63,6 +64,7 @@
     setSelect('sampler', o.sampler || 'default');
     setSelect('scheduler', o.scheduler || 'default');
     setSelect('clipskip', String(o.clip > 0 ? o.clip : -1), '-1');
+    $('shift').value = o.shift > 0 ? o.shift : '';
     if (o.seed !== undefined && o.seed !== null && !isNaN(o.seed)) $('seed').value = o.seed;
     loraSel = [];
     var ls = o.loras && o.loras.length ? o.loras : [];
@@ -85,15 +87,23 @@
     show('negstarter', !!n);
   }
 
-  // CLIP skip is a setting of SD 1.5 models only (and of models the page cannot tell). SDXL, Pony and
-  // the others use their own; with 1 an SDXL model makes noise, so the server ignores a 1 there.
+  // CLIP skip is a setting of the models that read the prompt with CLIP: SD 1.5, SD 2.1 and SDXL (and of
+  // models the page cannot tell). Auto is sd.cpp's: 1 for SD 1.5, 2 for the others. 1 only for SD 1.5:
+  // with it an SDXL model makes noise, so the server ignores a 1 there.
   function clipSkipShown() { return $('cliprow').style.display !== 'none'; }
 
   function drawClipSkip(entry) {
     var fam = entry ? familyOf(entry, entry.base ? findModel(entry.base) : null) : '';
-    var on = fam === '' || fam === 'SD 1.5';
+    var sd1 = fam === 'SD 1.5', on = fam === '' || sd1 || fam === 'SD 2.1' || fam === 'SDXL';
     $('cliprow').style.display = on ? '' : 'none';
     show('cliphint', on);
+    var sel = $('clipskip'), one = sd1 || fam === '';
+    sel.options[0].text = sd1 ? 'Auto (1)' : fam ? 'Auto (2)' : 'Auto';
+    sel.options[1].hidden = sel.options[1].disabled = !one;
+    if (!one && sel.value === '1') sel.value = '-1';
+    text($('cliphint-t'), sd1 ? 'Auto is 1 for SD 1.5; some anime models want 2.'
+      : fam ? 'Auto is 2 for ' + fam + ' (Pony and Illustrious too); 1 makes noise there, so it is not offered.'
+      : 'Auto is 1 for SD 1.5 and 2 for SDXL.');
   }
 
   function persist() {
@@ -115,7 +125,8 @@
     text($('grp-style-s'), loraSel.length ? loraSel.length + (loraSel.length === 1 ? ' LoRA' : ' LoRAs') : 'none');
     text($('hr-sect-s'), !$('hr-on').checked ? 'off' : scale === 1 ? 'refine pass' : '×' + scale);
     text($('grp-seed-s'), isNaN(seed) || seed < 0 ? 'random' : String(seed));
-    text($('vid-sect-s'), parseInt($('frames').value, 10) + ' frames · ' + parseInt($('fps').value, 10) + ' fps');
+    text($('vid-sect-s'), parseInt($('frames').value, 10) + ' frames · ' + parseInt($('fps').value, 10) + ' fps' +
+      (parseFloat($('shift').value) > 0 ? ' · shift ' + parseFloat($('shift').value) : ''));
     drawHires();
     if ($('ps-box').style.display !== 'none') drawSaveBox();
   }
@@ -135,6 +146,7 @@
     st.cnModel = entry && entry.control_net ? entry.control_net : '';
     drawStarters(entry);
     drawClipSkip(entry);
+    drawVideoStart();
     drawGuide();
     drawMode();
     if (!changed) return;

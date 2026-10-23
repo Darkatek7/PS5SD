@@ -445,7 +445,9 @@ stay in the gallery, and the job ends `cancelled`. A run that makes no image end
 
 **Video**: `POST /sdcpp/v1/vid_gen` takes the `img_gen` fields and two more, `video_frames` (4n+1: 5 to 81,
 the most measured) and `fps`. `output_format` is `webm` (the default), `webp` (animated WebP) or `avi` (MJPEG). Leave out `flow_shift` and `vae_tiling_params` to take the
-loaded preset's. The job runs as the images do, and a 33-frame video takes about 15 minutes (see
+loaded preset's (`"sample_params": {"flow_shift": 5}` sets it for one run). With a model that starts from a
+picture (Wan 2.2 TI2V 5B), `init_image` (base64 PNG or JPEG, at the request's `width` x `height`) is the
+first frame; Wan 2.1 has no use for it. The job runs as the images do, and a 33-frame video takes about 15 minutes (see
 [MODELS.md](MODELS.md#video)). A finished job has the video in `result`:
 
 - `b64_json`: the video, base64;

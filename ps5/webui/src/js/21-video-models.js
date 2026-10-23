@@ -16,6 +16,7 @@
     show('hr-sect', !st.video);
     drawCount();
     show('vid-sect', st.video);
+    drawVideoStart();
     drawGuide();
     drawMode();
     if (st.video && vid) {

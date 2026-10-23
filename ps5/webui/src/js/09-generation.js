@@ -16,6 +16,7 @@
       f.req = initRequest(f);
     }
     f.guide = !st.video && st.mode === 'guide' && !!st.cn && !!st.cnModel;
+    f.vinit = st.vinit && vidStartCapable() ? videoStartData(f.w, f.h) : null;
     f.temp = $('nokeep').checked;
     return f;
   }
@@ -120,6 +121,8 @@
     };
     if (p.sampler !== 'default') body.sample_params.sample_method = p.sampler;
     if (p.scheduler !== 'default') body.sample_params.scheduler = p.scheduler;
+    if (p.shift > 0) body.sample_params.flow_shift = p.shift;
+    if (p.vinit) body.init_image = p.vinit;
     if (loraBody(p).length) body.lora = loraBody(p);
     if (p.clip > 0) body.clip_skip = p.clip;
     if (p.temp) body.temporary = true;
