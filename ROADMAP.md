@@ -200,6 +200,38 @@ changes how the page is built, not what it can do; every feature stays.
   CPU load from `getrusage`; "GPU busy" is the share of the time a job runs. A fan speed is not
   readable, only its duty.
 
+## 0.9.5: gallery, prompts and presets ([issue 6](https://github.com/Darkatek7/PS5SD/issues/6))
+
+What blurymind asked for in issue 6. Some of it is in 0.9.0 already: the prompt, model, seed and settings in
+each PNG, shown in the viewer with **Use these settings**, a search in the prompts, and several images
+selected for one delete or download.
+
+**Gallery**
+
+- [ ] **Zoom in the viewer**: the wheel or a pinch zooms, a drag moves the picture, a double tap or click
+  switches between the whole picture and 100 %.
+- [ ] **Copy the prompt**: buttons for the prompt, the negative prompt and the whole settings text, as other
+  tools paste it.
+- [ ] **More of the recipe in the PNG**: the preset's name and the LoRAs with their strengths, besides what
+  0.9.0 writes; shown in the viewer.
+- [ ] **Names and tags**: a name and a few tags for each image, kept on the console next to the gallery
+  (the PNG stays as it was made); the search finds names and tags, and a tag filters the gallery.
+- [ ] **Images that are not kept**: a choice on the Create tab, "Don't keep on the console". The image comes
+  back to the page with Download, stays in a folder that is emptied when the title starts, and is not in
+  the gallery.
+
+**Presets and prompts**
+
+- [ ] **CLIP skip**: a field in the Quality group and `clip_skip` in `# defaults:`. sd-server takes it
+  already, and sd.cpp uses 2 for SDXL when nothing is set, so Pony models run right today; the field
+  shows that and allows 1.
+- [ ] **Prompt starters in a preset**: `# prompt:` and `# negative:` lines whose text is put before the
+  prompt (Pony's `score_9, score_8_up, ...`), shown above the prompt field, and used by the API when that
+  preset is loaded.
+- [ ] **Paste and copy** buttons at the prompt fields.
+- [ ] **Tag completion**: Danbooru tags suggested while typing, from tag files you put in
+  `/data/PS5SD/tags` (the CSV of a1111-sd-webui-tagcomplete). PS5SD brings no tag list.
+
 ## Later in 0.9.x
 
 **Video**
