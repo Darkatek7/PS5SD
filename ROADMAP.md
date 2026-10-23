@@ -10,6 +10,8 @@ can rely on.
 
 ## Done
 
+- **0.9.6**: video from a picture with Wan 2.2 TI2V 5B, Flow shift on the Create tab, and CLIP skip for
+  every model that reads the prompt with CLIP.
 - **0.9.5**: a zoom in the gallery viewer, copy buttons, names and tags for images, images that are not
   kept on the console, CLIP skip, prompt starters in a preset and Danbooru tag completion
   ([issue 6](https://github.com/Darkatek7/PS5SD/issues/6)).
@@ -237,13 +239,20 @@ selected for one delete or download.
 - [x] **Tag completion**: Danbooru tags suggested while typing, from tag files you put in
   `/data/PS5SD/tags` (the CSV of a1111-sd-webui-tagcomplete). PS5SD brings no tag list.
 
+## 0.9.6: image to video, done
+
+- [x] **Image to video** with Wan 2.2 TI2V 5B (Q8_0, 5 GB, and the Wan 2.2 VAE, 1.3 GB): a start image on the
+  Create tab when a video model takes one, sent as `init_image`. Measured on the console: it fits (about
+  10 GB of weights, loaded in parts); 832x480 with 33 frames takes 11.7 s a step and 88 s to decode. A start
+  image works at any size; text alone only at the model's own 1280x704 (smaller comes out washed out), so
+  the catalog entry defaults to 1280x704 and Wan 2.1 stays the model for text to video.
+- [x] **Flow shift on the Create tab**, for video models; set in the preset only so far (3 for Wan 2.1,
+  5 for Wan 2.2 TI2V 5B).
+- [x] **CLIP skip for every model** ([issue 6](https://github.com/Darkatek7/PS5SD/issues/6#issuecomment-6364558574)):
+  the field shows for all of them and says what Auto is for the loaded one ("Auto (2)" for SDXL); no 1 for
+  a model that is not SD 1.x.
+
 ## Later in 0.9.x
-
-**Video**
-
-- [ ] **Image to video**: a start image. Wan 2.1 T2V 1.3B is text only, so this means Wan 2.2 TI2V 5B; first
-  measure whether it fits with the Wan 2.2 VAE.
-- [ ] **Flow shift on the Create tab**, set in the preset only for now (3 for Wan 2.1).
 
 **Images**
 
