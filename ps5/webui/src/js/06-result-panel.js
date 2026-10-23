@@ -57,6 +57,13 @@
     if (!href) return;
     box.appendChild(link(href, 'Download', name, false));
     if (openHref) box.appendChild(link(openHref, 'Open full size', null, true));
+    // not kept on the console (yet)
+    var kr = st.vidResult && st.vidResult.temp && !st.results ? st.vidResult : st.results && st.results[st.pick];
+    if (kr && kr.temp) {
+      var kb = actionButton('Keep on the console', function () { keepResult(kr, kb); });
+      kb.title = 'It is deleted when PS5SD starts again; this puts it in the gallery';
+      box.appendChild(kb);
+    }
     if (withParams && st.last) {
       var r = st.results && st.results[st.pick];
       var seed = r ? r.seed : st.last.seed;

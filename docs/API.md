@@ -221,6 +221,10 @@ apart, and still silent) or `no ELF loader`. Without it those
 ```
 
 - `base` is set for a saved preset (below): the id of the model it is a preset of.
+- `prompt` and `negative` are the preset's prompt starters (`# prompt:`, `# negative:`), `""` for none.
+  While the preset is loaded, the server puts them before the prompt and the negative prompt of every
+  request, on every route (A1111, OpenAI, `img_gen`, `vid_gen`), joined with `, `. A prompt that starts with
+  its starter already does not get it twice, so the prompt saved in an image can be sent again as it is.
 
 - `active` is the entry `model.txt` names.
 - `load_error` is `{"id", "message"}` when the last model asked for did not load, with the reason: what
@@ -243,7 +247,10 @@ apart, and still silent) or `no ELF loader`. Without it those
 - `defaults` are the settings that suit the model. The web UI applies them when you press **Use**. With
   the entry loaded, `steps`, `cfg`, `sampler`, `scheduler`, `width` and `height` are also **the server's
   defaults**: a request that names none of them gets these values, and a request that names one overrides
-  it (`steps`, `cfg_scale`, `sampler_name`, `scheduler`, `width` and `height` on the A1111 routes). They win
+  it (`steps`, `cfg_scale`, `sampler_name`, `scheduler`, `width` and `height` on the A1111 routes). So is
+  `clip_skip` (1 to 12; `clip_skip` in a request overrides it); without it sd.cpp takes 2 for SDXL and SD 2
+  and 1 for SD 1.5. A `clip_skip` of 1 counts only for an SD 1.x model: any other keeps its own, because
+  with 1 an SDXL model makes noise. They win
   over the same options in `server-args.txt`, which stay the defaults of a model without settings. A value
   that cannot be an option (not a number, a size that is not a multiple of 8, ...) is left out.
 
@@ -278,7 +285,7 @@ A saved preset is a model with other settings: a preset file with `# base: <id>`
 
 | Route | |
 |---|---|
-| `POST /ps5sd/v1/app/presets` | `{"name": "Portrait fast", "base": "<model id>", "defaults": {"width": "832", "height": "1216", "steps": "10", "cfg": "6", "sampler": "dpm++2m", "scheduler": "ays", "loras": "detail.safetensors:0.8", "hires_scale": "1.5", "hires_steps": "0", "hires_denoise": "0.5", "hires_upscaler": "Latent"}}`: `201`, the library plus `"id"` of the new preset. It takes the model's arguments from `base` (the loaded model when it is left out; the base's own base when that is a saved preset too). The id comes from the name. `400` for a name of more than one line or 100 characters, a key that is not one of these, or a value with a space |
+| `POST /ps5sd/v1/app/presets` | `{"name": "Portrait fast", "base": "<model id>", "defaults": {"width": "832", "height": "1216", "steps": "10", "cfg": "6", "sampler": "dpm++2m", "scheduler": "ays", "clip_skip": "2", "loras": "detail.safetensors:0.8", "hires_scale": "1.5", "hires_steps": "0", "hires_denoise": "0.5", "hires_upscaler": "Latent"}}`: `201`, the library plus `"id"` of the new preset. It takes the model's arguments and its prompt starters from `base` (the loaded model when it is left out; the base's own base when that is a saved preset too). The id comes from the name. `400` for a name of more than one line or 100 characters, a key that is not one of these, or a value with a space |
 | `GET /ps5sd/v1/app/presets/<id>` | `{"id", "text"}`: the preset file as it is |
 | `POST /ps5sd/v1/app/presets/<id>` | `{"text": "..."}`: replaces the file (at most 64 KB, it must name a model); the answer is the library. Changed options count from the next load of that preset |
 | `DELETE /ps5sd/v1/app/presets/<id>` | deletes a saved preset's file, never a model file. `409` when it is in use, or when the preset is a model itself (no `base`; delete it with `DELETE models/<id>`) |
@@ -318,6 +325,8 @@ onto the console. The web UI's Models tab uses it.
 | `models` | a `.gguf`, `.safetensors`, `.ckpt` or `.sft` file, optionally in subfolders (`vae/my-vae.safetensors`) |
 | `loras`, `embeddings` | a model file name, no subfolders |
 | `presets` | `<id>.txt`, at most 64 KB |
+| `upscalers` | a `.pth`, `.pt`, `.safetensors` or `.gguf` file, no subfolders |
+| `tags` | a `.csv` or `.txt` tag file for the prompt's tag completion (below), at most 64 MB |
 
 - The body is passed on to ftpsrv as it arrives, so the file size is not limited by memory. Without
   ftpsrv the title writes the file itself, which slows down after about 1.4 GB.
@@ -335,6 +344,20 @@ onto the console. The web UI's Models tab uses it.
 curl -T myModel.safetensors http://<console>:7860/ps5sd/v1/app/uploads/models/myModel.safetensors
 curl -T my-model.txt http://<console>:7860/ps5sd/v1/app/uploads/presets/my-model.txt
 ```
+
+## Tag completion
+
+The prompt fields of the web UI suggest tags while you type, from the tag files in `/data/PS5SD/tags`.
+PS5SD brings none: put a `.csv` there in the format of
+[a1111-sd-webui-tagcomplete](https://github.com/DominikDoom/a1111-sd-webui-tagcomplete) (`name,type,count,"aliases"`,
+a tag a line; its `danbooru.csv` works as it is), or a `.txt` with a tag a line, through Upload or FTP.
+
+| Route | |
+|---|---|
+| `GET /ps5sd/v1/app/tags` | `{"files": ["danbooru.csv"], "tags": 100231}`: the tag files and how many tags they hold |
+| `POST /ps5sd/v1/app/tags` | `{"q": "long h", "limit": 8}`: `{"tags": [{"tag": "long hair", "count": 4350000, "alias": ""}]}`, the tags (at most `limit`, 50 the most) whose name or one of whose aliases starts with `q` (at least 2 characters; spaces and underscores count the same, any case), the most used first. `tag` is as the prompt takes it: underscores as spaces, parentheses escaped (`\(style\)`); `alias` is the alias that matched, `""` when the name did |
+
+The files are read on the first request and again when they change.
 
 ## Jobs: queue and cancel
 
@@ -430,6 +453,12 @@ loaded preset's. The job runs as the images do, and a 33-frame video takes about
 - `fps` and `frame_count`.
 
 The video is also saved in `/data/PS5SD/outputs` as `sd_<date>_<time>_<n>.webm`, so it shows in the gallery.
+
+**Not kept**: `"temporary": true` on `img_gen` or `vid_gen` saves the images or the video as
+`tmp_sd_<date>_<time>_<n>.<ext>` instead. They are served like the gallery's files
+(`/ps5sd/v1/gallery/<name>`), but the gallery lists them only with `temporary=1`, and PS5SD deletes them when
+it starts. `POST /ps5sd/v1/app/gallery/keep` keeps one after all (see [Gallery](#gallery)). The web UI's
+**Don't keep on the console** sends it.
 
 ```sh
 curl http://<console>:7860/sdcpp/v1/vid_gen -d '{"prompt": "a lighthouse on a cliff, waves, evening light", "width": 832, "height": 480, "video_frames": 33, "fps": 16, "sample_params": {"sample_steps": 20, "guidance": {"txt_cfg": 6}}, "output_format": "webm"}'
@@ -556,15 +585,23 @@ prompt says what to change ("the same house in winter, snow on the roof"). The l
 Every generated image is also saved as a PNG in `/data/PS5SD/outputs`, and every video in its own format
 (see [sd-server's own API](#sd-servers-own-api)). Since 0.9.0 each PNG carries what made it as A1111 does,
 in a tEXt chunk named `parameters`, which other tools read too (a request with `"embed_image_metadata":
-false` leaves it out). A video's parameters and the thumbnails are in `/data/PS5SD/outputs/.thumbs`.
+false` leaves it out). Since 0.9.5 that includes the loaded preset's name, as `Preset: <name>` in the text
+and `"ps5sd": {"preset": "<name>"}` in sd.cpp's JSON. A video's parameters and the thumbnails are in
+`/data/PS5SD/outputs/.thumbs`.
 
 | Route | |
 |---|---|
-| `GET /ps5sd/v1/gallery` | the newest first: `name`, `url`, `thumb`, `created`, `size`, `type` (the MIME type: `image/png`, `video/webm`, `image/webp` or `video/x-msvideo`) and `prompt`. `limit` (100, at most 1000) and `offset` page it, `order=oldest` turns it round, `q=<text>` keeps the files whose prompt has that text (any case), `type=image` or `type=video` keeps one kind. `X-Total-Count` says how many match before `limit` and `offset` |
+| `GET /ps5sd/v1/gallery` | the newest first: `name`, `url`, `thumb`, `created`, `size`, `type` (the MIME type: `image/png`, `video/webm`, `image/webp` or `video/x-msvideo`) and `prompt`. `limit` (100, at most 1000) and `offset` page it, `order=oldest` turns it round, `q=<text>` keeps the files whose prompt has that text (any case; not the names and tags below), `type=image` or `type=video` keeps one kind, `temporary=1` lists only the files that are not kept (`tmp_*`, which are left out otherwise). `X-Total-Count` says how many match before `limit` and `offset` |
 | `GET /ps5sd/v1/gallery/<name>` | one image as PNG; a video is served with its own type |
 | `GET /ps5sd/v1/gallery/thumb/<name>` | the thumbnail, a JPEG at most 320 px a side. Made when the file is saved (a video's from its first frame); a PNG saved before 0.9.0 gets its own on the first request. 404 for a video saved before 0.9.0 |
 | `GET /ps5sd/v1/gallery/info/<name>` | what made the file: `{"name", "type", "parameters", "prompt", "sdcpp"}`. `parameters` is A1111's text, `sdcpp` the JSON of the request that sd.cpp puts at its end (prompt, size, seed, sampling, models, LoRAs, hires, video), `null` when there is none |
-| `DELETE /ps5sd/v1/app/gallery/<name>` | delete one image or video: `{"deleted": "<name>"}`; 400 for a name the gallery does not list (folders, other files), 404 when it is gone already |
+| `DELETE /ps5sd/v1/app/gallery/<name>` | delete one image or video: `{"deleted": "<name>"}`; 400 for a name the gallery does not list (folders, other files), 404 when it is gone already. Its name and tags go with it |
+| `GET /ps5sd/v1/app/gallery/labels` | `{"labels": {"<file>": {"title": "Old town at night", "tags": ["night", "houses"]}}}`: the names and tags of the files that have any |
+| `POST /ps5sd/v1/app/gallery/labels` | `{"name": "<file>", "title": "...", "tags": ["..."]}`: sets a file's name (one line, at most 100 characters) and tags (at most 20, each at most 40 characters, no commas; one that is there twice in any case counts once). An empty title without tags removes them. `200 {"name", "title", "tags"}` as kept; `404` for a file that is not there |
+| `POST /ps5sd/v1/app/gallery/keep` | `{"name": "tmp_<file>"}`: keeps a file that was made with `"temporary": true`; it becomes `<file>`, with its thumbnail and parameters. `200 {"kept": "<file>"}`, `404` when there is no such file, `409` when `<file>` is taken |
+
+The names and tags are kept in `/data/PS5SD/outputs/.labels.json`, not in the files, so a PNG stays as it
+was made. The web UI's search finds them; the gallery's `q` does not.
 
 ## App settings
 

@@ -6,6 +6,7 @@
     var d = { width: String(f.w), height: String(f.h), steps: String(f.steps), cfg: String(f.cfg) };
     if (f.sampler && f.sampler !== 'default') d.sampler = f.sampler;
     if (f.scheduler && f.scheduler !== 'default') d.scheduler = f.scheduler;
+    if (f.clip > 0) d.clip_skip = String(f.clip);
     var ls = [];
     for (var i = 0; i < f.loras.length; i++) if (f.loras[i].m !== 0) ls.push(f.loras[i].path + ':' + f.loras[i].m);
     if (ls.length) d.loras = ls.join(',');
@@ -37,6 +38,7 @@
     var parts = [d.width + '×' + d.height, d.steps + (d.steps === '1' ? ' step' : ' steps'), 'CFG ' + d.cfg];
     if (d.sampler) parts.push(d.sampler);
     if (d.scheduler) parts.push(d.scheduler);
+    if (d.clip_skip) parts.push('CLIP skip ' + d.clip_skip);
     if (d.loras) parts.push(d.loras.split(',').length + (d.loras.split(',').length === 1 ? ' LoRA' : ' LoRAs'));
     if (d.hires_scale) parts.push(d.hires_scale === '1' ? 'refine pass' : 'hires ×' + d.hires_scale);
     text($('ps-what'), 'Model: ' + (root ? titleOf(root) : st.mid) + ' · ' + parts.join(' · '));

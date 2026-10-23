@@ -16,6 +16,7 @@
       f.req = initRequest(f);
     }
     f.guide = !st.video && st.mode === 'guide' && !!st.cn && !!st.cnModel;
+    f.temp = $('nokeep').checked;
     return f;
   }
 
@@ -95,6 +96,8 @@
       if ($('cn-canny').checked) body.image_preprocess = 'target=control,canny=true';
     }
     if (p.repeat > 1) body.repeat = p.repeat;
+    if (p.clip > 0) body.clip_skip = p.clip;
+    if (p.temp) body.temporary = true;
     return body;
   }
 
@@ -118,6 +121,8 @@
     if (p.sampler !== 'default') body.sample_params.sample_method = p.sampler;
     if (p.scheduler !== 'default') body.sample_params.scheduler = p.scheduler;
     if (loraBody(p).length) body.lora = loraBody(p);
+    if (p.clip > 0) body.clip_skip = p.clip;
+    if (p.temp) body.temporary = true;
     return body;
   }
 
@@ -233,6 +238,7 @@
     if (p.sampler !== 'default') body.sampler_name = p.sampler;
     if (p.scheduler !== 'default') body.scheduler = p.scheduler;
     if (loraBody(p).length) body.lora = loraBody(p);
+    if (p.clip > 0) body.clip_skip = p.clip;
     var route = '/sdapi/v1/txt2img';
     if (p.req && p.req.ref) {
       body.extra_images = [p.req.init];

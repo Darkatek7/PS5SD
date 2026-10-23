@@ -208,28 +208,30 @@ selected for one delete or download.
 
 **Gallery**
 
-- [ ] **Zoom in the viewer**: the wheel or a pinch zooms, a drag moves the picture, a double tap or click
+- [x] **Zoom in the viewer**: the wheel or a pinch zooms, a drag moves the picture, a double tap or click
   switches between the whole picture and 100 %.
-- [ ] **Copy the prompt**: buttons for the prompt, the negative prompt and the whole settings text, as other
+- [x] **Copy the prompt**: buttons for the prompt, the negative prompt and the whole settings text, as other
   tools paste it.
-- [ ] **More of the recipe in the PNG**: the preset's name and the LoRAs with their strengths, besides what
+- [x] **More of the recipe in the PNG**: the preset's name and the LoRAs with their strengths, besides what
   0.9.0 writes; shown in the viewer.
-- [ ] **Names and tags**: a name and a few tags for each image, kept on the console next to the gallery
+- [x] **Names and tags**: a name and a few tags for each image, kept on the console next to the gallery
   (the PNG stays as it was made); the search finds names and tags, and a tag filters the gallery.
-- [ ] **Images that are not kept**: a choice on the Create tab, "Don't keep on the console". The image comes
-  back to the page with Download, stays in a folder that is emptied when the title starts, and is not in
-  the gallery.
+- [x] **Images that are not kept**: a choice on the Create tab, "Don't keep on the console". The image comes
+  back to the page with Download and **Keep on the console**, is saved under a `tmp_` name that the title
+  deletes when it starts, and is not in the gallery.
 
 **Presets and prompts**
 
-- [ ] **CLIP skip**: a field in the Quality group and `clip_skip` in `# defaults:`. sd-server takes it
-  already, and sd.cpp uses 2 for SDXL when nothing is set, so Pony models run right today; the field
-  shows that and allows 1.
-- [ ] **Prompt starters in a preset**: `# prompt:` and `# negative:` lines whose text is put before the
+- [x] **CLIP skip**: a field in the Quality group and `clip_skip` in `# defaults:`. sd-server takes it
+  already, and sd.cpp uses 2 for SDXL when nothing is set, so Pony models run right today. The field
+  shows for SD 1.5 models only: with 1 an SDXL model makes noise (measured), so the server ignores a 1
+  for every model that is not SD 1.x.
+- [x] **Prompt starters in a preset**: `# prompt:` and `# negative:` lines whose text is put before the
   prompt (Pony's `score_9, score_8_up, ...`), shown above the prompt field, and used by the API when that
   preset is loaded.
-- [ ] **Paste and copy** buttons at the prompt fields.
-- [ ] **Tag completion**: Danbooru tags suggested while typing, from tag files you put in
+- [x] **Copy** buttons at the prompt fields. Paste only where the browser allows it: none reads the
+  clipboard for a page over plain HTTP, as the console serves it.
+- [x] **Tag completion**: Danbooru tags suggested while typing, from tag files you put in
   `/data/PS5SD/tags` (the CSV of a1111-sd-webui-tagcomplete). PS5SD brings no tag list.
 
 ## Later in 0.9.x

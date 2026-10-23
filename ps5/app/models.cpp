@@ -166,7 +166,7 @@ bool valid_name(const std::string & v) {
 }  // namespace
 
 std::vector<std::string> defaults_to_args(const std::vector<std::pair<std::string, std::string>> & defaults) {
-    std::string steps, cfg, sampler, scheduler, width, height;  // the last valid value of each
+    std::string steps, cfg, sampler, scheduler, width, height, clip_skip;  // the last valid value of each
     for (const auto & kv : defaults) {
         long n = 0;
         if (kv.first == "steps" && whole_int(kv.second, 1, 150, n)) {
@@ -181,6 +181,8 @@ std::vector<std::string> defaults_to_args(const std::vector<std::pair<std::strin
             width = kv.second;
         } else if (kv.first == "height" && whole_int(kv.second, 64, 4096, n) && n % 8 == 0) {
             height = kv.second;
+        } else if (kv.first == "clip_skip" && whole_int(kv.second, 1, 12, n)) {
+            clip_skip = kv.second;
         }
     }
     std::vector<std::string> out;
@@ -196,6 +198,7 @@ std::vector<std::string> defaults_to_args(const std::vector<std::pair<std::strin
     add("--scheduler", scheduler);
     add("--width", width);
     add("--height", height);
+    add("--clip-skip", clip_skip);
     return out;
 }
 
@@ -217,6 +220,8 @@ PresetSettings preset_settings(const std::vector<std::pair<std::string, std::str
             settings.width = std::atoi(value.c_str());
         } else if (option == "--height") {
             settings.height = std::atoi(value.c_str());
+        } else if (option == "--clip-skip") {
+            settings.clip_skip = std::atoi(value.c_str());
         }
     }
     return settings;
@@ -247,6 +252,10 @@ ModelEntry ModelLibrary::parse_preset(const std::string & id, const std::string 
                 e.defaults = parse_defaults(value);
             } else if (key == "base") {
                 e.base = value;
+            } else if (key == "prompt") {
+                e.prompt_starter = value;
+            } else if (key == "negative") {
+                e.negative_starter = value;
             }
             continue;
         }
@@ -475,7 +484,7 @@ std::string slug(const std::string & name) {
 bool valid_default(const std::string & key, const std::string & value) {
     static const char * const kKeys[] = { "steps",       "cfg",         "width",         "height",        "sampler",
                                           "scheduler",   "loras",       "hires_scale",   "hires_steps",   "hires_denoise",
-                                          "hires_upscaler" };
+                                          "hires_upscaler", "clip_skip" };
     bool known = false;
     for (const char * k : kKeys) {
         known = known || key == k;
@@ -571,6 +580,13 @@ bool ModelLibrary::create_preset(const std::string & name_in, const std::string 
         }
     }
     std::string text = "# name: " + name + "\n# base: " + root + "\n";
+    // the base's prompt starters: a variant is the same model with other settings
+    if (!base.prompt_starter.empty()) {
+        text += "# prompt: " + base.prompt_starter + "\n";
+    }
+    if (!base.negative_starter.empty()) {
+        text += "# negative: " + base.negative_starter + "\n";
+    }
     if (!defaults.empty()) {
         text += "# defaults:";
         for (const auto & kv : defaults) {
@@ -697,6 +713,8 @@ std::string models_json(const ModelLibrary & library, const std::string & active
                          { "control_net", control_net_name(e) },
                          { "family", model_family(e) },
                          { "part", e.kind == "file" && !e.files.empty() ? net_part(e.files[0]) : "" },
+                         { "prompt", e.prompt_starter },
+                         { "negative", e.negative_starter },
                          { "defaults", defaults } });
     }
     nlohmann::json load_error = nullptr;

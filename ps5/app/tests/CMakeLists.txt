@@ -75,3 +75,13 @@ if(PS5SD_NET_SMOKE)
     target_link_libraries(smoke_downloader PRIVATE "${MBEDTLS_ROOT}/lib/libmbedtls.a"
                           "${MBEDTLS_ROOT}/lib/libmbedx509.a" "${MBEDTLS_ROOT}/lib/libmbedcrypto.a" Threads::Threads)
 endif()
+
+# The gallery's names and tags, and the images that are not kept (gallery_labels.hpp).
+add_executable(test_gallery_labels test_gallery_labels.cpp ../gallery_labels.cpp)
+target_include_directories(test_gallery_labels PRIVATE .. "${SD_DIR}/thirdparty")
+add_test(NAME gallery_labels COMMAND test_gallery_labels)
+
+# Tag completion from the user's tag files (prompt_tags.hpp).
+add_executable(test_prompt_tags test_prompt_tags.cpp ../prompt_tags.cpp)
+target_include_directories(test_prompt_tags PRIVATE .. "${SD_DIR}/thirdparty")
+add_test(NAME prompt_tags COMMAND test_prompt_tags)

@@ -4,6 +4,7 @@
       w: size8('w', 512), h: size8('h', 512),
       steps: Math.round(num('steps', 20, 1, 150)), cfg: num('cfg', 7, 0, 30),
       sampler: $('sampler').value, scheduler: $('scheduler').value,
+      clip: clipSkipShown() && parseInt($('clipskip').value, 10) > 0 ? parseInt($('clipskip').value, 10) : -1,
       seed: parseInt($('seed').value, 10),
       loras: loraSel.slice(),
       hr: {
@@ -61,6 +62,7 @@
     if (o.cfg !== undefined && o.cfg !== null) $('cfg').value = o.cfg;
     setSelect('sampler', o.sampler || 'default');
     setSelect('scheduler', o.scheduler || 'default');
+    setSelect('clipskip', String(o.clip > 0 ? o.clip : -1), '-1');
     if (o.seed !== undefined && o.seed !== null && !isNaN(o.seed)) $('seed').value = o.seed;
     loraSel = [];
     var ls = o.loras && o.loras.length ? o.loras : [];
@@ -71,6 +73,27 @@
     setHires(o.hr);
     markPreset();
     summary();
+  }
+
+  // The preset's prompt starters ("# prompt:", "# negative:"): the server puts them before the prompts
+  // of every run while the preset is loaded, so they are shown, not added to the fields.
+  function drawStarters(entry) {
+    var p = entry && entry.prompt ? entry.prompt : '', n = entry && entry.negative ? entry.negative : '';
+    text($('starter'), p ? 'The preset puts this before the prompt: ' + p : '');
+    show('starter', !!p);
+    text($('negstarter'), n ? 'The preset puts this before the negative prompt: ' + n : '');
+    show('negstarter', !!n);
+  }
+
+  // CLIP skip is a setting of SD 1.5 models only (and of models the page cannot tell). SDXL, Pony and
+  // the others use their own; with 1 an SDXL model makes noise, so the server ignores a 1 there.
+  function clipSkipShown() { return $('cliprow').style.display !== 'none'; }
+
+  function drawClipSkip(entry) {
+    var fam = entry ? familyOf(entry, entry.base ? findModel(entry.base) : null) : '';
+    var on = fam === '' || fam === 'SD 1.5';
+    $('cliprow').style.display = on ? '' : 'none';
+    show('cliphint', on);
   }
 
   function persist() {
@@ -87,7 +110,8 @@
     var scale = num('hr-scale', 1.5, 1, 4);
     text($('grp-size-s'), parseInt($('w').value, 10) + '×' + parseInt($('h').value, 10));
     text($('grp-quality-s'), steps + (steps === 1 ? ' step' : ' steps') + ' · CFG ' + num('cfg', 7, 0, 30) +
-      ($('sampler').value !== 'default' ? ' · ' + $('sampler').value : ''));
+      ($('sampler').value !== 'default' ? ' · ' + $('sampler').value : '') +
+      (clipSkipShown() && parseInt($('clipskip').value, 10) > 0 ? ' · CLIP skip ' + $('clipskip').value : ''));
     text($('grp-style-s'), loraSel.length ? loraSel.length + (loraSel.length === 1 ? ' LoRA' : ' LoRAs') : 'none');
     text($('hr-sect-s'), !$('hr-on').checked ? 'off' : scale === 1 ? 'refine pass' : '×' + scale);
     text($('grp-seed-s'), isNaN(seed) || seed < 0 ? 'random' : String(seed));
@@ -109,6 +133,8 @@
     st.preset = presetFor(name, entry);
     text($('presetnote'), presetNote(st.preset));
     st.cnModel = entry && entry.control_net ? entry.control_net : '';
+    drawStarters(entry);
+    drawClipSkip(entry);
     drawGuide();
     drawMode();
     if (!changed) return;

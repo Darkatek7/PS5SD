@@ -16,10 +16,12 @@
   // One line: model · size · steps · CFG · sampler · seed · LoRAs · hires · frames.
   function settingsLine(j) {
     var s = j.sampling || {}, g = s.guidance || {}, bits = [];
+    if (j.ps5sd && j.ps5sd.preset) bits.push('preset ' + j.ps5sd.preset);
     if (infoModel(j)) bits.push(infoModel(j));
     bits.push(j.width + '×' + j.height);
     bits.push(s.steps + (s.steps === 1 ? ' step' : ' steps'), 'CFG ' + round2(g.txt_cfg));
     if (s.method) bits.push(s.method + (s.scheduler ? ' ' + s.scheduler : ''));
+    if (j.clip_skip > 0) bits.push('CLIP skip ' + j.clip_skip);
     bits.push('seed ' + j.seed);
     var ls = j.loras || [];
     for (var i = 0; i < ls.length; i++) bits.push('LoRA ' + ls[i].name + ' ' + round2(ls[i].multiplier));
@@ -43,12 +45,52 @@
     }
     var j = data && data.sdcpp;
     var has = !!(j || (data && data.prompt));
-    show('lb-info', has, 'flex');
-    $('lb').className = has ? 'lb withinfo' : 'lb';
-    if (!has) return;
-    text($('lb-prompt'), j && j.prompt ? j.prompt.positive : data.prompt);
-    text($('lb-set'), j ? settingsLine(j) : '');
+    var labelled = drawLbLabel(it);
+    show('lb-info', has || labelled, 'flex');
+    $('lb').className = has || labelled ? 'lb withinfo' : 'lb';
+    show('lb-text', has);
+    show('lb-copy', has, 'flex');
     show('lb-use', !!j, 'inline-block');
+    if (!has) return;
+    var neg = j && j.prompt ? j.prompt.negative || '' : '';
+    text($('lb-prompt'), j && j.prompt ? j.prompt.positive : data.prompt);
+    text($('lb-neg'), neg ? 'Negative: ' + neg : '');
+    show('lb-neg', !!neg);
+    show('lb-cn', !!neg, 'inline-block');
+    text($('lb-set'), j ? settingsLine(j) : '');
+  }
+
+  // The name and the tags of the image in the viewer (13b), a tag a button that filters the gallery by it.
+  // False when it has neither.
+  function drawLbLabel(it) {
+    var box = $('lb-lab');
+    clear(box);
+    var tags = it.tags || [];
+    if (it.title) box.appendChild(el('span', 'lb-name', it.title));
+    for (var i = 0; i < tags.length; i++) {
+      (function (tag) {
+        var b = el('button', 'ltag', '#' + tag);
+        b.type = 'button';
+        b.title = 'The images tagged ' + tag;
+        b.onclick = function () { closeLb(); setView('gallery'); setGallerySearchNow('#' + tag); };
+        box.appendChild(b);
+      })(tags[i]);
+    }
+    var on = !!(it.title || tags.length);
+    show('lb-lab', on, 'flex');
+    return on;
+  }
+
+  // What made the image in the viewer as text: the prompt, the negative prompt, or all of it as A1111
+  // writes it (which other tools read when it is pasted), without sd.cpp's JSON at the end.
+  function copyInfo(which) {
+    var it = lbItem();
+    var d = it ? infoCache[it.name] : null;
+    if (!d) return;
+    var j = d.sdcpp;
+    if (which === 'prompt') copyText(j && j.prompt ? j.prompt.positive || '' : d.prompt || '', 'The prompt');
+    else if (which === 'negative') copyText(j && j.prompt ? j.prompt.negative || '' : '', 'The negative prompt');
+    else copyText(String(d.parameters || d.prompt || '').replace(/,\s*SDCPP:\s*\{[\s\S]*$/, ''), 'The settings');
   }
 
   // The prompt and the settings of the image in the viewer into the Create tab. The model stays: it
@@ -72,7 +114,7 @@
     negShow(!!$('neg').value);
     setForm({
       w: j.width, h: j.height, steps: s.steps, cfg: round2(g.txt_cfg),
-      sampler: s.method || 'default', scheduler: s.scheduler || 'default', seed: j.seed, loras: loras,
+      sampler: s.method || 'default', scheduler: s.scheduler || 'default', clip: j.clip_skip, seed: j.seed, loras: loras,
       hr: hr && hr.enabled ? { on: true, up: hr.upscaler, scale: round2(hr.scale), steps: hr.steps, den: round2(hr.denoising_strength) } : null
     });
     if (j.video) {

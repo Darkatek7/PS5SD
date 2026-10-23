@@ -10,17 +10,36 @@
   // While selecting: {name: true} of the selected files; null otherwise.
   var gsel = null;
 
+  // The names and tags of the files (GET /ps5sd/v1/app/gallery/labels): {name: {title, tags}}.
+  var galleryLabels = {};
+
+  // The list and the labels, asked for together; the list is drawn when both are in.
   function loadGallery(cb) {
-    req('GET', '/ps5sd/v1/gallery?limit=1000', null, function (code, data) {
-      if (code === 200 && data && data.length !== undefined) {
-        galleryList = data;
+    var list = null, code = -1, labelsIn = false;
+    function both() {
+      if (code < 0 || !labelsIn) return;
+      if (code === 200 && list && list.length !== undefined) {
+        galleryList = list;
         galleryLoaded = true;
       } else if (code === 200) {
         galleryList = []; galleryLoaded = true;
       }
+      for (var i = 0; i < galleryList.length; i++) labelItem(galleryList[i]);
       drawGallery();
       if (cb) cb(code === 200 ? galleryList : null);
+    }
+    req('GET', '/ps5sd/v1/gallery?limit=1000', null, function (c, data) { code = c; list = data; both(); });
+    req('GET', APP + '/gallery/labels', null, function (c, data) {
+      if (c === 200 && data && data.labels) galleryLabels = data.labels;
+      labelsIn = true;
+      both();
     });
+  }
+
+  function labelItem(it) {
+    var l = galleryLabels[it.name];
+    it.title = l && l.title ? l.title : '';
+    it.tags = l && l.tags ? l.tags : [];
   }
 
   function refreshGallery() { loadGallery(null); }
@@ -50,7 +69,7 @@
     for (var i = 0; i < galleryList.length; i++) {
       var it = galleryList[i];
       if (kind !== 'all' && isVideo(it) !== (kind === 'videos')) continue;
-      if (q && String(it.prompt || '').toLowerCase().indexOf(q) < 0) continue;
+      if (q && !gallerySearchHits(it, q)) continue;
       out.push(it);
     }
     if (galleryOrder === 'oldest') out.reverse();
@@ -60,6 +79,26 @@
   function setGalleryOrder(order) {
     galleryOrder = order === 'oldest' ? 'oldest' : 'newest';
     save('gorder', galleryOrder);
+    st.limit = PAGE;
+    drawGallery();
+  }
+
+  // The search: "#night" is the tag night; any other text is looked for in the prompt, the name and
+  // the tags. q is in lower case.
+  function gallerySearchHits(it, q) {
+    var tags = it.tags || [];
+    if (q.charAt(0) === '#' && q.length > 1 && q.indexOf(' ') < 0) {
+      for (var i = 0; i < tags.length; i++) if (tags[i].toLowerCase() === q.substring(1)) return true;
+      return false;
+    }
+    var all = String(it.prompt || '') + '\n' + String(it.title || '') + '\n' + tags.join('\n');
+    return all.toLowerCase().indexOf(q) >= 0;
+  }
+
+  function setGallerySearchNow(q) {
+    if (searchTimer) { clearTimeout(searchTimer); searchTimer = null; }
+    $('gsearch').value = q;
+    gallerySearch = q;
     st.limit = PAGE;
     drawGallery();
   }
@@ -123,7 +162,7 @@
         cell.className = gsel && gsel[item.name] ? 't sel' : 't';
         var a = document.createElement('a');
         a.href = item.url;
-        a.title = item.prompt || item.name;
+        a.title = item.title || item.prompt || item.name;
         // the thumbnail (0.9.0); the file itself when there is none
         if (item.thumb) {
           var img = document.createElement('img');
@@ -142,11 +181,12 @@
           return false;
         };
         cell.appendChild(a);
+        if (item.title) cell.appendChild(el('span', 'tname', item.title));
         box.appendChild(cell);
       })(view[i], i);
     }
     text($('gcount'), galleryList.length ? '(' + galleryList.length + ')' : '');
-    text($('none'), gallerySearch ? 'No prompt has "' + gallerySearch + '".'
+    text($('none'), gallerySearch ? 'Nothing matches "' + gallerySearch + '".'
       : kind === 'images' ? 'No images saved yet.' : kind === 'videos' ? 'No videos saved yet.' : 'Nothing saved yet.');
     show('none', !view.length);
     show('more', view.length > shown, 'inline-block');
@@ -283,6 +323,7 @@
     st.lb = i;
     var it = list[i];
     lbShown = it.url;
+    zoomReset();
     var img = $('lb-img'), vid = $('lb-vid');
     if (isVideo(it)) {
       img.style.display = 'none';
@@ -334,6 +375,7 @@
     show('lb', false);
     st.lb = -1;
     lbShown = null;
+    zoomReset();
     $('lb-img').removeAttribute('src');
     try { $('lb-vid').pause(); } catch (e) {}
     $('lb-vid').removeAttribute('src');
@@ -390,6 +432,11 @@
       if (k === 27) { closeEdit(); return false; }
       return true;
     }
+    if (labelFor) {
+      if (k === 27) { closeLabels(); return false; }
+      if (k === 13 && document.activeElement && document.activeElement.tagName === 'INPUT') { saveLabels(); return false; }
+      return true;
+    }
     if ($('me').style.display !== 'none') {
       if (k === 27) { maskDone(); return false; }
       return true;
@@ -410,9 +457,10 @@
       if (k === 46) { askDeleteImage(); return false; }
       if (k === 9) {
         // keep Tab inside the viewer
-        var ring = [$('lb-prev'), $('lb-dl'), $('lb-open'), $('lb-up'), $('lb-edit'), $('lb-guide'), $('lb-del'), $('lb-close'), $('lb-next'), $('lb-use')];
+        var ring = [$('lb-prev'), $('lb-dl'), $('lb-open'), $('lb-up'), $('lb-edit'), $('lb-guide'), $('lb-label'), $('lb-del'), $('lb-close'),
+          $('lb-next'), $('lb-cp'), $('lb-cn'), $('lb-ca'), $('lb-use')];
         var live = [];
-        for (var i = 0; i < ring.length; i++) if (!ring[i].disabled && ring[i].style.display !== 'none') live.push(ring[i]);
+        for (var i = 0; i < ring.length; i++) if (!ring[i].disabled && ring[i].style.display !== 'none' && ring[i].offsetParent !== null) live.push(ring[i]);
         var at = -1;
         for (var j = 0; j < live.length; j++) if (live[j] === document.activeElement) at = j;
         var to = e.shiftKey ? (at <= 0 ? live.length - 1 : at - 1) : (at < 0 || at >= live.length - 1 ? 0 : at + 1);

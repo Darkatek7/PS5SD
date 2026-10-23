@@ -143,6 +143,13 @@
     drawStrip();
     pickResult(0);
     signal(true, (n > 1 ? n + ' images' : 'The image') + ' done in ' + clock(seconds) + '.');
+    // not kept: the tmp_ files the server saved (Keep makes them gallery files); a put-back edit is
+    // only in the page until it is kept
+    if (st.last && st.last.temp) {
+      for (var t = 0; t < results.length; t++) results[t].temp = true;
+      if (!edited) matchTemporary(results, 'image');
+      return;
+    }
     // the server saved them (with --output-dir): download those files instead of huge data URLs
     var known = st.known;
     loadGallery(function (list) {
@@ -204,6 +211,13 @@
     if (!probe.canPlayType || !probe.canPlayType(mime)) {
       toast('This browser cannot play WebM videos. Download it and play it with VLC or a PC browser.', 8000);
     }
+    if (l && l.temp) {
+      var vr = { src: url, url: null, name: '', temp: true, video: true };
+      st.vidResult = vr;
+      matchTemporary([vr], 'video');
+      return;
+    }
+    st.vidResult = null;
     // the server saved it to the gallery: the newest new .webm is the file to link to
     var known = st.known;
     loadGallery(function (list) {
@@ -215,6 +229,46 @@
         }
       }
     });
+  }
+
+  // The tmp_ files of a run that is not kept, newest first from the server: the last n are this run's,
+  // in the order of the results.
+  function matchTemporary(results, type) {
+    req('GET', '/ps5sd/v1/gallery?temporary=1&type=' + type + '&limit=' + results.length, null, function (code, list) {
+      if (code !== 200 || !list || list.length !== results.length) return;
+      list.reverse();
+      for (var i = 0; i < list.length; i++) { results[i].url = list[i].url; results[i].name = list[i].name; }
+      if (st.busy) return;
+      if (type === 'video') { if (st.vidResult === results[0]) showActions(list[0].url, list[0].name, list[0].url, true); }
+      else if (st.results === results) pickResult(st.pick);
+    });
+  }
+
+  // Keep a result that was not to be kept: its tmp_ file becomes a gallery file, or (a put-back edit,
+  // which only the page has) the image is saved to the gallery.
+  function keepResult(r, button) {
+    if (button) button.disabled = true;
+    function done(code, data, name) {
+      if (button) button.disabled = false;
+      if (code !== 200 && code !== 201) { toast(errText(code, data, 'Could not keep it'), 6000); return; }
+      r.temp = false;
+      r.name = name;
+      r.url = galleryUrl(name);
+      toast('Kept: ' + name + ' is in the gallery.');
+      loadGallery(null);
+      if (r.video) showActions(r.url, r.name, r.url, true);
+      else if (st.results && st.results.indexOf(r) >= 0) {
+        if (st.runMode) showRunItem(st.results.indexOf(r)); else pickResult(st.results.indexOf(r));
+      }
+    }
+    if (r.name && /^tmp_/.test(r.name)) {
+      req('POST', APP + '/gallery/keep', { name: r.name }, function (code, data) { done(code, data, data && data.kept); });
+    } else if (r.src && /^data:image\/png/.test(r.src)) {
+      req('POST', APP + '/gallery', { image: r.src, parameters: r.params || '' }, function (code, data) { done(code, data, data && data.saved); }, 60000);
+    } else if (button) {
+      button.disabled = false;
+      toast('The file is not on the console yet. Try again in a moment.');
+    }
   }
 
   function drawStrip() {

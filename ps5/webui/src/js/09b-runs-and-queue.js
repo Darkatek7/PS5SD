@@ -205,7 +205,7 @@
     for (var i = names.length - 1; i >= 0; i--) {
       run.items.push({
         name: names[i], url: galleryUrl(names[i]), src: galleryUrl(names[i]), seed: null,
-        no: run.done - (names.length - 1 - i), of: run.total
+        no: run.done - (names.length - 1 - i), of: run.total, temp: /^tmp_/.test(names[i])
       });
     }
     drawRunStrip();
@@ -273,8 +273,13 @@
     r.no = run.done;
     r.of = run.total;
     run.items.unshift(r);
+    // not kept: its tmp_ file (an image put back into the picture is only in the page until Keep)
+    if (st.last && st.last.temp) {
+      r.temp = true;
+      if (!edited) matchTemporary([r], 'image');
+    }
     showRunItem(0);
-    loadGallery(function (list) {
+    if (!r.temp) loadGallery(function (list) {
       if (!known || !list) return;
       var fresh = [];
       for (var i = 0; i < list.length; i++) if (!known[list[i].name]) fresh.push(list[i]);

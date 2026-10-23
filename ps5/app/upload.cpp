@@ -29,6 +29,7 @@ std::set<std::string> g_busy;  // the files being uploaded
 
 constexpr size_t   kBlock     = 1u << 20;  // bytes passed on to ftpsrv at once
 constexpr uint64_t kPresetMax = 64u << 10;
+constexpr uint64_t kTagsMax   = 64u << 20;
 
 std::string error_json(const std::string & message) {
     return json{ { "error", message } }.dump();
@@ -58,6 +59,10 @@ int upload_file(const UploadDirs & dirs, const std::string & path, uint64_t leng
         out = error_json(error);
         return 400;
     }
+    if (kind == "tags" && length > kTagsMax) {
+        out = error_json("a tag file is at most 64 MB; this one has " + std::to_string(length) + " bytes");
+        return 413;
+    }
     if (kind == "presets" && length > kPresetMax) {
         out = error_json("a preset is a small text file; this one has " + std::to_string(length) + " bytes");
         return 413;
@@ -66,6 +71,7 @@ int upload_file(const UploadDirs & dirs, const std::string & path, uint64_t leng
                                : kind == "loras" ? dirs.loras
                                : kind == "embeddings" ? dirs.embeddings
                                : kind == "upscalers" ? dirs.upscalers
+                               : kind == "tags" ? dirs.tags
                                                       : dirs.presets;
     const std::string   dest = dir + "/" + name;
     const std::string   part = dest + ".part";

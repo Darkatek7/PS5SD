@@ -233,6 +233,8 @@ cxx -std=c++17 "${eh[@]}" -I "$sd/thirdparty" -c "$app_src/console_stats.cpp" -o
 cxx -std=c++17 "${eh[@]}" -I "$sd/thirdparty" -c "$app_src/models.cpp" -o "$obj/models.o"
 cxx -std=c++17 "${eh[@]}" -I "$sd/thirdparty" -c "$app_src/net_family.cpp" -o "$obj/net_family.o"
 cxx -std=c++17 "${eh[@]}" -I "$sd/thirdparty" -c "$app_src/mem_fit.cpp" -o "$obj/mem_fit.o"
+cxx -std=c++17 "${eh[@]}" -I "$sd/thirdparty" -c "$app_src/gallery_labels.cpp" -o "$obj/gallery_labels.o"
+cxx -std=c++17 "${eh[@]}" -I "$sd/thirdparty" -c "$app_src/prompt_tags.cpp" -o "$obj/prompt_tags.o"
 # The model downloader (downloader.hpp): its pure part, the queue and routes, and the HTTPS
 # client over mbedTLS with the Mozilla CA list (ps5/app/cacert.pem) built in.
 ca_h="$out/cacert_pem.h"
@@ -259,7 +261,7 @@ rm -f "$obj/libps5app_compat.a"
 cxx -fno-exceptions -fno-rtti -c "$vk/tooling/native/app_crt.cpp" -o "$obj/app_crt.o"
 cxx -fexceptions -fcxx-exceptions -c "$app_src/cpp_runtime.cpp" -o "$obj/app_cpp_runtime.o"
 app_objects=("$obj/app_crt.o" "$obj/app_cpp_runtime.o" "$obj/main.o" "$obj/gen_args.o" "$obj/app_status.o" "$obj/console_stats.o"
-    "$obj/models.o" "$obj/net_family.o" "$obj/mem_fit.o" "$obj/download_core.o" "$obj/downloader.o" "$obj/https_client.o" "$obj/ftp_writer.o" "$obj/upload.o")
+    "$obj/models.o" "$obj/net_family.o" "$obj/mem_fit.o" "$obj/gallery_labels.o" "$obj/prompt_tags.o" "$obj/download_core.o" "$obj/downloader.o" "$obj/https_client.o" "$obj/ftp_writer.o" "$obj/upload.o")
 [ "$display" = 1 ] && app_objects+=("$obj/display.o" "$obj/dashboard.o" "$obj/qrcodegen.o" "$obj/image_file.o")
 
 # ---- the screen (display builds only) --------------------------------------------

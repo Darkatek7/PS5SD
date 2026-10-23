@@ -549,8 +549,9 @@ bool upload_target(const std::string & path, std::string & kind, std::string & n
     const size_t slash = path.find('/');
     kind               = path.substr(0, slash);
     name               = slash == std::string::npos ? std::string() : path.substr(slash + 1);
-    if (kind != "models" && kind != "loras" && kind != "embeddings" && kind != "presets" && kind != "upscalers") {
-        error = "uploads go to models, loras, embeddings, presets or upscalers, not '" + kind + "'";
+    if (kind != "models" && kind != "loras" && kind != "embeddings" && kind != "presets" && kind != "upscalers" &&
+        kind != "tags") {
+        error = "uploads go to models, loras, embeddings, presets, upscalers or tags, not '" + kind + "'";
         return false;
     }
     if (kind == "models") {
@@ -567,6 +568,17 @@ bool upload_target(const std::string & path, std::string & kind, std::string & n
         if (!is_upscaler_file_name(name) || dot == std::string::npos ||
             !valid_dest(name.substr(0, dot) + ".gguf", ignored)) {
             error = "an upscaler is a .pth, .pt, .safetensors or .gguf file name: " + name;
+            return false;
+        }
+        return true;
+    }
+    if (kind == "tags") {
+        // tag files for the prompt's completion (prompt_tags.hpp)
+        const std::string n = lower(name);
+        std::string       ignored;
+        if (n.size() <= 4 || (n.compare(n.size() - 4, 4, ".csv") != 0 && n.compare(n.size() - 4, 4, ".txt") != 0) ||
+            !valid_dest(name.substr(0, name.size() - 4) + ".gguf", ignored)) {
+            error = "a tag file is a .csv or .txt file name: " + name;
             return false;
         }
         return true;

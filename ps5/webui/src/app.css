@@ -66,7 +66,7 @@
   .main { display: flex; flex-wrap: wrap; align-items: flex-start; max-width: 90rem; margin: 0 auto; padding: 0.5rem 1.25rem 2rem; }
   .panel { box-sizing: border-box; margin: 0.75rem; background: var(--surface); border: 1px solid var(--border);
     border-radius: 16px; padding: 1.5rem; }
-  .controls { flex: 1 1 26rem; min-width: 0; }
+  .controls { position: relative; flex: 1 1 26rem; min-width: 0; }
   .result { flex: 1.5 1 28rem; min-width: 0; }
 
   label, .lbl { display: block; color: var(--muted); font-size: 0.875rem; margin: 1.1rem 0 0.4rem; }
@@ -105,6 +105,18 @@
     border: 0; border-radius: 6px; color: var(--accent-hi); font-size: 0.95rem; }
   .linkbtn:hover { background: transparent; color: #fff; text-decoration: underline; }
   .linkrow { display: flex; margin-top: 0.3rem; }
+  .linkrow .fill { flex: 1; }
+  .linkrow .linkbtn + .linkbtn { margin-left: 0.6rem; }
+  .tagbox { position: absolute; z-index: 6; box-sizing: border-box; max-height: 18rem; overflow-y: auto; background: var(--surface);
+    border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45); }
+  .tagbox button { display: flex; width: 100%; min-height: 2.6rem; margin: 0; padding: 0 0.8rem; border: 0; border-radius: 0;
+    background: transparent; text-align: left; font-size: 0.95rem; }
+  .tagbox button.on, .tagbox button:hover { background: var(--raised); }
+  .tagbox .tg { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+  .tagbox .tn { flex: none; margin-left: 0.8rem; color: var(--faint); font-size: 0.8rem; }
+  .hint.starter { margin: 0 0 0.4rem; overflow-wrap: anywhere; }
+  label.opt.nokeep { margin-top: 0.6rem; font-size: 0.95rem; color: var(--muted); }
+  label.opt.nokeep .info { margin-left: 0.4rem; }
 
   .cmblock { position: relative; }
   .cm-tags { display: flex; flex-wrap: wrap; margin: 0.35rem 0 0; }
@@ -270,6 +282,24 @@
   .lb-prompt { margin: 0 0 0.3rem; color: var(--text); max-height: 3.2em; overflow: auto; line-height: 1.6em; }
   .lb-set { margin: 0; color: var(--muted); font-size: 0.9rem; }
   .lb-info button { flex: none; }
+  .lb-main { flex: 1; min-width: 0; margin-right: 1rem; }
+  .lb-main .lb-text { margin-right: 0; }
+  .lb-neg { margin: 0 0 0.3rem; color: var(--muted); font-size: 0.9rem; max-height: 3.2em; overflow: auto; }
+  .lb-copy { display: flex; flex-wrap: wrap; margin-top: 0.4rem; }
+  .lb-copy button { min-height: 2.4rem; padding: 0 0.9rem; margin: 0 0.5rem 0 0; font-size: 0.85rem; }
+  .lb-lab { display: flex; flex-wrap: wrap; align-items: center; margin-bottom: 0.3rem; }
+  .lb-name { color: var(--text); font-weight: 500; margin-right: 0.6rem; }
+  .ltag { min-height: 0; font-size: 0.8rem; line-height: 1.5; padding: 0.1rem 0.7rem; margin: 0.2rem 0.4rem 0.2rem 0;
+    border-radius: 2rem; color: var(--muted); }
+  .lb-img { overflow: hidden; }
+  .lb-img img { transition: none; user-select: none; -webkit-user-select: none; }
+  .thumbs .t { position: relative; }
+  .tname { position: absolute; left: 0.4rem; right: 0.4rem; bottom: 0.4rem; padding: 0.25rem 0.5rem; font-size: 0.8rem;
+    color: #fff; background: rgba(5, 8, 14, 0.7); border-radius: 0 0 12px 12px; white-space: nowrap; overflow: hidden;
+    text-overflow: ellipsis; pointer-events: none; }
+  .ld-field input { margin-top: 0.4rem; }
+  .ld-used { margin: 0.8rem 0 1.2rem; }
+  .ld-used .hint { margin-right: 0.3rem; }
 
   #toast { position: fixed; left: 50%; bottom: 2rem; z-index: 20; display: none; max-width: 90%; background: var(--raised);
     border: 1px solid var(--accent-hi); color: var(--text); border-radius: 2rem; padding: 0.7rem 1.6rem; transform: translateX(-50%); }
@@ -495,6 +525,7 @@
     #lb-next { right: 0.4rem; }
     .lb-info { order: 4; flex: 0 0 100%; flex-direction: column; align-items: stretch; box-sizing: border-box; padding: 0.9rem 1rem 0; }
     .lb-text { margin: 0 0 0.75rem; }
+    .lb-main { margin: 0 0 0.75rem; }
     .lb-prompt { max-height: 9.6em; }
     .lb-info button { min-height: 3.25rem; }
     .lb-acts { order: 5; flex: 0 0 100%; display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.5rem; box-sizing: border-box;

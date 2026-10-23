@@ -213,6 +213,32 @@ int main() {
         check(!lib.create_preset("x", "flux", { { "hires_upscaler", "Latent (nearest)" } }, id, error),
               "an upscaler name with spaces must be encoded");
         check(!lib.create_preset("x", "nope", {}, id, error), "no such base");
+
+        // prompt starters ("# prompt:", "# negative:") and CLIP skip; a variant takes its base's starters
+        write(presets / "pony.txt", "# name: Pony\n# prompt: score_9, score_8_up, score_7_up\n# negative: score_4, score_5\n"
+                                    "# defaults: clip_skip=2 steps=25\n-m\nilu.safetensors\n");
+        check(lib.find("pony", v, error) && v.prompt_starter == "score_9, score_8_up, score_7_up" &&
+                  v.negative_starter == "score_4, score_5",
+              "the prompt starters of a preset");
+        check(ps5sd::preset_settings(v.defaults).clip_skip == 2, "clip_skip in # defaults:");
+        check(lib.create_preset("Pony fast", "pony", { { "clip_skip", "1" }, { "steps", "8" } }, id, error) &&
+                  lib.find(id, v, error) && v.prompt_starter == "score_9, score_8_up, score_7_up" &&
+                  v.negative_starter == "score_4, score_5" && ps5sd::preset_settings(v.defaults).clip_skip == 1,
+              "a variant keeps its base's starters, and a clip_skip of its own");
+        check(lib.create_preset("Flux plain", "flux", {}, id, error) && lib.find(id, v, error) && v.prompt_starter.empty(),
+              "no starters, none in the variant");
+        {
+            const auto jp = nlohmann::json::parse(ps5sd::models_json(lib, "", "", false));
+            bool       starters = false;
+            for (const auto & m : jp["models"]) {
+                starters = starters || (m["id"] == "pony" && m["prompt"] == "score_9, score_8_up, score_7_up" &&
+                                        m["negative"] == "score_4, score_5");
+            }
+            check(starters, "json: the starters");
+        }
+        fs::remove(presets / "pony.txt");
+        fs::remove(presets / "pony-fast.txt");
+        fs::remove(presets / "flux-plain.txt");
         const auto j = nlohmann::json::parse(ps5sd::models_json(lib, "", "", false));
         bool       seen = false;
         for (const auto & m : j["models"]) {
@@ -362,6 +388,9 @@ int main() {
                   Args{ "--steps", "20", "--cfg-scale", "7.5" },
               "the last valid value wins; an invalid one does not replace it");
         check(ps5sd::defaults_to_args({}).empty(), "no defaults, no options");
+        check(ps5sd::defaults_to_args(Defaults{ { "clip_skip", "2" } }) == Args{ "--clip-skip", "2" }, "clip_skip");
+        check(ps5sd::defaults_to_args(Defaults{ { "clip_skip", "0" }, { "clip_skip", "13" }, { "clip_skip", "-1" } }).empty(),
+              "clip_skip from 1 to 12");
 
         // The same settings as the server's request defaults, set at run time.
         const ps5sd::PresetSettings full = ps5sd::preset_settings(Defaults{ { "steps", "10" },
@@ -380,7 +409,7 @@ int main() {
               "an invalid value stays unset");
         const ps5sd::PresetSettings unset = ps5sd::preset_settings({});
         check(unset.steps == -1 && unset.cfg == -1 && unset.sampler.empty() && unset.scheduler.empty() && unset.width == -1 &&
-                  unset.height == -1,
+                  unset.height == -1 && unset.clip_skip == -1,
               "no defaults, all unset");
 
         // A saved preset (# base:) is deleted alone, even when it is the only one of its model.

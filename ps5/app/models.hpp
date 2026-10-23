@@ -19,6 +19,12 @@
 //     directory, so components can sit in subdirectories (vae/,
 //     text_encoders/, diffusion_models/) without showing up as checkpoints.
 //
+//     "# prompt: <text>" and "# negative: <text>" are prompt starters: the
+//     server puts them before the prompt and the negative prompt of every
+//     request while the preset is loaded (once: not before a prompt that
+//     starts with them already), as Pony models want "score_9, score_8_up,
+//     ...". A variant made by "Save as preset" takes its base's.
+//
 //     "# base: <id>" makes a preset a variant of another entry: the same
 //     model with other settings, as the web UI's "Save as preset" writes it.
 //     A variant is settings on a model, never a model of its own: the model
@@ -58,6 +64,8 @@ struct ModelEntry {
     uint64_t                                         bytes = 0;  // their size together
     std::vector<std::pair<std::string, std::string>> defaults;   // from "# defaults:", in order
     std::string                                      base;  // "# base:": the entry this preset is a variant of
+    std::string                                      prompt_starter;    // "# prompt:"
+    std::string                                      negative_starter;  // "# negative:"
 };
 
 struct ModelLibrary {
@@ -109,7 +117,7 @@ struct ModelLibrary {
 bool is_model_path_option(const std::string & option);
 
 // The sd-server options a preset's "# defaults:" stand for: --steps,
-// --cfg-scale, --sampling-method, --scheduler, --width, --height. A value that
+// --cfg-scale, --sampling-method, --scheduler, --width, --height, --clip-skip. A value that
 // cannot be one (not a number, out of range, an odd name, a size that is not a
 // multiple of 8, "default") is left out; the other settings of "# defaults:"
 // (loras, hires_*) are for the web UI only.
@@ -125,6 +133,7 @@ struct PresetSettings {
     std::string scheduler;
     int         width  = -1;
     int         height = -1;
+    int         clip_skip = -1;  // 1 to 12; -1: sd.cpp's own (2 for SDXL, 1 for SD 1.5)
 };
 
 PresetSettings preset_settings(const std::vector<std::pair<std::string, std::string>> & defaults);
@@ -132,7 +141,8 @@ PresetSettings preset_settings(const std::vector<std::pair<std::string, std::str
 // The library as JSON for GET /ps5sd/v1/app/models: {"active", "loaded",
 // "switching", "standby", "load_error", "models": [{"id", "name", "kind",
 // "bytes", "files", "missing", "base", "control_net", "family", "part",
-// "defaults": {...}}]}. control_net: the file name of the preset's
+// "prompt", "negative", "defaults": {...}}]}. prompt, negative: the prompt
+// starters ("# prompt:", "# negative:"), or "". control_net: the file name of the preset's
 // --control-net, or "". part: what a single file is when it is only a part of a
 // model (net_part), else "". standby: the server runs without a model.
 // load_error: set_load_error's, or null.

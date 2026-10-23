@@ -69,6 +69,8 @@
 #include "gen_args.hpp"
 #include "ggml-backend.h"
 #include "download_core.hpp"
+#include "gallery_labels.hpp"
+#include "prompt_tags.hpp"
 #include "downloader.hpp"
 #include "https_client.hpp"
 #include "upload.hpp"
@@ -139,6 +141,10 @@ void sd_server_terminate(void);
 void sd_server_set_api_key(const char * key);
 // patches/sdcpp/0063 (runtime.h): the defaults of API requests, set at run time; -1 or "" for not set.
 void sd_server_set_request_defaults(int steps, float cfg, const char * sampler, const char * scheduler, int width, int height);
+// patches/sdcpp/0069 (runtime.h): the loaded preset's CLIP skip (-1 for none), its prompt starters and its name
+// (into each saved PNG); "" for none.
+void sd_server_set_preset_extras(int clip_skip, const char * prompt_starter, const char * negative_starter,
+                                 const char * preset_name);
 }
 
 namespace {
@@ -161,6 +167,7 @@ constexpr const char * kEmbeddings = "/data/PS5SD/embeddings";
 constexpr const char * kUpscalers = "/data/PS5SD/upscalers";  // ESRGAN models: hires fix and the Upscale button
 constexpr const char * kModels  = "/data/PS5SD/models";
 constexpr const char * kPresets = "/data/PS5SD/presets";
+constexpr const char * kTags    = "/data/PS5SD/tags";  // tag files for the prompt's completion
 #ifndef PS5SD_NO_DISPLAY
 constexpr const char * kFont    = "/app0/assets/fonts/dejavu-sans-mono.huifont";
 #endif
@@ -172,6 +179,10 @@ AppStatus g_status;
 ConsoleStats g_console;  // the temperature, power, fan and load (console_stats.hpp)
 
 const ModelLibrary g_library{ kModels, kPresets };
+// The names and tags of the gallery's files (gallery_labels.hpp).
+GalleryLabels g_labels{ kOutputs };
+// The tags the prompt fields suggest, from the files in kTags (prompt_tags.hpp).
+TagIndex g_tags{ kTags };
 std::mutex         g_settings_mutex;  // the HTTP threads read and change g_settings
 AppSettings        g_settings;
 std::mutex         g_key_mutex;  // the HTTP threads read and change g_api_key
@@ -674,11 +685,15 @@ bool write_active_model(const std::string & id) {
 void apply_preset_settings(const ModelEntry * entry) {
     if (entry == nullptr) {
         sd_server_set_request_defaults(-1, -1, "", "", -1, -1);
+        sd_server_set_preset_extras(-1, "", "", "");
         return;
     }
     const PresetSettings settings = preset_settings(entry->defaults);
     sd_server_set_request_defaults(settings.steps, settings.cfg, settings.sampler.c_str(), settings.scheduler.c_str(),
                                    settings.width, settings.height);
+    // a checkpoint's name is its file, which the PNG has as "Model:" already
+    sd_server_set_preset_extras(settings.clip_skip, entry->prompt_starter.c_str(), entry->negative_starter.c_str(),
+                                entry->kind == "preset" ? entry->name.c_str() : "");
 }
 
 // The server, on the worker thread, until a quit request stops it; started
@@ -1161,6 +1176,16 @@ bool set_api_key(bool on, std::string & error) {
 //                       keeps going while the server restarts.
 //   gallery (POST)      {"image": "<base64 PNG>"}: an image the web UI made,
 //                       saved to outputs (201 {"saved": "<name>"}).
+//   gallery/labels (GET) {"labels": {"<file>": {"title", "tags"}}}; (POST)
+//                       {"name": "<file>", "title": "...", "tags": [...]}: a
+//                       file's name and tags (gallery_labels.hpp), answered
+//                       with {"name", "title", "tags"} as kept.
+//   gallery/keep (POST) {"name": "tmp_<file>"}: keeps an image made with
+//                       "temporary" ({"kept": "<file>"}).
+//   tags (GET)          {"files": [...], "tags": n}: the tag files in
+//                       /data/PS5SD/tags; (POST) {"q": "...", "limit": n}:
+//                       {"tags": [{"tag", "count", "alias"}]}, the tags that
+//                       start with q (prompt_tags.hpp).
 //   upscalers (GET), upscalers/<file> (DELETE): the upscaler models in
 //                       /data/PS5SD/upscalers.
 //   settings (GET, POST) the app's settings (AppSettings): {"tv_images": bool,
@@ -1222,7 +1247,7 @@ extern "C" int sd_app_upload(const char * path, uint64_t length, sd_app_reader r
                        },
                        &ctx) != 0;
         };
-        status = upload_file(UploadDirs{ kModels, kLoras, kEmbeddings, kPresets, kUpscalers }, p.substr(8), length, reader,
+        status = upload_file(UploadDirs{ kModels, kLoras, kEmbeddings, kPresets, kUpscalers, kTags }, p.substr(8), length, reader,
                              out);
     }
     *out_body = static_cast<char *>(std::malloc(out.size()));
@@ -1484,6 +1509,66 @@ extern "C" int sd_app_request(const char * method, const char * path, const char
                 status = 201;
             }
         }
+    } else if (m == "GET" && p == "tags") {
+        out    = g_tags.info_json();
+        status = 200;
+    } else if (m == "POST" && p == "tags") {
+        // {"q": "<what was typed>", "limit": n}: the tags that start with it, the most used first
+        const nlohmann::json j = nlohmann::json::parse(body != nullptr ? std::string(body, body_len) : std::string(), nullptr, false);
+        if (!j.is_object() || !j.contains("q") || !j["q"].is_string()) {
+            out    = error_json("the body must be {\"q\": \"...\", \"limit\": 10}");
+            status = 400;
+        } else {
+            const int limit = j.contains("limit") && j["limit"].is_number_integer() ? j["limit"].get<int>() : 10;
+            out    = TagIndex::hits_json(g_tags.find(j["q"].get<std::string>(), static_cast<size_t>(std::max(1, std::min(50, limit)))));
+            status = 200;
+        }
+    } else if (m == "GET" && p == "gallery/labels") {
+        out    = g_labels.all_json();
+        status = 200;
+    } else if (m == "POST" && p == "gallery/labels") {
+        const nlohmann::json j = nlohmann::json::parse(body != nullptr ? std::string(body, body_len) : std::string(), nullptr, false);
+        std::vector<std::string> tags;
+        bool                     ok = j.is_object() && j.contains("name") && j["name"].is_string() &&
+                  (!j.contains("title") || j["title"].is_string()) && (!j.contains("tags") || j["tags"].is_array());
+        if (ok && j.contains("tags")) {
+            for (const auto & t : j["tags"]) {
+                ok = ok && t.is_string();
+                if (t.is_string()) {
+                    tags.push_back(t.get<std::string>());
+                }
+            }
+        }
+        GalleryLabel label;
+        std::string  error;
+        if (!ok) {
+            out    = error_json("the body must be {\"name\": \"<file>\", \"title\": \"...\", \"tags\": [\"...\"]}");
+            status = 400;
+        } else if (!gallery_name_ok(j["name"].get<std::string>())) {
+            out    = error_json("not a gallery file: " + j["name"].get<std::string>());
+            status = 400;
+        } else if (!g_labels.set(j["name"].get<std::string>(), j.value("title", std::string()), tags, label, error)) {
+            out    = error_json(error);
+            status = error.rfind("no file", 0) == 0 ? 404 : 400;
+        } else {
+            out    = nlohmann::json{ { "name", j["name"] }, { "title", label.title }, { "tags", label.tags } }.dump(
+                -1, ' ', false, nlohmann::json::error_handler_t::replace);
+            status = 200;
+        }
+    } else if (m == "POST" && p == "gallery/keep") {
+        // An image made with "temporary" (patches/sdcpp/0069) kept after all.
+        const nlohmann::json j = nlohmann::json::parse(body != nullptr ? std::string(body, body_len) : std::string(), nullptr, false);
+        std::string          kept, error;
+        if (!j.is_object() || !j.contains("name") || !j["name"].is_string()) {
+            out    = error_json("the body must be {\"name\": \"tmp_<file>\"}");
+            status = 400;
+        } else if (!keep_temporary(kOutputs, j["name"].get<std::string>(), kept, error)) {
+            out    = error_json(error);
+            status = error.rfind("no file", 0) == 0 ? 404 : 409;
+        } else {
+            out    = nlohmann::json{ { "kept", kept } }.dump();
+            status = 200;
+        }
     } else if (m == "DELETE" && p.rfind("gallery/", 0) == 0) {
         // One file of the gallery (the PNGs and videos in outputs); the gallery lists
         // that folder on each request, so the file is all there is.
@@ -1495,6 +1580,7 @@ extern "C" int sd_app_request(const char * method, const char * path, const char
             // and what the server keeps for it: the thumbnail, a video's parameters
             ::unlink((std::string(kOutputs) + "/.thumbs/" + name + ".jpg").c_str());
             ::unlink((std::string(kOutputs) + "/.thumbs/" + name + ".txt").c_str());
+            g_labels.remove(name);
             out    = "{\"deleted\": \"" + name + "\"}";
             status = 200;
         } else if (errno == ENOENT) {
@@ -1606,7 +1692,7 @@ extern "C" void sd_activity_job_end(int ok, const char * output_path) {
 
 int main(int, char **) {
     mkdir(kDir, 0777);
-    for (const char * dir : { kModels, kLoras, kEmbeddings, kPresets, kUpscalers }) {
+    for (const char * dir : { kModels, kLoras, kEmbeddings, kPresets, kUpscalers, kTags }) {
         mkdir(dir, 0777);  // uploads, downloads and sd-server's lists expect them
     }
     // stdout and stderr to a file the PC can fetch over FTP. Both append: with
@@ -1624,6 +1710,10 @@ int main(int, char **) {
     std::printf("ps5sd: version " PS5SD_VERSION ", stable-diffusion.cpp %s (%s)\n", sd_version(), sd_commit());
     load_settings();
     load_api_key();
+    // The images made with "Don't keep on the console" last until the title starts again.
+    if (const int dropped = drop_temporary(kOutputs); dropped > 0) {
+        std::printf("ps5sd: deleted %d image(s) that were not to be kept\n", dropped);
+    }
     for (const std::string & id : update_catalog_presets(kPresets)) {
         std::printf("ps5sd: preset %s updated to the catalog's current settings\n", id.c_str());
     }

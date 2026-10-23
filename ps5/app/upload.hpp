@@ -14,7 +14,7 @@
 namespace ps5sd {
 
 struct UploadDirs {
-    std::string models, loras, embeddings, presets, upscalers;
+    std::string models, loras, embeddings, presets, upscalers, tags;
 };
 
 // Passes the body's pieces to sink in order; true once all of it went

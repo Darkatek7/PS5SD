@@ -1,0 +1,390 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: ps5sd <ps5sd@localhost>
+Date: Fri, 23 Oct 2026 12:00:00 +0200
+Subject: [PATCH] server: the preset's CLIP skip, prompt starters and name;
+ images that are not kept
+
+sd_server_set_preset_extras sets more of the loaded preset at run time: its
+CLIP skip (a request default), its prompt starters (put before the prompt
+and the negative prompt of every request, once) and its name (into each
+saved image's parameters as "Preset:" and "ps5sd": {"preset"}). An img_gen
+or vid_gen request with "temporary": true is saved as tmp_<name>: served,
+but in the gallery's list only with temporary=1.
+---
+diff --git a/examples/server/async_jobs.cpp b/examples/server/async_jobs.cpp
+index 60d83cb..f816613 100644
+--- a/examples/server/async_jobs.cpp
++++ b/examples/server/async_jobs.cpp
+@@ -329,7 +329,7 @@ bool execute_img_gen_job(ServerRuntime& runtime,
+ 
+         const int num_results                = results.count();
+         const std::vector<std::string> saved = save_output_images(*runtime.svr_params, results, runtime.ctx_params,
+-                                                                  &job.img_gen.gen_params);
++                                                                  &job.img_gen.gen_params, job.img_gen.temporary);
+         activity.finish(num_results > 0, saved_paths(saved));
+         if (num_results <= 0) {
+             error_message = sd_server_failure_reason("generate_image returned no results");
+@@ -434,7 +434,7 @@ bool execute_vid_gen_job(ServerRuntime& runtime,
+     }
+     // PS5SD: into --output-dir like an image, so the gallery lists it.
+     activity.finish(true, save_output_video(*runtime.svr_params, video_bytes, job.vid_gen.output_format, str_params,
+-                                            &results[0]));
++                                            &results[0], job.vid_gen.temporary));
+ 
+     output_media_b64       = base64_encode(video_bytes);
+     output_media_mime_type = video_mime_type(job.vid_gen.output_format);
+diff --git a/examples/server/gallery.cpp b/examples/server/gallery.cpp
+index af765ca..013062e 100644
+--- a/examples/server/gallery.cpp
++++ b/examples/server/gallery.cpp
+@@ -3,7 +3,8 @@
+ //   GET /ps5sd/v1/gallery         JSON array, newest first:
+ //                                 [{"name","url","thumb","size","created","type","prompt"}]
+ //                                 ?limit=N (default 100), offset=N, order=oldest, q=<text in the
+-//                                 prompt>, type=image|video; X-Total-Count: the matches before
++//                                 prompt>, type=image|video, temporary=1 (only the files that
++//                                 are not kept, tmp_*); X-Total-Count: the matches before
+ //                                 limit and offset
+ //   GET /ps5sd/v1/gallery/<file>  the PNG or the video
+ //   GET /ps5sd/v1/gallery/thumb/<file>  its thumbnail, a JPEG at most 320 px a side (made when the
+@@ -62,7 +63,7 @@ static const char* gallery_type(const std::string& name) {
+     return nullptr;
+ }
+ 
+-static std::string next_output_name(const fs::path& dir, const char* ext) {
++static std::string next_output_name(const fs::path& dir, const char* ext, bool temporary = false) {
+     static std::atomic<unsigned> counter{0};
+ 
+     const std::time_t now = std::time(nullptr);
+@@ -79,7 +80,7 @@ static std::string next_output_name(const fs::path& dir, const char* ext) {
+     // again: never overwrite an earlier file.
+     for (;;) {
+         char name[64];
+-        std::snprintf(name, sizeof(name), "sd_%s_%03u.%s", stamp, counter++ % 1000u, ext);
++        std::snprintf(name, sizeof(name), "%ssd_%s_%03u.%s", temporary ? "tmp_" : "", stamp, counter++ % 1000u, ext);
+         std::error_code ec;
+         if (!fs::exists(dir / name, ec)) {
+             return name;
+@@ -148,10 +149,40 @@ static bool write_thumbnail(const fs::path& dir, const std::string& name, const
+     return !jpeg.empty() && write_whole(thumbs_dir(dir) / (name + ".jpg"), jpeg.data(), jpeg.size());
+ }
+ 
++// The loaded preset's name in an image's parameters: "Preset: <name>, " before
++// "Version:" in A1111's text, and "ps5sd": {"preset"} in sd.cpp's JSON at its
++// end. The text as it is without a preset, or when it has no such places.
++static std::string with_preset(const std::string& parameters) {
++    std::string name = preset_name_now();
++    if (name.empty() || parameters.empty()) {
++        return parameters;
++    }
++    for (char& c : name) {
++        if (c == ',' || c == '\n' || c == '\r') {
++            c = ' ';
++        }
++    }
++    std::string out     = parameters;
++    const size_t at_json = out.rfind(", SDCPP: {");
++    if (at_json != std::string::npos) {
++        json j = json::parse(out.substr(at_json + 9), nullptr, false);
++        if (j.is_object()) {
++            j["ps5sd"] = {{"preset", name}};
++            out        = out.substr(0, at_json) + ", SDCPP: " + j.dump(-1, ' ', false, json::error_handler_t::replace);
++        }
++    }
++    const size_t at_version = out.rfind("Version: stable-diffusion.cpp", at_json);  // npos: the whole text
++    if (at_version != std::string::npos) {
++        out.insert(at_version, "Preset: " + name + ", ");
++    }
++    return out;
++}
++
+ std::vector<std::string> save_output_images(const SDSvrParams& svr_params,
+                                             SDImageVec& images,
+                                             const SDContextParams* ctx_params,
+-                                            const SDGenerationParams* gen_params) {
++                                            const SDGenerationParams* gen_params,
++                                            bool temporary) {
+     std::vector<std::string> saved;
+     if (svr_params.output_dir.empty()) {
+         return saved;
+@@ -169,7 +200,7 @@ std::vector<std::string> save_output_images(const SDSvrParams& svr_params,
+             continue;
+         }
+         // the seed of image i, as sd.cpp's own routes give it in their PNGs
+-        const std::string parameters = embed ? get_image_params(*ctx_params, *gen_params, gen_params->seed + i / per_batch) : "";
++        const std::string parameters = embed ? with_preset(get_image_params(*ctx_params, *gen_params, gen_params->seed + i / per_batch)) : "";
+         std::vector<uint8_t> bytes   = encode_image_to_vector(EncodedImageFormat::PNG,
+                                                             image.data,
+                                                             image.width,
+@@ -180,7 +211,7 @@ std::vector<std::string> save_output_images(const SDSvrParams& svr_params,
+             LOG_ERROR("could not encode the image for --output-dir");
+             continue;
+         }
+-        const std::string name = next_output_name(dir, "png");
++        const std::string name = next_output_name(dir, "png", temporary);
+         const fs::path path    = dir / name;
+         std::ofstream file(path, std::ios::binary);
+         file.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+@@ -200,8 +231,10 @@ std::vector<std::string> save_output_images(const SDSvrParams& svr_params,
+ std::string save_output_video(const SDSvrParams& svr_params,
+                               const std::vector<uint8_t>& bytes,
+                               const std::string& format,
+-                              const std::string& parameters,
+-                              const sd_image_t* first_frame) {
++                              const std::string& parameters_in,
++                              const sd_image_t* first_frame,
++                              bool temporary) {
++    const std::string parameters = with_preset(parameters_in);
+     if (svr_params.output_dir.empty() || bytes.empty() ||
+         (format != "webm" && format != "webp" && format != "avi")) {
+         return "";
+@@ -211,7 +244,7 @@ std::string save_output_video(const SDSvrParams& svr_params,
+     std::error_code ec;
+     fs::create_directories(dir, ec);
+ 
+-    const std::string name = next_output_name(dir, format.c_str());
++    const std::string name = next_output_name(dir, format.c_str(), temporary);
+     const fs::path path    = dir / name;
+     std::ofstream file(path, std::ios::binary);
+     file.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+@@ -520,6 +553,7 @@ void register_ps5sd_endpoints(httplib::Server& svr, ServerRuntime& rt) {
+         const bool oldest       = req.get_param_value("order") == "oldest";
+         const std::string query = lower_ascii(req.get_param_value("q"));
+         const std::string kind  = req.get_param_value("type");  // "image", "video", or all
++        const bool temporaries  = req.get_param_value("temporary") == "1";  // the files that are not kept, only
+ 
+         std::vector<GalleryEntry> entries;
+         const fs::path dir = fs::u8path(svr_params->output_dir);
+@@ -528,7 +562,8 @@ void register_ps5sd_endpoints(httplib::Server& svr, ServerRuntime& rt) {
+             for (fs::directory_iterator it(dir, ec), end; !ec && it != end; it.increment(ec)) {
+                 const std::string name = it->path().filename().u8string();
+                 const char* type       = gallery_type(name);
+-                if (type == nullptr || !it->is_regular_file(ec)) {
++                // an image that is not kept (tmp_) is served, but listed only with temporary=1
++                if (type == nullptr || (name.compare(0, 4, "tmp_") == 0) != temporaries || !it->is_regular_file(ec)) {
+                     continue;
+                 }
+                 GalleryEntry entry;
+@@ -572,7 +607,7 @@ void register_ps5sd_endpoints(httplib::Server& svr, ServerRuntime& rt) {
+                 entry.parameters = it->second.parameters;
+                 kept.insert(*it);
+             }
+-            if (kind.empty()) {
++            if (kind.empty() && !temporaries) {
+                 cache.items.swap(kept);  // a listing of every file forgets the deleted ones
+             }
+         }
+diff --git a/examples/server/gallery.h b/examples/server/gallery.h
+index 904a1df..f2a3a4b 100644
+--- a/examples/server/gallery.h
++++ b/examples/server/gallery.h
+@@ -14,11 +14,15 @@
+ // With the request's parameters, each PNG carries them as A1111 does (a tEXt
+ // "parameters" chunk, with sd.cpp's "SDCPP: {json}" at the end), unless the
+ // request turned embed_image_metadata off. Each image also gets its
+-// thumbnail (.thumbs/<name>.jpg).
++// thumbnail (.thumbs/<name>.jpg). A temporary image is saved as tmp_<name>: served
++// like the others, but not in the gallery's list (the application deletes them
++// when it starts). The loaded preset's name (preset_name_now) goes into the
++// parameters as "Preset: <name>", and into the JSON as "ps5sd": {"preset"}.
+ std::vector<std::string> save_output_images(const SDSvrParams& svr_params,
+                                             SDImageVec& images,
+                                             const SDContextParams* ctx_params    = nullptr,
+-                                            const SDGenerationParams* gen_params = nullptr);
++                                            const SDGenerationParams* gen_params = nullptr,
++                                            bool temporary                       = false);
+ 
+ // PS5SD: a generated video (vid_gen), into --output-dir as
+ // sd_<date>_<time>_<n>.<format> (webm, webp or avi). Returns the full path,
+@@ -28,7 +32,8 @@ std::string save_output_video(const SDSvrParams& svr_params,
+                               const std::vector<uint8_t>& bytes,
+                               const std::string& format,
+                               const std::string& parameters = "",
+-                              const sd_image_t* first_frame = nullptr);
++                              const sd_image_t* first_frame = nullptr,
++                              bool temporary                = false);
+ 
+ // PS5SD: the saved paths one a line, in the order of the results, for
+ // sd_activity_job_end ("" when nothing was saved).
+diff --git a/examples/server/routes_openai.cpp b/examples/server/routes_openai.cpp
+index d9d5e02..ff4aec6 100644
+--- a/examples/server/routes_openai.cpp
++++ b/examples/server/routes_openai.cpp
+@@ -74,6 +74,7 @@ static bool build_openai_generation_request(const httplib::Request& req,
+     }
+ 
+     // Intentionally disable prompt-embedded LoRA tag parsing for server APIs.
++    apply_preset_extras(runtime, request.gen_params);
+     if (!request.gen_params.resolve_and_validate(IMG_GEN, "", runtime.ctx_params->hires_upscalers_dir, true)) {
+         error_message = "invalid params";
+         return false;
+@@ -219,6 +220,7 @@ static bool build_openai_edit_request(const httplib::Request& req,
+     }
+ 
+     // Intentionally disable prompt-embedded LoRA tag parsing for server APIs.
++    apply_preset_extras(runtime, request.gen_params);
+     if (!request.gen_params.resolve_and_validate(IMG_GEN, "", runtime.ctx_params->hires_upscalers_dir, true)) {
+         error_message = "invalid params";
+         return false;
+diff --git a/examples/server/routes_sdapi.cpp b/examples/server/routes_sdapi.cpp
+index 3eedfa5..2f35a42 100644
+--- a/examples/server/routes_sdapi.cpp
++++ b/examples/server/routes_sdapi.cpp
+@@ -259,6 +259,7 @@ static bool build_sdapi_img_gen_request(const json& j,
+     }
+ 
+     // Intentionally disable prompt-embedded LoRA tag parsing for server APIs.
++    apply_preset_extras(runtime, request.gen_params);
+     if (!request.gen_params.resolve_and_validate(IMG_GEN, "", runtime.ctx_params->hires_upscalers_dir, true)) {
+         error_message = "invalid params";
+         return false;
+diff --git a/examples/server/routes_sdcpp.cpp b/examples/server/routes_sdcpp.cpp
+index 6bbbced..d93755f 100644
+--- a/examples/server/routes_sdcpp.cpp
++++ b/examples/server/routes_sdcpp.cpp
+@@ -435,6 +435,8 @@ static bool parse_img_gen_request(const json& body,
+     }
+     request.preview_mode     = body.value("preview", std::string("none"));
+     request.preview_interval = body.value("preview_interval", 1);
++    request.temporary        = request_is_temporary(body);
++    apply_preset_extras(runtime, request.gen_params);
+     // Intentionally disable prompt-embedded LoRA tag parsing for server APIs.
+     if (!request.gen_params.resolve_and_validate(IMG_GEN, "", runtime.ctx_params->hires_upscalers_dir, true)) {
+         error_message = "invalid generation parameters";
+@@ -464,6 +466,8 @@ static bool parse_vid_gen_request(const json& body,
+     }
+     request.preview_mode     = body.value("preview", std::string("none"));
+     request.preview_interval = body.value("preview_interval", 1);
++    request.temporary        = request_is_temporary(body);
++    apply_preset_extras(runtime, request.gen_params);
+     // Intentionally disable prompt-embedded LoRA tag parsing for server APIs.
+     if (!request.gen_params.resolve_and_validate(VID_GEN, "", runtime.ctx_params->hires_upscalers_dir, true)) {
+         error_message = "invalid generation parameters";
+diff --git a/examples/server/runtime.cpp b/examples/server/runtime.cpp
+index 460a42f..0407750 100644
+--- a/examples/server/runtime.cpp
++++ b/examples/server/runtime.cpp
+@@ -3,6 +3,7 @@
+ #include <algorithm>
+ #include <cctype>
+ #include <chrono>
++#include <cstring>
+ #include <cstdlib>
+ #include <filesystem>
+ #include <mutex>
+@@ -435,8 +436,65 @@ struct RequestDefaults {
+ 
+ std::mutex g_request_defaults_mutex;
+ RequestDefaults g_request_defaults;
++
++struct PresetExtras {
++    int clip_skip = -1;
++    std::string prompt_starter;
++    std::string negative_starter;
++    std::string name;
++};
++
++PresetExtras g_preset_extras;  // under g_request_defaults_mutex
++
++// text with starter in front ("starter, text"), unless it starts with starter already
++std::string with_starter(const std::string& starter, const std::string& text) {
++    if (starter.empty() || text.compare(0, starter.size(), starter) == 0) {
++        return text;
++    }
++    if (text.find_first_not_of(" \t\r\n") == std::string::npos) {
++        return starter;
++    }
++    const bool joined = starter.back() == ',' || starter.back() == ' ';
++    return starter + (joined ? "" : ", ") + text;
++}
+ }  // namespace
+ 
++extern "C" void sd_server_set_preset_extras(int clip_skip, const char* prompt_starter, const char* negative_starter,
++                                            const char* preset_name) {
++    std::lock_guard<std::mutex> lock(g_request_defaults_mutex);
++    g_preset_extras.clip_skip        = clip_skip;
++    g_preset_extras.prompt_starter   = prompt_starter != nullptr ? prompt_starter : "";
++    g_preset_extras.negative_starter = negative_starter != nullptr ? negative_starter : "";
++    g_preset_extras.name             = preset_name != nullptr ? preset_name : "";
++}
++
++void apply_preset_extras(const ServerRuntime& runtime, SDGenerationParams& params) {
++    {
++        std::lock_guard<std::mutex> lock(g_request_defaults_mutex);
++        params.prompt          = with_starter(g_preset_extras.prompt_starter, params.prompt);
++        params.negative_prompt = with_starter(g_preset_extras.negative_starter, params.negative_prompt);
++    }
++    // CLIP skip 1 reads the text encoder's last layer, which only SD 1.x models are made for. With it an
++    // SDXL model makes pure noise (measured on the console), so every other model keeps its own (2 for
++    // SDXL), as AUTOMATIC1111 ignores the setting for SDXL.
++    if (params.clip_skip == 1) {
++        const char* version = sd_get_model_version_name(runtime.sd_ctx);
++        if (version == nullptr || std::strncmp(version, "SD 1", 4) != 0) {
++            params.clip_skip = -1;
++        }
++    }
++}
++
++std::string preset_name_now() {
++    std::lock_guard<std::mutex> lock(g_request_defaults_mutex);
++    return g_preset_extras.name;
++}
++
++bool request_is_temporary(const json& body) {
++    return body.is_object() && body.contains("temporary") && body["temporary"].is_boolean() &&
++           body["temporary"].get<bool>();
++}
++
+ extern "C" void sd_server_set_request_defaults(int steps, float cfg, const char* sampler, const char* scheduler, int width, int height) {
+     std::lock_guard<std::mutex> lock(g_request_defaults_mutex);
+     g_request_defaults.steps     = steps;
+@@ -475,5 +533,8 @@ SDGenerationParams request_defaults(const ServerRuntime& runtime) {
+     if (g_request_defaults.height > 0) {
+         params.height = g_request_defaults.height;
+     }
++    if (g_preset_extras.clip_skip > 0) {
++        params.clip_skip = g_preset_extras.clip_skip;
++    }
+     return params;
+ }
+diff --git a/examples/server/runtime.h b/examples/server/runtime.h
+index 39e4ee5..2e695b4 100644
+--- a/examples/server/runtime.h
++++ b/examples/server/runtime.h
+@@ -66,6 +66,7 @@ struct ServerRuntime {
+ 
+ struct ImgGenJobRequest {
+     SDGenerationParams gen_params;
++    bool temporary            = false;  // PS5SD: saved as tmp_<name>, not in the gallery's list
+     std::string output_format = "png";
+     int output_compression    = 100;
+     std::string preview_mode  = "none";
+@@ -78,6 +79,7 @@ struct ImgGenJobRequest {
+ 
+ struct VidGenJobRequest {
+     SDGenerationParams gen_params;
++    bool temporary            = false;  // PS5SD: as ImgGenJobRequest's
+     std::string output_format = "webm";
+     int output_compression    = 100;
+     std::string preview_mode  = "none";
+@@ -115,3 +117,18 @@ int64_t unix_timestamp_now();
+ extern "C" void sd_server_set_request_defaults(int steps, float cfg, const char* sampler, const char* scheduler, int width, int height);
+ // A copy of the command line's defaults with the run-time ones (sd_server_set_request_defaults) applied.
+ SDGenerationParams request_defaults(const ServerRuntime& runtime);
++
++// PS5SD: more of the loaded preset, set at run time: its CLIP skip (1 or more; -1 for sd.cpp's own,
++// which is 2 for SDXL and SD2, 1 for SD 1.5), its prompt starters (text the prompt and the negative
++// prompt of every request start with) and its name (in each saved image's parameters). NULL or ""
++// for none.
++extern "C" void sd_server_set_preset_extras(int clip_skip, const char* prompt_starter, const char* negative_starter,
++                                            const char* preset_name);
++// The prompt starters before the request's prompt and negative prompt, each joined with ", "; not
++// before a prompt that starts with its starter already (a prompt taken from an image made with it).
++// And a CLIP skip of 1 only for an SD 1.x model: the others get their own (see runtime.cpp).
++void apply_preset_extras(const ServerRuntime& runtime, SDGenerationParams& params);
++// The loaded preset's name, "" for none.
++std::string preset_name_now();
++// "temporary": true in a request body (img_gen, vid_gen).
++bool request_is_temporary(const json& body);
+-- 
+2.56.0

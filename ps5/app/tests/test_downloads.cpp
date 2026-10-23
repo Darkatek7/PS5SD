@@ -374,6 +374,10 @@ int main() {
         check(upload_target("loras/style.safetensors", kind, name, e) && kind == "loras", "upload: a LoRA");
         check(!upload_target("loras/x/style.safetensors", kind, name, e), "upload: no folders for LoRAs");
         check(upload_target("presets/my-model.txt", kind, name, e), "upload: a preset");
+        check(upload_target("tags/danbooru.csv", kind, name, e) && kind == "tags" && name == "danbooru.csv", "upload: tags");
+        check(upload_target("tags/mine.TXT", kind, name, e), "upload: tags in a .txt");
+        check(!upload_target("tags/danbooru.json", kind, name, e), "upload: tags are .csv or .txt");
+        check(!upload_target("tags/x/danbooru.csv", kind, name, e), "upload: no folders for tags");
         check(!upload_target("presets/my-model.gguf", kind, name, e), "upload: a preset must be .txt");
         check(!upload_target("presets/.hidden.txt", kind, name, e), "upload: no hidden preset");
         check(!upload_target("models/../env.txt", kind, name, e) && !upload_target("models/a.txt", kind, name, e),

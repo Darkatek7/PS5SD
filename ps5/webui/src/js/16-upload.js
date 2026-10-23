@@ -9,9 +9,11 @@
     if (!f || upXhr) return;
     var kind = $('up-kind').value;
     var name = f.name;
-    var okName = kind === 'presets' ? /\.txt$/i : kind === 'upscalers' ? /\.(pth|pt|safetensors|gguf)$/i : /\.(gguf|safetensors|ckpt|sft)$/i;
+    var okName = kind === 'presets' ? /\.txt$/i : kind === 'upscalers' ? /\.(pth|pt|safetensors|gguf)$/i : kind === 'tags' ? /\.(csv|txt)$/i
+      : /\.(gguf|safetensors|ckpt|sft)$/i;
     if (!okName.test(name)) {
       toast(kind === 'presets' ? 'A preset is a .txt file.' : kind === 'upscalers' ? 'An upscaler is a .pth, .pt, .safetensors or .gguf file.'
+        : kind === 'tags' ? 'A tag file is a .csv (as a1111-sd-webui-tagcomplete has them) or a .txt file.'
         : 'Only .gguf, .safetensors, .ckpt and .sft files.', 6000);
       return;
     }
@@ -50,10 +52,11 @@
     $('up-kind').disabled = false;
     if (code === 200) {
       var listed = kind === 'models' || kind === 'presets' || kind === 'loras' || kind === 'upscalers';
-      toast(name + ' is on the console' + (listed ? ' and in the list.' : '.'), 6000);
+      toast(name + ' is on the console' + (listed ? ' and in the list.' : kind === 'tags' ? '; the prompt fields suggest its tags.' : '.'), 6000);
       if (kind === 'loras') loadLoras(null);
       else if (kind === 'upscalers') { loadUpscalers(); loadInfo(); }
       else if (listed) loadModels(null);
+      else if (kind === 'tags') tagsCheck();
     } else if (code === 0) {
       toast('The upload of ' + name + ' stopped.', 6000);
     } else {

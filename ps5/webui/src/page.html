@@ -95,13 +95,24 @@
     </div>
 
     <label for="prompt">Prompt</label>
+    <p class="hint starter" id="starter" style="display:none"></p>
     <textarea id="prompt" class="big" rows="4" placeholder="What should it draw?"></textarea>
+    <div class="tagbox" id="tagbox" role="listbox" aria-label="Tags" style="display:none"></div>
     <div class="linkrow">
       <button type="button" class="linkbtn" id="neg-toggle" aria-expanded="false" aria-controls="neg-box">+ Negative prompt</button>
+      <span class="fill"></span>
+      <button type="button" class="linkbtn" id="prompt-copy">Copy</button>
+      <button type="button" class="linkbtn" id="prompt-paste" style="display:none">Paste</button>
     </div>
     <div id="neg-box" style="display:none">
       <label for="neg">Negative prompt</label>
+      <p class="hint starter" id="negstarter" style="display:none"></p>
       <textarea id="neg" rows="2" placeholder="What to avoid (optional)"></textarea>
+      <div class="linkrow">
+        <span class="fill"></span>
+        <button type="button" class="linkbtn" id="neg-copy">Copy</button>
+        <button type="button" class="linkbtn" id="neg-paste" style="display:none">Paste</button>
+      </div>
     </div>
 
     <div class="modes" id="modes" role="group" aria-label="Where the image comes from">
@@ -197,6 +208,14 @@
             <div><label for="sampler">Sampler</label><select id="sampler"><option value="default">default</option></select></div>
             <div><label for="scheduler">Scheduler</label><select id="scheduler"><option value="default">default</option></select></div>
           </div>
+          <div class="row" id="cliprow">
+            <div>
+              <label for="clipskip">CLIP skip</label>
+              <select id="clipskip"><option value="-1">Auto</option><option value="1">1</option><option value="2">2</option><option value="3">3</option></select>
+            </div>
+            <div></div>
+          </div>
+          <p class="hint" id="cliphint">Auto is 1 for SD 1.5; some anime models want 2. <button type="button" class="info" data-help="help-clipskip" aria-label="More about CLIP skip">&#9432;</button></p>
         </div>
       </div>
 
@@ -277,6 +296,7 @@
       </div>
       <button type="button" class="dice" id="surprise" title="Surprise me: a random prompt" aria-label="Surprise me"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="3.5" width="17" height="17" rx="3.5"/><circle cx="8.5" cy="8.5" r="1.5"/><circle cx="15.5" cy="15.5" r="1.5"/><circle cx="12" cy="12" r="1.5"/></svg></button>
     </div>
+    <label class="opt nokeep"><input type="checkbox" id="nokeep"> Don't keep on the console <button type="button" class="info" data-help="help-nokeep" aria-label="More about images that are not kept">&#9432;</button></label>
   </section>
 
   <section class="panel result">
@@ -352,7 +372,7 @@
     </section>
     <section class="panel" id="pnl-up" style="display:none">
       <div class="ph"><h2>Upload from this computer</h2><button type="button" class="info" data-help="help-upload" aria-label="More about uploads">&#9432;</button></div>
-      <div class="inrow"><select id="up-kind" class="upkind" aria-label="What it is"><option value="models">Model</option><option value="loras">LoRA</option><option value="embeddings">Embedding</option><option value="presets">Preset (.txt)</option><option value="upscalers">Upscaler</option></select><button type="button" id="up-pick">Choose a file</button></div>
+      <div class="inrow"><select id="up-kind" class="upkind" aria-label="What it is"><option value="models">Model</option><option value="loras">LoRA</option><option value="embeddings">Embedding</option><option value="presets">Preset (.txt)</option><option value="upscalers">Upscaler</option><option value="tags">Tags (.csv)</option></select><button type="button" id="up-pick">Choose a file</button></div>
       <input id="up-file" type="file" style="display:none">
       <div id="up-box" style="display:none">
         <div class="mname" id="up-name"></div>
@@ -443,6 +463,15 @@
     <h1>Using this page</h1>
     <h2 id="help-seed">Seed</h2>
     <p>-1 picks a random seed. A run of several images (the count next to Generate) takes the seeds one after the other (seed, seed + 1, …); with -1 each image gets a new seed.</p>
+    <h2 id="help-clipskip">CLIP skip</h2>
+    <p>Which layer of the text encoder the prompt is read from, counted from the end. Auto is what stable-diffusion.cpp does by itself: 1 for SD 1.5 and 2 for SDXL models (Pony and Illustrious too). Some SD 1.5 anime models want 2. The setting shows only for SD 1.5 models: SDXL, FLUX and the others use their own, and the server ignores a 1 for them, because with it an SDXL model makes noise. A preset can set it with <code>clip_skip=2</code> in its <code># defaults:</code> line.</p>
+    <h2 id="help-starters">Prompt starters</h2>
+    <p>Some models want each prompt to begin the same way: Pony models with <code>score_9, score_8_up, score_7_up</code>, and a negative prompt with <code>score_4, score_5</code>. A preset can carry them in a <code># prompt:</code> and a <code># negative:</code> line. While it is loaded, the server puts them before the prompts of every run, from this page and from the API, and the Create tab shows them above the fields. A prompt that starts with them already does not get them twice.</p>
+    <h2 id="help-nokeep">Images that are not kept</h2>
+    <p>With <b>Don't keep on the console</b> a run's images and videos do not go into the gallery. Download what you want to keep on this device; the console deletes them when PS5SD starts again. <b>Keep on the console</b> under the image puts one into the gallery after all.</p>
+    <h2 id="help-gallery">Gallery</h2>
+    <p>In the viewer, the mouse wheel or two fingers zoom in, a drag moves the picture, and a double click or double tap switches between the whole picture and its pixels one to one. <b>Copy prompt</b>, <b>Copy negative</b> and <b>Copy all</b> copy what made the image; Copy all is the text other tools (AUTOMATIC1111, Civitai) read when it is pasted.</p>
+    <p><b>Name</b> gives a file a name and tags. The search finds them, and <code>#night</code> finds the files tagged night; a tag in the viewer does that search. They are kept on the console next to the gallery, not in the file.</p>
     <h2 id="help-video">Video length and time</h2>
     <p>Wan makes 4n+1 frames: 33 are 2 seconds at 16 per second, 81 are 5 seconds.</p>
     <p>On the console, 33 frames at 832×480 take about 2 minutes 15 seconds with the CausVid LoRA (Models tab, LoRAs) at 4 steps and CFG 1, 81 frames about 8 minutes. Without the LoRA, 33 frames take up to 15 minutes at 20 steps.</p>
@@ -507,6 +536,7 @@
       <button type="button" id="lb-up" style="display:none">Upscale</button>
       <button type="button" id="lb-edit" title="Use as the start image on the Create tab">Edit</button>
       <button type="button" id="lb-guide" title="Use as the guide image (ControlNet) on the Create tab">Guide</button>
+      <button type="button" id="lb-label" title="A name and tags for this file, which the search finds">Name</button>
       <button type="button" class="danger" id="lb-del">Delete</button>
     </div>
     <button type="button" id="lb-close">Close</button>
@@ -517,11 +547,33 @@
     <button type="button" class="nav" id="lb-next" aria-label="Older">&rsaquo;</button>
   </div>
   <div class="lb-info" id="lb-info" style="display:none">
-    <div class="lb-text">
-      <p class="lb-prompt" id="lb-prompt"></p>
-      <p class="lb-set" id="lb-set"></p>
+    <div class="lb-main">
+      <div class="lb-lab" id="lb-lab" style="display:none"></div>
+      <div class="lb-text" id="lb-text">
+        <p class="lb-prompt" id="lb-prompt"></p>
+        <p class="lb-neg" id="lb-neg" style="display:none"></p>
+        <p class="lb-set" id="lb-set"></p>
+      </div>
+      <div class="lb-copy" id="lb-copy">
+        <button type="button" id="lb-cp">Copy prompt</button>
+        <button type="button" id="lb-cn" style="display:none">Copy negative</button>
+        <button type="button" id="lb-ca" title="The prompt and the settings as text, as other tools paste them">Copy all</button>
+      </div>
     </div>
     <button type="button" id="lb-use" title="Put the prompt and the settings of this image into the Create tab">Use these settings</button>
+  </div>
+</div>
+<div class="dlg" id="ldlg" style="display:none" role="dialog" aria-modal="true" aria-labelledby="ld-title">
+  <div class="dlg-box">
+    <div class="dlg-title" id="ld-title">Name and tags</div>
+    <p class="dlg-body" id="ld-file"></p>
+    <label class="ld-field">Name <input type="text" id="ld-name" maxlength="100" autocomplete="off" placeholder="Old town at night"></label>
+    <label class="ld-field">Tags, separated by commas <input type="text" id="ld-tags" maxlength="400" autocomplete="off" placeholder="night, houses"></label>
+    <div class="ld-used" id="ld-usedrow" style="display:none"><span class="hint">In use:</span> <span id="ld-used"></span></div>
+    <div class="dlg-btns">
+      <button type="button" id="ld-cancel">Cancel</button>
+      <button type="button" id="ld-save">Save</button>
+    </div>
   </div>
 </div>
 <div class="dlg" id="dlg" style="display:none" role="alertdialog" aria-modal="true" aria-labelledby="dlg-title">
@@ -583,11 +635,14 @@
 @@include js/09-generation.js
 @@include js/09b-runs-and-queue.js
 @@include js/09c-memory-fit.js
+@@include js/09d-tag-complete.js
 @@include js/10-controls.js
 @@include js/10b-create-layout.js
 @@include js/11-help.js
 @@include js/12-gallery.js
 @@include js/12b-gallery-info.js
+@@include js/12c-viewer-zoom.js
+@@include js/12d-gallery-labels.js
 @@include js/13-models.js
 @@include js/14-presets.js
 @@include js/15-downloads.js

@@ -98,8 +98,11 @@ A single-file checkpoint loads with the server's default options. A preset is a 
 - `# name:` the name shown in the web UI;
 - `# defaults:` the settings the web UI applies when you press **Use**, and, with the preset loaded, the
   server's defaults for a request that names none of them (`steps`, `cfg`, `sampler`, `scheduler`,
-  `width`, `height`; a request's own values override them, and they win over the same options in
-  `server-args.txt`);
+  `width`, `height`, `clip_skip`; a request's own values override them, and they win over the same
+  options in `server-args.txt`);
+- `# prompt:` and `# negative:` (optional), the prompt starters: text the server puts before the prompt and
+  the negative prompt of every run while the preset is loaded (once: not before a prompt that starts with it
+  already). The Create tab shows them above its prompt fields;
 - the server's options, one per line, with the option and its value on separate lines.
 
 Paths are relative to `/data/PS5SD/models` unless they start with `/`.
@@ -145,12 +148,31 @@ The options that matter on the PS5:
 | `--vae-tiling --vae-tile-size 512` | Decodes the image in tiles. At 1024×1024 the VAE otherwise needs about 6 GB at once and pushes the model out of memory. |
 | `--cache-mode ucache --cache-option threshold=1.5` | Skips steps that change little: SDXL at 25 steps runs about 40% faster, with small changes in detail. |
 
-The `# defaults:` keys are `steps`, `cfg`, `width`, `height`, `sampler`, `scheduler` and `loras`
+The `# defaults:` keys are `steps`, `cfg`, `width`, `height`, `sampler`, `scheduler`, `clip_skip` and `loras`
 (`path:strength`, several with commas: `loras=detail.safetensors:0.8,styles/ink.gguf:1`). The samplers
 are listed by `GET /sdapi/v1/samplers`, for example `euler`, `euler_a`, `dpm++2m` or `lcm`.
 
 For a video model, `--video-frames`, `--fps` and `--flow-shift` in its preset are the defaults of a video
 request, as `steps` and the others are for an image.
+
+A Pony model (an SDXL finetune) wants its score tags at the start of every prompt, and CLIP skip 2. sd.cpp
+takes CLIP skip 2 for every SDXL model by itself, so `clip_skip=2` only says it; an SD 1.5 anime model that
+wants 2 needs it. A `clip_skip=1` counts only for an SD 1.5 model: the server ignores it for the others,
+because with it an SDXL model makes noise.
+
+```text
+# name: Pony Diffusion V6 XL
+# prompt: score_9, score_8_up, score_7_up
+# negative: score_4, score_5, score_6
+# defaults: steps=25 cfg=7 width=832 height=1216 sampler=euler_a clip_skip=2
+-m
+ponyDiffusionV6XL.safetensors
+--vae
+vae/sdxl_vae_fp16_fix.safetensors
+--vae-tiling
+--vae-tile-size
+640
+```
 
 ### Saved presets: a model with your settings
 
@@ -166,7 +188,7 @@ ilustmix_v111.safetensors
 ```
 
 The web UI makes these: set up the Create tab, then press **Save as preset** at its top. It copies the
-model's own options (VAE, tiling, `--type`) into the preset. On the Models tab, under **Installed**, the
+model's own options (VAE, tiling, `--type`) and its prompt starters into the preset. On the Models tab, under **Installed**, the
 saved presets of a model are listed under it (as "saved settings"), and the Create tab's preset menu
 offers them too:
 
