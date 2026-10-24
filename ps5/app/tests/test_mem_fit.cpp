@@ -60,6 +60,8 @@ void test_verdicts() {
     is(query("FLUX.2 Klein 4B", 1536, 1536), "fits", "Klein 4B 1536");
     is(query("FLUX.2 Klein 4B", 2048, 2048), "fits", "Klein 4B 2048, measured (patches/mesa/0010)");
     is(query("FLUX.2 Klein 4B", 2560, 2560), "tight", "Klein 4B over the measured size");
+    is(query("FLUX.2 Klein 9B", 1024, 1024), "fits", "Klein 9B 1024, measured");
+    is(query("FLUX.2 Klein 9B", 1536, 1536), "tight", "Klein 9B over the measured size");
     is(query("FLUX.3 Klein", 1024, 1024), "fits", "FLUX.3 Klein 1024");
     is(query("FLUX.3 Klein", 1536, 1536), "too_big", "FLUX.3 Klein 1536");
     is(query("Wan 1.3B", 832, 480, 33), "fits", "Wan 33 frames");

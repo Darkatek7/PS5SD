@@ -824,3 +824,19 @@ right after a start of the title, with `--vae-tiling --vae-tile-size 256 --vae-t
   model is trained at 1280x704 (and 704x1280).
 - `--tensor-type-rules "^vae\.=f32"` did not change the VAE's type (still f16, 1344 MB), and the VAE on
   the CPU (`--vae-on-cpu`) does not fit: the title has about 2 GB of CPU memory.
+
+## FLUX.2 Klein 9B (2026-10-24)
+
+leejet's Q4_0 of FLUX.2 Klein 9B (5.62 GB, FLUX Non-Commercial License), unsloth's Qwen3-8B Q4_K_M
+(5.03 GB; Klein 9B was trained with Qwen3-8B) and the FLUX.2 VAE, 11.0 GB of files, on 0.9.6. 1024×1024,
+4 steps, CFG 1, Euler, 512 px VAE tiles:
+
+| Run | Time | Pool free after | Largest block |
+|---|---|---|---|
+| right after a start | 102 s | 2.96 GiB | 0.92 GiB |
+| the next image | 49.4 s | | |
+| with a Klein 9B LoRA at 1.0 (224 of 224 tensors applied) | 61.9 s | 3.21 GiB | 0.97 GiB |
+
+The first image: 47.8 s for the first step, which loads the weights, then about 11 s a step (80.7 s of
+sampling), and 6 s to decode. The Klein 4B Q8_0 makes the same image in about 30 s warm; the 9B has more
+detail. Larger images are not measured: with under 1 GiB in one block left, 1536×1536 is unlikely to fit.

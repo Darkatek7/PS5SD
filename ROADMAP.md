@@ -252,6 +252,12 @@ selected for one delete or download.
   the field shows for all of them and says what Auto is for the loaded one ("Auto (2)" for SDXL); no 1 for
   a model that is not SD 1.x.
 
+## 0.9.7: FLUX.2 Klein 9B
+
+- [x] **FLUX.2 Klein 9B** (Q4_0, with Qwen3-8B Q4_K_M, 11 GB) in the catalog, featured: 1024x1024 in 4 steps
+  in about 50 s (100 s right after a start), with its LoRAs. Measured on the console: it fits, with 0.9 GiB
+  left in one block after a 1024x1024 image. FLUX Non-Commercial License.
+
 ## Later in 0.9.x
 
 **Images**

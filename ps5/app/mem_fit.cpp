@@ -29,6 +29,8 @@ const Limit kLimits[] = {
     { "SD 1.5", px(1024, 1024), 0, px(1024, 1024), "1024x1024" },
     // 0.9.0: buffers of several blocks (patches/mesa/0010); 2048 also ran after 1024, 1536 and 1280
     { "FLUX.2 Klein 4B", px(2048, 2048), 0, px(2048, 2048), "2048x2048" },
+    // 0.9.7: Q4_0 with Qwen3-8B, 1024x1024 right after a start and warm (0.9 GiB left in one block)
+    { "FLUX.2 Klein 9B", px(1024, 1024), 0, px(1024, 1024), "1024x1024" },
     { "FLUX.3 Klein", px(1024, 1024), px(1536, 1536), px(896, 896), "1024x1024" },
     { "Z-Image", px(1536, 1536), 0, px(1024, 1024), "1536x1536" },
     // 0.9.1: 81 frames after 33 and 49, with CausVid

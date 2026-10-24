@@ -260,10 +260,16 @@ int main() {
                       "per-file installed");
             }
         }
-        check(featured == 6 && find_catalog("sdxl-full")->featured && find_catalog("z-image-turbo")->featured &&
+        check(featured == 7 && find_catalog("sdxl-full")->featured && find_catalog("z-image-turbo")->featured &&
                   find_catalog("wan21-t2v-1.3b")->featured && find_catalog("flux2-klein-4b")->featured &&
-                  find_catalog("wan22-ti2v-5b")->featured,
-              "SDXL full, Klein Q4, FLUX.2 Klein 4B, Z-Image Turbo, Wan 2.1 and Wan 2.2 TI2V are featured");
+                  find_catalog("flux2-klein-9b")->featured && find_catalog("wan22-ti2v-5b")->featured,
+              "SDXL full, Klein Q4, FLUX.2 Klein 4B and 9B, Z-Image Turbo, Wan 2.1 and Wan 2.2 TI2V are featured");
+        const CatalogEntry * k9 = find_catalog("flux2-klein-9b");
+        check(k9 != nullptr && k9->files.size() == 3 &&
+                  std::string(k9->files[1].dest) == "text_encoders/Qwen3-8B-Q4_K_M.gguf" &&
+                  std::string(k9->files[2].dest) == klein.files.back().dest &&
+                  std::string(k9->preset).find("--llm\ntext_encoders/Qwen3-8B-Q4_K_M.gguf\n") != std::string::npos,
+              "Klein 9B: Qwen3-8B and the Klein VAE");
         check(j["entries"][0]["id"] == "sdxl-full" && j["entries"][1]["id"] == "flux3-klein-q4" &&
                   j["entries"][2]["id"] == "z-image-turbo" && j["entries"][0]["good_for"].is_string(),
               "featured order and good_for");

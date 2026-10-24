@@ -14,7 +14,8 @@
 // Q4_K_M and the FLUX.2 VAE are 6.3 GB and leave 4 GiB free after a request;
 // Z-Image Turbo Q4_K with Qwen3-4B Q4_K_M and the FLUX.1 VAE is 6.7 GB.
 // FLUX.2 Klein 4B Q8_0 with Qwen3-4B Q4_K_M and the FLUX.2 VAE is 7.1 GB and leaves 3.9 GiB free
-// after a 1024x1024 image.
+// after a 1024x1024 image. FLUX.2 Klein 9B Q4_0 with Qwen3-8B Q4_K_M and the same VAE is 11.0 GB and
+// left 0.9 GiB in one block after a 1024x1024 image (2026-10-24).
 // Wan 2.1 T2V 1.3B (f16) with umt5-xxl Q4_K_M and the Wan 2.1 VAE is 6.7 GB;
 // the VAE decodes in 256 px tiles at an overlap of 0.25 (since 0.9.1; 128 px at 0.5 before, which
 // took twice as long, and 256 px ran out of memory before patches/mesa/0010).
@@ -208,6 +209,33 @@ inline std::vector<CatalogEntry> entries() {
             "512\n",
             true,
             "fast, detailed images",
+        },
+        {
+            "flux2-klein-9b",
+            "FLUX.2 Klein 9B (Q4_0)",
+            "The larger Klein: more detail than the 4B, 1024x1024 in 4 steps, about 50 s an image (100 s the first "
+            "after a start). Works with FLUX.2 Klein 9B LoRAs. FLUX Non-Commercial License. 11.0 GB.",
+            {
+                { "https://huggingface.co/leejet/FLUX.2-klein-9B-GGUF/resolve/main/flux-2-klein-9b-Q4_0.gguf",
+                  "diffusion_models/flux-2-klein-9b-Q4_0.gguf", 5616208032ull, 0 },
+                // Qwen3-8B, the text encoder Klein 9B was trained with.
+                { "https://huggingface.co/unsloth/Qwen3-8B-GGUF/resolve/main/Qwen3-8B-Q4_K_M.gguf",
+                  "text_encoders/Qwen3-8B-Q4_K_M.gguf", 5027784512ull, 0 },
+                PS5SD_KLEIN_VAE,
+            },
+            "# name: FLUX.2 Klein 9B (Q4_0)\n"
+            "# defaults: steps=4 cfg=1 width=1024 height=1024 sampler=euler\n"
+            "--diffusion-model\n"
+            "diffusion_models/flux-2-klein-9b-Q4_0.gguf\n"
+            "--llm\n"
+            "text_encoders/Qwen3-8B-Q4_K_M.gguf\n"
+            "--vae\n"
+            "vae/flux2-vae.safetensors\n"
+            "--vae-tiling\n"
+            "--vae-tile-size\n"
+            "512\n",
+            true,
+            "most detailed fast images",
         },
         {
             "flux3-klein-q6",

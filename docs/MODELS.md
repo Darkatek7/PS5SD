@@ -206,7 +206,7 @@ still ask for a saved preset by its id. Deleting a saved preset, in the web UI o
 `DELETE /ps5sd/v1/app/models/<id>`, removes its file only.
 
 The catalog's presets in [ps5/app/catalog.hpp](../ps5/app/catalog.hpp) are working examples for SDXL,
-FLUX.2 Klein 4B, FLUX.3 Klein, Z-Image Turbo, Wan 2.1 and Wan 2.2 TI2V 5B.
+FLUX.2 Klein 4B and 9B, FLUX.3 Klein, Z-Image Turbo, Wan 2.1 and Wan 2.2 TI2V 5B.
 
 Put the preset in place like a model file, with FTP or the script:
 
@@ -218,7 +218,8 @@ PS5_HOST=<console IP> scripts/ps5sd-app.sh model my-finetune
 ## LoRAs
 
 A LoRA adds a style, a character or a look to a model. It works only with models of the family it was
-made for: an SDXL LoRA with SDXL and its finetunes (Illustrious, Pony, ...), an SD 1.5 LoRA with SD 1.5.
+made for: an SDXL LoRA with SDXL and its finetunes (Illustrious, Pony, ...), an SD 1.5 LoRA with SD 1.5, a
+FLUX.2 Klein 9B LoRA with Klein 9B (not with the 4B).
 With a model of another family it does nothing.
 
 Getting one onto the console:
@@ -484,6 +485,7 @@ must fit together, plus the working memory for one image.
 | FLUX.3 Klein Q4_K / Q6_K + Qwen3-VL-4B Q4_K_M | 6.4 / 7.7 GB | yes; Q6_K up to 1024×1024 right after a start, 896×896 after other models; not 1536×1536 |
 | Z-Image Turbo Q4_K + Qwen3-4B Q4_K_M | 6.7 GB | yes |
 | FLUX.2 Klein 4B Q8_0 + Qwen3-4B Q4_K_M | 7.1 GB | yes, 1024×1024 in 4 steps in about 30 s, 3.9 GiB free after it |
+| FLUX.2 Klein 9B Q4_0 + Qwen3-8B Q4_K_M | 11.0 GB | yes, 1024×1024 in 4 steps in about 50 s, 0.9 GiB free in one block after it; larger not measured |
 | Wan 2.1 T2V 1.3B (video) fp16 + umt5-xxl Q4_K_M + VAE | 6.7 GB | yes, up to 81 frames at 832×480 with 256 px VAE tiles (128 px before 0.9.1) |
 | FLUX.1 dev or schnell in f16 (24 GB) | | no; use a Q4 or Q5 `.gguf` |
 
