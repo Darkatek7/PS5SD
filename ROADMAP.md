@@ -10,6 +10,8 @@ can rely on.
 
 ## Done
 
+- **0.9.12**: presets under their model with a default for each, Edit text for every preset, the time
+  and model in the image, Use all in the viewer, LoRAs on and off, several uploads at once (issues 10 and 11).
 - **0.9.11**: the web UI: a Create tab without scrolling, a denser look, light and dark, a sidebar that
   folds, Delete under the result, CLIP skip as a number (issues 7, 8 and 9).
 - **0.9.10**: fan modes, Quiet, Balanced, Cool and Manual: the fan starts earlier, and long runs stay at
@@ -305,6 +307,20 @@ selected for one delete or download.
 - [x] **CLIP skip as a number** ([issue 9](https://github.com/Darkatek7/PS5SD/issues/9)): 1 to 12 typed or
   with − and +, empty for Auto.
 - [x] **Tested in the PS5's own browser**: all five tabs.
+
+## 0.9.12: presets and LoRAs ([issue 10](https://github.com/Darkatek7/PS5SD/issues/10), [issue 11](https://github.com/Darkatek7/PS5SD/issues/11)), done
+
+- [x] **Presets under their model**: Models lists each model once with its presets; the Create tab's picker
+  shows the same. Every preset has Use, Edit text, Make default and Delete.
+- [x] **A default preset per model** (★), kept on the console in `default_presets`; Use on the model loads it.
+- [x] **Time and model in the image**: `Time: 52.3 s`, and the A1111 `Model:` field for FLUX, Z-Image and
+  Wan (patch 0074).
+- [x] **Use all** in the viewer switches to the image's preset, then fills Create with its settings. On a
+  PC or a device on its side the viewer's text floats over the picture.
+- [x] **LoRAs on and off** on the Create tab, keeping their strength; grouped by family under Models, with a
+  search past 8. Their order does not change the image, so they keep no order.
+- [x] **Several uploads at once**, one after the other, with Cancel.
+- [x] **Klein 9B's preset** at 8 steps with dpm2 (about 3 minutes an image).
 
 ## Later in 0.9.x
 
