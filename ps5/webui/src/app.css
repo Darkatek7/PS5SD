@@ -295,6 +295,7 @@
 
   /* Help tab */
   .docbar { display: flex; flex-wrap: wrap; align-items: center; margin-bottom: 0.5rem; }
+  .docbar > button { margin: 0 0.5rem 0.5rem 0; }
   .docbar .docseg { flex: 0 1 30rem; margin: 0 1rem 0.5rem 0; }
   .docbar a { margin: 0 0 0.5rem auto; color: var(--muted); }
   .doc { max-width: 60rem; color: var(--muted); line-height: 1.55; }
