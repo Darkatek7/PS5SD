@@ -10,6 +10,7 @@ can rely on.
 
 ## Done
 
+- **0.9.7**: FLUX.2 Klein 9B in the catalog, featured: 1024x1024 in about 50 s, with its LoRAs.
 - **0.9.6**: video from a picture with Wan 2.2 TI2V 5B, Flow shift on the Create tab, and CLIP skip for
   every model that reads the prompt with CLIP.
 - **0.9.5**: a zoom in the gallery viewer, copy buttons, names and tags for images, images that are not
@@ -252,7 +253,7 @@ selected for one delete or download.
   the field shows for all of them and says what Auto is for the loaded one ("Auto (2)" for SDXL); no 1 for
   a model that is not SD 1.x.
 
-## 0.9.7: FLUX.2 Klein 9B
+## 0.9.7: FLUX.2 Klein 9B, done
 
 - [x] **FLUX.2 Klein 9B** (Q4_0, with Qwen3-8B Q4_K_M, 11 GB) in the catalog, featured: 1024x1024 in 4 steps
   in about 50 s (100 s right after a start), with its LoRAs. Measured on the console: it fits, with 0.9 GiB
