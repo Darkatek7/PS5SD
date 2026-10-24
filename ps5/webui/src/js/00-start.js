@@ -37,8 +37,10 @@
     mid: '',             // id of the loaded library entry ('' = unknown)
     mkey: null,          // whose settings the form holds (the id, else the name)
     announce: '',        // name of the model just switched to (for the toast)
+    pendingInfo: null,   // Use all in the viewer waits for this switch: {id, name, j}
     app: null,           // the app's model routes exist (null = not asked yet)
     mdl: null,           // last answer of GET /ps5sd/v1/app/models
+    defp: null,          // each model's default preset: {model_file: id} (settings), null without
     sw: null,            // a model switch under way: {id, name, t0, ticks, polling, down, waitJob}
     dl: null,            // the download routes exist (null = not asked yet)
     cat: null,           // the catalog route exists

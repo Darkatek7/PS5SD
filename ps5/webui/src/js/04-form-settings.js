@@ -69,7 +69,7 @@
     loraSel = [];
     var ls = o.loras && o.loras.length ? o.loras : [];
     for (var i = 0; i < ls.length; i++) {
-      if (ls[i] && typeof ls[i].path === 'string') loraSel.push({ path: ls[i].path, m: Number(ls[i].m) || 0 });
+      if (ls[i] && typeof ls[i].path === 'string') loraSel.push({ path: ls[i].path, m: Number(ls[i].m) || 0, off: !!ls[i].off });
     }
     drawLoraPicker();
     setHires(o.hr);
@@ -144,7 +144,7 @@
     text($('grp-quality-s'), steps + (steps === 1 ? ' step' : ' steps') + ' · CFG ' + num('cfg', 7, 0, 30) +
       ($('sampler').value !== 'default' ? ' · ' + $('sampler').value : '') +
       (clipSkipShown() && clipValue() > 0 ? ' · CLIP skip ' + clipValue() : ''));
-    text($('grp-style-s'), loraSel.length ? loraSel.length + (loraSel.length === 1 ? ' LoRA' : ' LoRAs') : 'none');
+    text($('grp-style-s'), loraSummary());
     text($('hr-sect-s'), !$('hr-on').checked ? 'off' : scale === 1 ? 'refine pass' : '×' + scale);
     text($('grp-seed-s'), isNaN(seed) || seed < 0 ? 'random' : String(seed));
     text($('vid-sect-s'), parseInt($('frames').value, 10) + ' frames · ' + parseInt($('fps').value, 10) + ' fps' +
@@ -164,14 +164,14 @@
     st.mkey = key;
     st.mid = entry ? entry.id : '';
     st.preset = presetFor(name, entry);
-    text($('presetnote'), presetNote(st.preset));
+    $('resetpreset').title = presetNote(st.preset);
     st.cnModel = entry && entry.control_net ? entry.control_net : '';
     drawStarters(entry);
     drawClipSkip(entry);
     drawVideoStart();
     drawGuide();
     drawMode();
-    if (!changed) return;
+    if (!changed) { pendingInfo(key); return; }
     var saved = null;
     try { saved = JSON.parse(load('set.' + (key || '_'))); } catch (e) {}
     var keep = parseInt($('seed').value, 10);
@@ -186,5 +186,6 @@
         'Its defaults are set: ' + p.w + '×' + p.h + ', ' + p.steps + (p.steps === 1 ? ' step' : ' steps') + ', CFG ' + p.cfg + '.'));
     }
     st.announce = '';
+    pendingInfo(key);
   }
 

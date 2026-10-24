@@ -64,6 +64,7 @@
     req('GET', APP + '/models', null, function (code, data) {
       if (code === 200 && data && data.models) {
         setModels(data);
+        loadDefaults();
       } else if (absent(code)) {
         st.app = false;
         st.mdl = null;
@@ -86,15 +87,18 @@
     }
     if (!data.standby) st.sbSeen = false;
     drawModels();
+    if (loraList) drawLoraList();  // the loaded model's family comes first
     drawSaveBox();
     drawCurrent();
     drawInit();  // the reference edit shows for FLUX.2 only
   }
 
-  // The Installed sub-view: image models, then video models (each row with its saved settings under it).
+  // The Installed sub-view: image models, then video models. A model is one main model file with all
+  // the presets that load it under it (groupsOf); a model with one way to load it is one row.
   function drawModels() {
     var d = st.mdl;
-    var sig = String(st.app) + '|' + JSON.stringify(d) + '|' + (st.sw ? st.sw.id : '') + '|' + (st.delErr ? st.delErr.id + st.delErr.msg : '') + '|' + (st.video ? 'v' : '');
+    var sig = String(st.app) + '|' + JSON.stringify(d) + '|' + JSON.stringify(st.defp) + '|' + (st.sw ? st.sw.id : '') + '|' +
+      (st.delErr ? st.delErr.id + st.delErr.msg : '') + '|' + (st.video ? 'v' : '');
     if (sig === mlistSig) return;
     mlistSig = sig;
     var box = $('mlist'), vbox = $('vlist');
@@ -102,10 +106,9 @@
     clear(vbox);
     show('gh-vid', false);
     if (st.app === false) {
-      text($('mnote'), 'This version of the PS5SD app cannot list or switch models.');
+      box.appendChild(el('div', 'empty-note', 'This version of the PS5SD app cannot list or switch models.'));
       return;
     }
-    text($('mnote'), 'Switching restarts the server: 10 to 20 seconds, about a minute for SDXL. A saved setting of the loaded model switches at once.');
     if (!d) {
       box.appendChild(el('div', 'empty-note', 'Loading…'));
       return;
@@ -114,29 +117,83 @@
       box.appendChild(el('div', 'empty-note', 'No models installed yet. Get one under Get more.'));
       return;
     }
-    var roots = rootsOf(d), imgs = 0, vids = 0;
-    for (var i = 0; i < roots.length; i++) {
-      if (videoOf(roots[i], d)) { vbox.appendChild(modelItem(roots[i], d)); vids++; }
-      else { box.appendChild(modelItem(roots[i], d)); imgs++; }
+    var gs = groupsOf(d), imgs = 0, vids = 0;
+    for (var i = 0; i < gs.length; i++) {
+      if (videoOf(gs[i].main, d)) { vbox.appendChild(groupItem(gs[i], d)); vids++; }
+      else { box.appendChild(groupItem(gs[i], d)); imgs++; }
     }
     if (!imgs) box.appendChild(el('div', 'empty-note', 'No image models installed yet. Get one under Get more.'));
     show('gh-vid', vids > 0);
   }
 
-  // The rows of the list: the models (a checkpoint, or a preset of its own). A saved setting (a preset
-  // with a base) sits under its model; one whose model is not listed stands alone.
-  function rootsOf(d) {
-    var out = [], ids = {}, i, o;
+  // The main model file of an entry (the server's model_file; older servers: its first file).
+  function fileOf(m) {
+    return m.model_file || baseName(m.files && m.files[0]) || m.id;
+  }
+
+  // The models: [{key, title, main, items, def}]. key: the main model file; items: the presets that
+  // load it, main first, then the catalog's other presets, then the saved ones. A bare checkpoint is
+  // an item only when no preset of its own stands for it (a preset saved from it does not).
+  function groupsOf(d) {
+    var by = {}, out = [], i, j, m, g;
     for (i = 0; i < d.models.length; i++) {
-      o = d.models[i];
-      if (!(o.kind === 'preset' && o.base) && isModel(o, d)) ids[o.id] = true;
+      m = d.models[i];
+      var k = fileOf(m);
+      g = by[k];
+      if (!g) { g = by[k] = { key: k, items: [], file: null }; out.push(g); }
+      if (m.kind === 'file') g.file = m; else g.items.push(m);
     }
-    for (i = 0; i < d.models.length; i++) {
-      o = d.models[i];
-      if (o.kind === 'preset' && o.base && ids[o.base]) continue;
-      if (ids[o.id] || (o.kind === 'preset' && o.base)) out.push(o);
+    for (i = 0; i < out.length; i++) {
+      g = out[i];
+      var roots = [], saved = [], fileUsed = false;
+      for (j = 0; j < g.items.length; j++) {
+        m = g.items[j];
+        if (m.base) saved.push(m); else roots.push(m);
+        if (g.file && m.base === g.file.id) fileUsed = true;
+      }
+      if (g.file && !roots.length) fileUsed = true;
+      var main = null;
+      for (j = 0; j < roots.length; j++) {
+        if (roots[j].control_net) continue;
+        if (!main || titleOf(roots[j]).length < titleOf(main).length) main = roots[j];
+      }
+      if (!main) main = roots[0] || (fileUsed ? g.file : null) || saved[0];
+      var rest = [];
+      for (j = 0; j < roots.length; j++) if (roots[j] !== main) rest.push(roots[j]);
+      saved.sort(function (a, b) { return titleOf(a).toLowerCase() < titleOf(b).toLowerCase() ? -1 : 1; });
+      g.items = [main].concat(rest);
+      if (fileUsed && g.file && g.file !== main) g.items.push(g.file);
+      for (j = 0; j < saved.length; j++) if (saved[j] !== main) g.items.push(saved[j]);
+      g.main = main;
+      g.title = titleOf(main);
+      g.def = main;
+      var want = st.defp ? st.defp[g.key] : '';
+      for (j = 0; want && j < g.items.length; j++) if (g.items[j].id === want) g.def = g.items[j];
     }
+    out.sort(function (a, b) { return a.title.toLowerCase() < b.title.toLowerCase() ? -1 : 1; });
     return out;
+  }
+
+  // The model an entry belongs to, or null.
+  function groupOf(id) {
+    if (!st.mdl || !id) return null;
+    var gs = groupsOf(st.mdl);
+    for (var i = 0; i < gs.length; i++) for (var j = 0; j < gs[i].items.length; j++) if (gs[i].items[j].id === id) return gs[i];
+    return null;
+  }
+
+  // A preset's name under its model: what it adds to the model's name ("SDXL Base 1.0 (Q8_0), fast"
+  // under "SDXL Base 1.0 (Q8_0)" is "Fast"); "Standard" for the model's own settings.
+  function shortName(m, title) {
+    var n = titleOf(m);
+    if (n === title) return 'Standard';
+    var a = n.split(' '), b = title.split(' '), i = 0;
+    function w(s) { return s.replace(/[,:;()+]+$/, '').replace(/^[(+]+/, '').toLowerCase(); }
+    while (i < a.length && i < b.length && w(a[i]) === w(b[i])) i++;
+    if (i < 2) return n;
+    var rest = trim(a.slice(i).join(' ').replace(/^[\s,:;+\-·]+/, ''));
+    if (!rest) return 'Standard';
+    return /^[a-z]+$/.test(rest.split(' ')[0]) ? rest.charAt(0).toUpperCase() + rest.slice(1) : rest;
   }
 
   function inList(list, id) {
@@ -168,15 +225,7 @@
     return m.kind === 'file' ? readable(m.name || m.id) : (m.name || m.id);
   }
 
-  // The size and the default size and steps, in one muted line.
-  function specOf(m) {
-    var parts = [bytes(m.bytes)];
-    var df = m.defaults || {};
-    if (df.width && df.height) parts.push(df.width + '×' + df.height);
-    if (df.steps) parts.push(df.steps + (String(df.steps) === '1' ? ' step' : ' steps'));
-    return parts.join(' · ');
-  }
-
+  // A preset's settings in one muted line: size, steps, CFG, sampler, LoRAs, hires.
   function subMeta(v) {
     var parts = [];
     var def = defaultsText(v.defaults);
@@ -195,88 +244,150 @@
     parent.appendChild(box);
   }
 
-  // One model with its saved settings under it.
-  function modelItem(m, d) {
-    var vars = variantsOf(m.id);
-    var loaded = d.loaded === m.id || inList(vars, d.loaded);
-    var loading = !loaded && ((!!st.sw && st.sw.id === m.id) || d.active === m.id || inList(vars, d.active));
+  // Loaded, or on its way.
+  function stateOf(m, d) {
+    if (d.loaded === m.id) return 'on';
+    if ((!!st.sw && st.sw.id === m.id) || d.active === m.id) return 'loading';
+    return '';
+  }
+
+  // One model: its name, size and tags, Use (its default preset), and its presets under it.
+  function groupItem(g, d) {
+    var m = g.main, i, on = null, loading = null;
+    for (i = 0; i < g.items.length; i++) {
+      var s = stateOf(g.items[i], d);
+      if (s === 'on') on = g.items[i];
+      else if (s === 'loading') loading = g.items[i];
+    }
+    var single = g.items.length === 1;
     var miss = m.missing && m.missing.length ? m.missing : null;
-    var row = el('div', 'mrow mwrap' + (loaded ? ' on' : '') + (miss && !loaded ? ' dim' : ''));
+    var row = el('div', 'mrow mwrap mgrp' + (on ? ' on' : '') + (miss && !on ? ' dim' : ''));
     var main = el('div', 'mmain');
-    var nm = el('div', 'mname', titleOf(m));
-    if (loaded) nm.appendChild(el('span', 'badge ok', 'In use'));
+    var nm = el('div', 'mname', g.title);
+    if (on) nm.appendChild(el('span', 'badge ok', single ? 'In use' : 'In use: ' + shortName(on, g.title)));
     else if (loading) nm.appendChild(el('span', 'badge warn', 'Loading…'));
     if (miss) nm.appendChild(el('span', 'badge bad', 'Incomplete'));
     if (m.part) nm.appendChild(el('span', 'badge warn', 'Part of a model'));
     main.appendChild(nm);
-    if (m.kind === 'file' && m.files && m.files[0]) main.appendChild(el('div', 'mfile', baseName(m.files[0])));
     // only the diffusion model, text encoder or VAE: it runs in a preset that names the others
     if (m.part) main.appendChild(el('div', 'mmeta', 'Only the ' + m.part + ' of a model, so it cannot run on its own. ' +
-      'Get more installs a model with all its files and a preset; Help, Models: Presets shows how to write one.'));
+      'Get more installs a model with all its files and a preset.'));
     addTags(main, tagsOf(m.name || m.id, m.files, videoOf(m, d), !!m.control_net, m.family));
-    main.appendChild(el('div', 'mmeta', specOf(m)));
+    var spec = [bytes(m.bytes)];
+    if (single && subMeta(m)) spec.push(subMeta(m));
+    if (!single) spec.push(g.items.length + ' presets');
+    main.appendChild(el('div', 'mmeta', spec.join(' · ')));
     if (miss) {
       var lost = [];
-      for (var i = 0; i < miss.length; i++) lost.push(baseName(miss[i]));
+      for (i = 0; i < miss.length; i++) lost.push(baseName(miss[i]));
       main.appendChild(el('div', 'mmeta bad', 'Missing: ' + lost.join(', ')));
     }
     if (st.delErr && st.delErr.id === m.id) main.appendChild(el('div', 'mmeta bad', st.delErr.msg));
     row.appendChild(main);
     var acts = el('div', 'macts');
-    if (!loaded) {
-      var usable = !loading && !miss && !st.sw && !m.part;
-      var b = actionButton(loading ? 'Loading…' : 'Use', function () { useModel(m); });
+    if (!on) {
+      var dm = g.def.missing && g.def.missing.length;
+      var usable = !loading && !dm && !st.sw && !g.def.part;
+      var b = actionButton(loading ? 'Loading…' : 'Use', function () { useModel(g.def); });
       b.disabled = !usable;
       if (usable) b.className = 'on';
+      if (!single) b.title = 'Loads ' + shortName(g.def, g.title);
       acts.appendChild(b);
     }
-    var why = deleteBlock(m, d);
-    acts.appendChild(moreMenu([{ label: 'Delete', danger: true, disabled: !!why || !!st.sw, fn: function () { askDelete(m); } }], why));
+    // Delete on a model is its main preset (with the presets saved from it); a catalog preset of its own
+    // (a ControlNet one) stays, and so do the files it uses
+    var others = 0;
+    for (i = 0; i < g.items.length; i++) if (g.items[i] !== m && g.items[i].kind === 'preset' && !g.items[i].base) others++;
+    acts.appendChild(single ? itemMenu(m, g, d) : moreMenu([{ label: others ? 'Delete Standard' : 'Delete the model', danger: true,
+      disabled: !!deleteBlock(m, d) || !!st.sw, fn: function () { askDelete(m); } }],
+      deleteBlock(m, d) || (others ? 'Its saved presets go with it; ' + (others === 1 ? 'the other preset stays' : 'the ' + others + ' other presets stay') +
+        ', and so do the files they use.' : '')));
     row.appendChild(acts);
     var item = el('div', 'mitem');
     item.appendChild(row);
-    if (vars.length) item.appendChild(savedList(vars, d));
+    if (!single) {
+      var box = el('div', 'subs');
+      for (i = 0; i < g.items.length; i++) box.appendChild(presetRow(g.items[i], g, d));
+      item.appendChild(box);
+    }
     return item;
   }
 
-  function savedList(vars, d) {
-    var box = el('div', 'subs');
-    box.appendChild(el('div', 'subhead', vars.length + (vars.length === 1 ? ' saved setting' : ' saved settings')));
-    for (var i = 0; i < vars.length; i++) box.appendChild(savedRow(vars[i], d));
-    return box;
-  }
-
-  // One saved setting: its name, its defaults, and Use, Edit and Delete.
-  function savedRow(v, d) {
-    var loaded = d.loaded === v.id;
-    var loading = !loaded && ((!!st.sw && st.sw.id === v.id) || d.active === v.id);
+  // One preset of a model: its name (a star on the default), its settings, Use and ⋯.
+  function presetRow(v, g, d) {
+    var s = stateOf(v, d);
     var miss = v.missing && v.missing.length;
-    var row = el('div', 'sub' + (loaded ? ' on' : ''));
+    var row = el('div', 'sub' + (s === 'on' ? ' on' : ''));
     var main = el('div', 'smain');
-    var nm = el('div', 'sname', v.name || v.id);
-    if (loaded) nm.appendChild(el('span', 'badge ok', 'In use'));
-    else if (loading) nm.appendChild(el('span', 'badge warn', 'Loading…'));
-    if (miss) nm.appendChild(el('span', 'badge bad', 'Model missing'));
+    var nm = el('div', 'sname');
+    if (v === g.def) {
+      var star = el('span', 'star', '★');
+      star.title = 'Default: Use on the model loads it';
+      nm.appendChild(star);
+    }
+    nm.appendChild(document.createTextNode(shortName(v, g.title)));
+    if (v.control_net && !/controlnet/i.test(v.name || '')) nm.appendChild(el('span', 'tag cn', 'ControlNet'));
+    if (s === 'on') nm.appendChild(el('span', 'badge ok', 'In use'));
+    else if (s === 'loading') nm.appendChild(el('span', 'badge warn', 'Loading…'));
+    if (miss) nm.appendChild(el('span', 'badge bad', 'Files missing'));
     main.appendChild(nm);
-    var meta = subMeta(v);
-    if (meta) main.appendChild(el('div', 'mmeta', meta));
+    main.appendChild(el('div', 'mmeta', subMeta(v) || 'No settings of its own'));
     if (st.delErr && st.delErr.id === v.id) main.appendChild(el('div', 'mmeta bad', st.delErr.msg));
     row.appendChild(main);
     var acts = el('div', 'sacts');
-    if (!loaded) {
-      var usable = !loading && !miss && !st.sw;
-      var b = actionButton(loading ? 'Loading…' : 'Use', function () { useModel(v); });
+    if (s !== 'on') {
+      var usable = s !== 'loading' && !miss && !st.sw && !v.part;
+      var b = actionButton(s === 'loading' ? 'Loading…' : 'Use', function () { useModel(v); });
       b.disabled = !usable;
-      if (usable) b.className = 'on';
       acts.appendChild(b);
     }
-    var busy = loaded || d.active === v.id;
-    acts.appendChild(moreMenu([
-      { label: 'Edit', fn: function () { editPreset(v); } },
-      { label: 'Delete', danger: true, disabled: busy || !!st.sw, fn: function () { askDeletePreset(v); } }
-    ], busy ? 'Switch to another model or setting to delete this one.' : ''));
+    acts.appendChild(itemMenu(v, g, d));
     row.appendChild(acts);
     return row;
+  }
+
+  // The ⋯ of a preset: Edit text, Make default, Delete.
+  function itemMenu(v, g, d) {
+    var items = [], why = '';
+    if (v.kind === 'preset') items.push({ label: 'Edit text', fn: function () { editPreset(v); } });
+    if (g.items.length > 1 && v !== g.def) items.push({ label: 'Make default', disabled: !st.defp, fn: function () { makeDefault(g, v); } });
+    if (v.kind === 'preset' && v.base) {
+      var busy = d.loaded === v.id || d.active === v.id;
+      if (busy) why = 'Switch to another preset to delete this one.';
+      items.push({ label: 'Delete', danger: true, disabled: busy || !!st.sw, fn: function () { askDeletePreset(v); } });
+    } else {
+      why = deleteBlock(v, d);
+      items.push({ label: 'Delete', danger: true, disabled: !!why || !!st.sw, fn: function () { askDelete(v); } });
+    }
+    return moreMenu(items, why);
+  }
+
+  // The preset Use on a model loads, kept on the console (settings: default_presets). The model's
+  // own preset is the default without an entry.
+  function makeDefault(g, v) {
+    var set = {};
+    set[g.key] = v === g.main ? '' : v.id;
+    req('POST', APP + '/settings', { default_presets: set }, function (code, data) {
+      if (code === 200 && data && data.default_presets) {
+        st.defp = data.default_presets;
+        drawModels();
+        drawCurrent();
+        toast(shortName(v, g.title) + ' is the default of ' + g.title + '.');
+      } else {
+        toast(errText(code, data, 'Could not set the default'), 6000);
+      }
+    }, 10000);
+  }
+
+  // The defaults (settings: default_presets); null on a server without them.
+  function loadDefaults() {
+    req('GET', APP + '/settings', null, function (code, data) {
+      var defp = code === 200 && data && data.default_presets && typeof data.default_presets === 'object' ? data.default_presets : null;
+      if (JSON.stringify(defp) === JSON.stringify(st.defp)) return;
+      st.defp = defp;
+      drawModels();
+      drawCurrent();
+    }, 8000);
   }
 
   // ---- the ⋯ button of a row: a small menu. Escape, or a click outside it, shuts it.
@@ -371,20 +482,6 @@
     $('dl-clear').onclick = clearFinished;
     initMenus();
     applyMSub();
-  }
-
-  // The Models tab lists models: checkpoints and presets without a base (a model in several files,
-  // or one with its own options), but not a checkpoint such a preset loads (the preset stands for it).
-  // A preset with a base is a saved preset: it is on the Presets tab.
-  function isModel(m, d) {
-    if (m.kind === 'preset') return !m.base;
-    var f = m.files && m.files[0];
-    for (var i = 0; i < d.models.length; i++) {
-      var o = d.models[i];
-      if (o.kind !== 'preset' || o.base || !o.files) continue;
-      for (var j = 0; j < o.files.length; j++) if (o.files[j] === f) return false;
-    }
-    return true;
   }
 
   function variantsOf(id) {

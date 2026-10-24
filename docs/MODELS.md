@@ -187,17 +187,22 @@ The same model with other settings, say a portrait size and a fast sampler, is a
 ilustmix_v111.safetensors
 ```
 
-The web UI makes these: set up the Create tab, then press **Save as preset** at its top. It copies the
-model's own options (VAE, tiling, `--type`) and its prompt starters into the preset. On the Models tab, under **Installed**, the
-saved presets of a model are listed under it (as "saved settings"), and the Create tab's preset menu
-offers them too:
+The web UI makes these: set up the Create tab, then press **Save as preset** under the model's name. It
+copies the model's own options (VAE, tiling, `--type`) and its prompt starters into the preset. On the
+Models tab, under **Installed**, each model is listed once (by its main model file), with all its presets
+under it: the ones it came with and the ones you saved. The list under the model's name on the Create
+tab shows the same, each preset as a button.
 
-- **Use** switches to the preset. When it loads the same files with the same options as the model that
-  is loaded, the switch is at once, without loading anything. Its settings take effect at once too: they
-  are the defaults of the API, set without a restart. Other files or options restart the server (the
+- **Use** on a preset switches to it. When it loads the same files with the same options as the model
+  that is loaded, the switch is at once, without loading anything. Its settings take effect at once too:
+  they are the defaults of the API, set without a restart. Other files or options restart the server (the
   model loads again, about a minute for SDXL).
-- **Edit** (in the **⋯** menu) shows the preset file to change.
-- **Delete** (in the **⋯** menu) removes the preset file only, never the model.
+- **Use** on the model loads its default preset, marked ★. **Make default** (in a preset's **⋯** menu)
+  picks another one; it is kept on the console (`default_presets` in the app's settings, see
+  [API.md](API.md#app-settings)), so it holds in every browser. Only the web UI reads it: an API that
+  switches models loads the preset it names.
+- **Edit text** (in the **⋯** menu) shows the preset file to change, for any preset.
+- **Delete** (in the **⋯** menu) removes a saved preset's file only, never the model.
 
 Deleting a model on the Models tab deletes its saved presets too. A preset without `# base:` (the catalog's, or your own of a model in several files) is a
 model: it is on the Models tab, and the checkpoint it loads is not listed again apart from it. The model

@@ -6,7 +6,6 @@
   var GROUPS = ['size', 'quality', 'style', 'hires', 'seed', 'video'];
   var GROUP_WRAP = { size: 'grp-size', quality: 'grp-quality', style: 'grp-style', hires: 'hr-sect', seed: 'grp-seed', video: 'vid-sect' };
   var cmOpen = false;   // the model list under the model name
-  var prOpen = false;   // the preset menu
 
   function setMode(name) {
     st.mode = name;
@@ -67,61 +66,43 @@
     drawGroups();
   }
 
-  // ---- the model in use: its family and tags, the preset menu, the list to change it
+  // ---- the model in use and the list to change it
   function within(box, t) {
     while (t) { if (t === box) return true; t = t.parentNode; }
     return false;
   }
 
-  // The family of the model in use (familyOf: 03-model-presets.js, shared with the Models tab).
+  // The model in use: its name, the preset under it, its family. groupsOf (13-models.js) is the
+  // Models tab's list: a model once, with its presets.
   function drawModelBlock() {
     var d = st.mdl;
     var loaded = d && d.loaded ? findModel(d.loaded) : null;
     var base = loaded && loaded.base ? findModel(loaded.base) : null;
     var tags = $('cm-tags');
     clear(tags);
+    var g = loaded && !d.standby && !st.sw ? groupOf(loaded.id) : null;
+    if (g) {
+      var multi = g.items.length > 1;
+      text($('cm-name'), g.title);
+      text($('model'), g.title + (multi ? ' · ' + shortName(loaded, g.title) : ''));
+      text($('pr-name'), multi ? 'Preset: ' + shortName(loaded, g.title) : '');
+    } else {
+      text($('pr-name'), '');
+    }
+    show('pr-name', !!(g && g.items.length > 1), 'block');
     if (loaded && !d.standby) {
       var fam = familyOf(loaded, base);
       if (fam) tags.appendChild(el('span', 'tag fam', fam));
       if (st.video) tags.appendChild(el('span', 'tag vid', 'video'));
       if (st.cnModel) tags.appendChild(el('span', 'tag cn', 'ControlNet'));
     }
-    text($('pr-name'), base ? (loaded.name || loaded.id) : 'model defaults');
-    drawPresetList(loaded, base);
+    show('resetpreset', !!loaded && !d.standby, 'inline-block');
+    drawSaveBox();
     if (cmOpen) drawCmList();
   }
 
-  // The preset menu: the model's own defaults, then its saved presets (the same base). Picking one
-  // is Use, the Models tab's switch.
-  function drawPresetList(loaded, base) {
-    var box = $('pr-list');
-    clear(box);
-    if (!loaded) return;
-    var root = base || loaded;
-    box.appendChild(presetItem(root, !base, 'Model defaults'));
-    var vs = variantsOf(root.id);
-    for (var i = 0; i < vs.length; i++) box.appendChild(presetItem(vs[i], loaded.id === vs[i].id, vs[i].name || vs[i].id));
-  }
-
-  function presetItem(m, current, label) {
-    var target = !!(st.sw && st.sw.id === m.id);
-    var miss = m.missing && m.missing.length;
-    var b = actionButton(current ? label + ' · in use' : (target ? 'Loading…' : label), function () {
-      prToggle(false);
-      if (!current) useModel(m);
-    });
-    if (current) b.className = 'on';
-    b.disabled = !current && (target || !!miss || !!st.sw);
-    return b;
-  }
-
-  function prToggle(on) {
-    prOpen = on === undefined ? !prOpen : !!on;
-    show('pr-menu', prOpen);
-    $('pr-toggle').setAttribute('aria-expanded', prOpen ? 'true' : 'false');
-  }
-
-  // The model list under the model name: installed models (not presets), each with Use.
+  // The list under the model name: each model with its presets as chips. The model's name loads
+  // its default preset, a chip that preset: Use on the Models tab.
   function cmToggle(on) {
     cmOpen = on === undefined ? !cmOpen : !!on;
     show('cm-list', cmOpen);
@@ -138,42 +119,51 @@
       box.appendChild(el('div', 'empty-note', 'Loading…'));
       return;
     }
-    var shown = 0;
-    for (var i = 0; i < d.models.length; i++) {
-      if (!isModel(d.models[i], d) || d.models[i].part) continue;
-      box.appendChild(cmRow(d.models[i], d));
+    var gs = groupsOf(d), shown = 0;
+    for (var i = 0; i < gs.length; i++) {
+      if (gs[i].main.part) continue;
+      box.appendChild(cmGroup(gs[i], d));
       shown++;
     }
     if (!shown) box.appendChild(el('div', 'empty-note', 'No models installed yet. Add one under Models.'));
   }
 
-  function cmRow(m, d) {
-    var loaded = d.loaded === m.id;
-    var target = !!(st.sw && st.sw.id === m.id);
-    var miss = m.missing && m.missing.length;
-    var row = el('div', 'mrow mwrap' + (loaded ? ' on' : ''));
-    var main = el('div', 'mmain');
-    var nm = el('div', 'mname', titleOf(m));
-    if (loaded) nm.appendChild(el('span', 'badge ok', 'In use'));
-    else if (target) nm.appendChild(el('span', 'badge warn', 'Loading…'));
-    if (miss) nm.appendChild(el('span', 'badge bad', 'Incomplete'));
-    main.appendChild(nm);
-    var fam = familyOf(m, null);
-    var meta = (fam ? fam + ' · ' : '') + bytes(m.bytes);
-    var def = defaultsText(m.defaults);
-    if (def) meta += ' · ' + def;
-    main.appendChild(el('div', 'mmeta', meta));
-    row.appendChild(main);
-    if (!loaded) {
-      var usable = !target && !miss && !st.sw;
-      var b = actionButton(target ? 'Loading…' : 'Use', function () { cmToggle(false); useModel(m); });
-      b.disabled = !usable;
-      if (usable) b.className = 'on';
-      var acts = el('div', 'macts');
-      acts.appendChild(b);
-      row.appendChild(acts);
+  function cmGroup(g, d) {
+    var on = null, i;
+    for (i = 0; i < g.items.length; i++) if (d.loaded === g.items[i].id) on = g.items[i];
+    var wrap = el('div', 'cmg' + (on ? ' on' : ''));
+    var miss = g.def.missing && g.def.missing.length;
+    var head = actionButton('', function () { cmPick(g.def); });
+    head.className = 'cmg-head';
+    head.appendChild(el('span', 'cmg-name', g.title));
+    var fam = familyOf(g.main, null);
+    var meta = (fam ? fam + ' · ' : '') + bytes(g.main.bytes);
+    if (g.items.length === 1 && defaultsText(g.main.defaults)) meta += ' · ' + defaultsText(g.main.defaults);
+    if (miss) meta += ' · files missing';
+    head.appendChild(el('span', 'cmg-meta', meta));
+    head.disabled = !!miss || !!st.sw || on === g.def;
+    wrap.appendChild(head);
+    if (g.items.length > 1) {
+      var chips = el('div', 'chips');
+      for (i = 0; i < g.items.length; i++) {
+        (function (v) {
+          var vm = v.missing && v.missing.length;
+          var c = actionButton((v === g.def ? '★ ' : '') + shortName(v, g.title), function () { cmPick(v); });
+          c.title = subMeta(v) || shortName(v, g.title);
+          if (v === on) c.className = 'on';
+          c.disabled = v !== on && (!!vm || !!st.sw);
+          c.setAttribute('aria-pressed', v === on ? 'true' : 'false');
+          chips.appendChild(c);
+        })(g.items[i]);
+      }
+      wrap.appendChild(chips);
     }
-    return row;
+    return wrap;
+  }
+
+  function cmPick(m) {
+    cmToggle(false);
+    if (!st.mdl || st.mdl.loaded !== m.id) useModel(m);
   }
 
   // ---- the keys and the clicks around the tab
@@ -192,9 +182,8 @@
     var enter = e.keyCode === 13 || e.key === 'Enter';
     var esc = e.keyCode === 27 || e.key === 'Escape';
     if (esc) {
-      var busy = cmOpen || prOpen || !!openMenu || overlayOpen();
+      var busy = cmOpen || !!openMenu || overlayOpen();
       if (cmOpen) cmToggle(false);
-      if (prOpen) prToggle(false);
       // Escape shuts the Save as preset box too, when no menu or overlay was open
       if (!busy && $('ps-box').style.display !== 'none') {
         show('ps-box', false);
@@ -211,7 +200,6 @@
   function outsideClick(e) {
     var t = (e && (e.target || e.srcElement)) || null;
     if (cmOpen && !within($('cm-block'), t)) cmToggle(false);
-    if (prOpen && !within($('pr-block'), t)) prToggle(false);
   }
 
   function initCreateLayout() {
@@ -225,7 +213,6 @@
       if (open) { try { $('neg').focus(); } catch (e) {} }
     };
     $('cm-change').onclick = function () { cmToggle(); };
-    $('pr-toggle').onclick = function () { prToggle(); };
     for (var i = 0; i < GROUPS.length; i++) {
       (function (key) { $(GROUP_WRAP[key] + '-h').onclick = function () { groupToggle(key); }; })(GROUPS[i]);
     }

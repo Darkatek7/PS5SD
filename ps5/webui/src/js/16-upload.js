@@ -1,26 +1,51 @@
   // ---------- upload ----------
-  // PUT with the file as the body; the app passes it on to ftpsrv as it comes.
+  // PUT with the file as the body; the app passes it on to ftpsrv as it comes. Several files go one
+  // after the other (upQueue); Cancel stops the one that runs and the ones still waiting.
   var upXhr = null;
+  var upQueue = [];
+
+  function upOk(kind, name) {
+    var okName = kind === 'presets' ? /\.txt$/i : kind === 'upscalers' ? /\.(pth|pt|safetensors|gguf)$/i : kind === 'tags' ? /\.(csv|txt)$/i
+      : /\.(gguf|safetensors|ckpt|sft)$/i;
+    return okName.test(name);
+  }
 
   function upStart() {
     var input = $('up-file');
-    var f = input.files && input.files[0];
-    input.value = '';
-    if (!f || upXhr) return;
+    var files = input.files || [];
     var kind = $('up-kind').value;
-    var name = f.name;
-    var okName = kind === 'presets' ? /\.txt$/i : kind === 'upscalers' ? /\.(pth|pt|safetensors|gguf)$/i : kind === 'tags' ? /\.(csv|txt)$/i
-      : /\.(gguf|safetensors|ckpt|sft)$/i;
-    if (!okName.test(name)) {
-      toast(kind === 'presets' ? 'A preset is a .txt file.' : kind === 'upscalers' ? 'An upscaler is a .pth, .pt, .safetensors or .gguf file.'
-        : kind === 'tags' ? 'A tag file is a .csv (as a1111-sd-webui-tagcomplete has them) or a .txt file.'
-        : 'Only .gguf, .safetensors, .ckpt and .sft files.', 6000);
-      return;
+    var bad = [];
+    for (var i = 0; i < files.length; i++) {
+      if (upOk(kind, files[i].name)) upQueue.push({ f: files[i], kind: kind });
+      else bad.push(files[i].name);
     }
+    input.value = '';
+    if (bad.length) {
+      toast((bad.length === files.length ? '' : 'Left out: ' + bad.join(', ') + '. ') +
+        (kind === 'presets' ? 'A preset is a .txt file.' : kind === 'upscalers' ? 'An upscaler is a .pth, .pt, .safetensors or .gguf file.'
+        : kind === 'tags' ? 'A tag file is a .csv (as a1111-sd-webui-tagcomplete has them) or a .txt file.'
+        : 'Only .gguf, .safetensors, .ckpt and .sft files.'), 7000);
+    }
+    upNext();
+  }
+
+  function upNext() {
+    if (upXhr || !upQueue.length) return;
+    var job = upQueue.shift();
+    upSend(job.f, job.kind);
+  }
+
+  function upCancel() {
+    upQueue = [];
+    if (upXhr) upXhr.abort();
+  }
+
+  function upSend(f, kind) {
+    var name = f.name;
     var x = new XMLHttpRequest();
     var t0 = Date.now();
     upXhr = x;
-    text($('up-name'), name);
+    text($('up-name'), name + (upQueue.length ? ' (then ' + upQueue.length + ' more)' : ''));
     $('up-fill').style.width = '0%';
     text($('up-meta'), 'Starting');
     show('up-box', true);
@@ -47,9 +72,12 @@
   function upDone(code, data, name, kind) {
     if (!upXhr) return;
     upXhr = null;
-    show('up-box', false);
-    $('up-pick').disabled = false;
-    $('up-kind').disabled = false;
+    var more = upQueue.length > 0;
+    if (!more) {
+      show('up-box', false);
+      $('up-pick').disabled = false;
+      $('up-kind').disabled = false;
+    }
     if (code === 200) {
       var listed = kind === 'models' || kind === 'presets' || kind === 'loras' || kind === 'upscalers';
       toast(name + ' is on the console' + (listed ? ' and in the list.' : kind === 'tags' ? '; the prompt fields suggest its tags.' : '.'), 6000);
@@ -60,7 +88,7 @@
     } else if (code === 0) {
       toast('The upload of ' + name + ' stopped.', 6000);
     } else {
-      toast((data && data.error) || ('The upload failed (' + code + ').'), 8000);
+      toast((data && data.error) || ('The upload of ' + name + ' failed (' + code + ').'), 8000);
     }
+    upNext();
   }
-

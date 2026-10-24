@@ -33,14 +33,22 @@
     return path.replace(/^.*\//, '').replace(/\.(gguf|safetensors|ckpt|sft)$/i, '');
   }
 
-  // The request's "lora" field: the picked LoRAs that are still there, strength 0 left out.
+  // The request's "lora" field: the picked LoRAs that are on and still there, strength 0 left out.
   function loraBody(p) {
     var out = [];
     var ls = p.loras || [];
     for (var i = 0; i < ls.length; i++) {
-      if (ls[i].m !== 0 && loraKnown(ls[i].path)) out.push({ path: ls[i].path, multiplier: ls[i].m });
+      if (ls[i].m !== 0 && !ls[i].off && loraKnown(ls[i].path)) out.push({ path: ls[i].path, multiplier: ls[i].m });
     }
     return out;
+  }
+
+  // The Style group's summary: "2 LoRAs", "2 LoRAs, 1 off".
+  function loraSummary() {
+    if (!loraSel.length) return 'none';
+    var off = 0;
+    for (var i = 0; i < loraSel.length; i++) if (loraSel[i].off) off++;
+    return loraSel.length + (loraSel.length === 1 ? ' LoRA' : ' LoRAs') + (off ? ', ' + off + ' off' : '');
   }
 
   // The family of the loaded model ('' when it cannot be told), for the LoRA list.
@@ -70,10 +78,35 @@
     var wrong = [];
     for (var i = 0; i < loraSel.length; i++) {
       (function (s) {
-        var row = el('div', 'lrow');
+        var row = el('div', 'lrow' + (s.off ? ' off' : ''));
         var gone = !loraKnown(s.path);
         var of = otherFamily(s.path, '', fam);
-        if (of) wrong.push(readable(loraName(s.path)) + ' is made for ' + of);
+        if (of && !s.off) wrong.push(readable(loraName(s.path)) + ' is made for ' + of);
+        // on or off: an off LoRA stays in the list with its strength, but is not sent
+        var sw = document.createElement('input');
+        sw.type = 'checkbox';
+        sw.className = 'lon';
+        sw.checked = !s.off;
+        sw.title = 'On or off; the strength stays';
+        sw.setAttribute('aria-label', 'Use ' + loraName(s.path));
+        sw.onchange = function () {
+          s.off = !sw.checked;
+          // a fast LoRA takes its few-step settings along, as Add and × do
+          var f = s.was ? fastLoraSettings(s.path) : null;
+          if (f && s.off && JSON.stringify(quality()) === JSON.stringify(s.set)) {
+            setQuality(s.was);
+            toast('Off: the settings from before ' + f.label + ' are back: ' + settingsText(s.was) + '.');
+          } else if (f && !s.off) {
+            s.was = quality();
+            setQuality(f);
+            s.set = quality();
+            toast(f.label + ' is on again: ' + settingsText(s.set) + '.');
+          }
+          summary();
+          drawLoraPicker();
+          persist();
+        };
+        row.appendChild(sw);
         row.appendChild(el('span', 'lname', readable(loraName(s.path)) + (gone ? ' (not on the console)' : '')));
         var inp = document.createElement('input');
         inp.type = 'number';
@@ -199,32 +232,45 @@
       url: 'https://huggingface.co/Kijai/WanVideo_comfy/resolve/main/Wan21_CausVid_bidirect2_T2V_1_3B_lora_rank32.safetensors' }
   ];
 
-  // The installed LoRAs (Installed), and the featured ones not installed yet (Get more).
+  // The installed LoRAs (Installed) by the family they are made for, the loaded model's first, each
+  // group by name; a filter field once there are many. The featured ones not installed yet: Get more.
   function drawLoraList() {
     var box = $('llist');
     clear(box);
     var list = loraList || [];
+    show('lfind', list.length > 8, 'block');
     if (!list.length) box.appendChild(el('div', 'empty-note', 'No LoRAs yet. Get one under Get more, or upload one.'));
-    for (var i = 0; i < list.length; i++) {
-      (function (l) {
-        var raw = l.name || loraName(l.path);
-        var row = el('div', 'mrow mwrap');
-        var main = el('div', 'mmain');
-        main.appendChild(el('div', 'mname', readable(raw)));
-        var lf = l.family || loraFamily(raw);
-        addTags(main, lf ? [{ text: lf, cls: 'fam' }] : []);
-        main.appendChild(el('div', 'mfile', l.path));
-        if (l.bytes > 0) main.appendChild(el('div', 'mmeta', bytes(l.bytes)));
-        row.appendChild(main);
-        var acts = el('div', 'macts');
-        acts.appendChild(moreMenu([{ label: 'Delete', danger: true, fn: function () { askDeleteLora(l); } }], ''));
-        row.appendChild(acts);
-        box.appendChild(row);
-      })(list[i]);
+    var q = trim($('lfind').value || '').toLowerCase();
+    var fam = loadedFamily(), groups = {}, order = [], i;
+    for (i = 0; i < list.length; i++) {
+      var l = list[i], raw = l.name || loraName(l.path);
+      if (q && (readable(raw) + ' ' + l.path).toLowerCase().indexOf(q) < 0) continue;
+      var lf = l.family || loraFamily(raw) || '';
+      var key = fam && lf && sameFamily(lf, fam) ? fam : lf;
+      if (!groups[key]) { groups[key] = []; order.push(key); }
+      groups[key].push(l);
     }
+    order.sort(function (a, b) {
+      if (a === fam) return -1;
+      if (b === fam) return 1;
+      if (!a) return 1;
+      if (!b) return -1;
+      return a < b ? -1 : 1;
+    });
+    for (i = 0; i < order.length; i++) {
+      var g = groups[order[i]];
+      g.sort(function (a, b) {
+        return readable(a.name || loraName(a.path)).toLowerCase() < readable(b.name || loraName(b.path)).toLowerCase() ? -1 : 1;
+      });
+      var head = order[i] ? 'For ' + order[i] : 'Family not known';
+      if (order[i] && order[i] === fam) head += ' (the model in use)';
+      box.appendChild(el('div', 'ghead', head + ' · ' + g.length));
+      for (var k = 0; k < g.length; k++) box.appendChild(loraRow(g[k]));
+    }
+    if (q && !order.length) box.appendChild(el('div', 'empty-note', 'No LoRA has "' + q + '" in its name.'));
     var sug = $('lsugg');
     clear(sug);
-    for (var k = 0; k < FEATURED_LORAS.length; k++) {
+    for (var c = 0; c < FEATURED_LORAS.length; c++) {
       (function (c) {
         for (var j = 0; j < list.length; j++) if (list[j].path === c.file) return;
         if (!sug.childNodes.length) sug.appendChild(el('div', 'ghead', 'LoRAs'));
@@ -240,9 +286,25 @@
         acts.appendChild(b);
         row.appendChild(acts);
         sug.appendChild(row);
-      })(FEATURED_LORAS[k]);
+      })(FEATURED_LORAS[c]);
     }
     showSugg();
+  }
+
+  // One LoRA: its name, its size (and its folder, when it is in one), and ⋯ Delete.
+  function loraRow(l) {
+    var row = el('div', 'mrow mgrp lora');
+    var main = el('div', 'mmain');
+    main.appendChild(el('div', 'mname', readable(l.name || loraName(l.path))));
+    var meta = [];
+    if (l.bytes > 0) meta.push(bytes(l.bytes));
+    if (l.path.indexOf('/') > 0) meta.push(l.path.replace(/\/[^\/]*$/, '/'));
+    if (meta.length) main.appendChild(el('div', 'mmeta', meta.join(' · ')));
+    row.appendChild(main);
+    var acts = el('div', 'macts');
+    acts.appendChild(moreMenu([{ label: 'Delete', danger: true, fn: function () { askDeleteLora(l); } }], ''));
+    row.appendChild(acts);
+    return row;
   }
 
   // The Get more section of featured LoRAs and upscalers: shown while one of them is not installed.

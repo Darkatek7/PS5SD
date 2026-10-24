@@ -1,4 +1,4 @@
-  // ---------- saved settings: the list is in the Models tab (13-models.js); the save box is here ----------
+  // ---------- presets: the list is in the Models tab (13-models.js); the save box and the edit dialog are here ----------
 
   // What "Save" keeps: the loaded model and the form of the Create tab.
   function presetDefaults() {
@@ -8,7 +8,7 @@
     if (f.scheduler && f.scheduler !== 'default') d.scheduler = f.scheduler;
     if (f.clip > 0) d.clip_skip = String(f.clip);
     var ls = [];
-    for (var i = 0; i < f.loras.length; i++) if (f.loras[i].m !== 0) ls.push(f.loras[i].path + ':' + f.loras[i].m);
+    for (var i = 0; i < f.loras.length; i++) if (f.loras[i].m !== 0 && !f.loras[i].off) ls.push(f.loras[i].path + ':' + f.loras[i].m);
     if (ls.length) d.loras = ls.join(',');
     if (f.hr.on) {
       d.hires_scale = String(f.hr.scale);
@@ -93,7 +93,7 @@
       if (code === 200 && data && data.models) {
         closeEdit();
         setModels(data);
-        toast('Saved. ' + (st.mdl && st.mdl.loaded === m.id ? 'New defaults apply when you press Use defaults; other options at the next load.' : ''), 6000);
+        toast('Saved. ' + (st.mdl && st.mdl.loaded === m.id ? 'New settings apply when you press Reset to the preset; other options at the next load.' : ''), 6000);
       } else {
         text($('pe-err'), errText(code, data, 'Could not save'));
       }
@@ -229,6 +229,7 @@
         beginSwitch(m.id, titleOf(m), waits);
         if (data && data.models) setModels(data);
       } else {
+        st.pendingInfo = null;
         toast(errText(code, data, 'Could not switch'), code === 422 ? 12000 : 6000);
         loadModels(null);
       }
@@ -315,7 +316,7 @@
       text($('cm-name'), label);
       text($('model'), label);
     }
-    show('cm-change', st.app !== false, 'block');
+    $('cm-change').disabled = st.app === false;
     show('cm-bar', !!sw);
     if (standby) text($('cm-sub'), 'Download a model or pick one under Models, then press Use.');
     show('cm-sub', !!sw || standby);

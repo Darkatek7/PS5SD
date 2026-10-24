@@ -1,0 +1,157 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: ps5sd <ps5sd@localhost>
+Date: Sat, 24 Oct 2026 12:00:00 +0200
+Subject: [PATCH] server: the generation time in a saved image's parameters
+
+ActivityJob::begin() notes when a generation starts. A saved image or video
+gets the seconds from then to its save in its parameters: "Time: 52.3 s, "
+next to "Preset:" in A1111's text, and "seconds" in the "ps5sd" object of
+sd.cpp's JSON. The web UI's gallery viewer shows it. One generation runs at a
+time (the context mutex), so one start is enough. With a batch, every image
+of the run gets the time of the whole run. A model of several files (FLUX,
+Z-Image, Wan) leaves A1111's "Model: " empty: it gets the diffusion model's
+name, which other tools read.
+---
+diff --git a/examples/server/gallery.cpp b/examples/server/gallery.cpp
+index 013062e..1862457 100644
+--- a/examples/server/gallery.cpp
++++ b/examples/server/gallery.cpp
+@@ -149,12 +149,15 @@ static bool write_thumbnail(const fs::path& dir, const std::string& name, const
+     return !jpeg.empty() && write_whole(thumbs_dir(dir) / (name + ".jpg"), jpeg.data(), jpeg.size());
+ }
+ 
+-// The loaded preset's name in an image's parameters: "Preset: <name>, " before
+-// "Version:" in A1111's text, and "ps5sd": {"preset"} in sd.cpp's JSON at its
+-// end. The text as it is without a preset, or when it has no such places.
++// The loaded preset's name and the time the generation took (since
++// ActivityJob::begin, to this save) in an image's parameters: "Preset: <name>, Time: 52.3 s, "
++// before "Version:" in A1111's text, and "ps5sd": {"preset", "seconds"} in
++// sd.cpp's JSON at its end; an empty "Model: " gets the diffusion model's name.
++// The text as it is without a preset and a time, or when it has no such places.
+ static std::string with_preset(const std::string& parameters) {
+-    std::string name = preset_name_now();
+-    if (name.empty() || parameters.empty()) {
++    std::string name     = preset_name_now();
++    const double seconds = sd_server_generation_seconds();
++    if ((name.empty() && seconds < 0) || parameters.empty()) {
+         return parameters;
+     }
+     for (char& c : name) {
+@@ -162,18 +165,51 @@ static std::string with_preset(const std::string& parameters) {
+             c = ' ';
+         }
+     }
+-    std::string out     = parameters;
++    const double tenths = std::round(seconds * 10.0) / 10.0;
++    std::string out      = parameters;
+     const size_t at_json = out.rfind(", SDCPP: {");
+     if (at_json != std::string::npos) {
+         json j = json::parse(out.substr(at_json + 9), nullptr, false);
+         if (j.is_object()) {
+-            j["ps5sd"] = {{"preset", name}};
++            json extra = json::object();
++            if (!name.empty()) {
++                extra["preset"] = name;
++            }
++            if (seconds >= 0) {
++                extra["seconds"] = tenths;
++            }
++            j["ps5sd"] = extra;
+             out        = out.substr(0, at_json) + ", SDCPP: " + j.dump(-1, ' ', false, json::error_handler_t::replace);
+         }
+     }
+     const size_t at_version = out.rfind("Version: stable-diffusion.cpp", at_json);  // npos: the whole text
+     if (at_version != std::string::npos) {
+-        out.insert(at_version, "Preset: " + name + ", ");
++        std::string add;
++        if (!name.empty()) {
++            add += "Preset: " + name + ", ";
++        }
++        if (seconds >= 0) {
++            char buf[32];
++            std::snprintf(buf, sizeof(buf), "Time: %.1f s, ", tenths);
++            add += buf;
++        }
++        out.insert(at_version, add);
++    }
++    // A model of several files (FLUX, Z-Image, Wan) leaves A1111's "Model: " empty; other tools read
++    // the model from it, so it gets the diffusion model's name ("Unet: ", without the extension).
++    const size_t at_model = out.find(", Model: , ");
++    const size_t at_unet  = out.find(", Unet: ");
++    if (at_model != std::string::npos && at_unet != std::string::npos) {
++        const size_t from = at_unet + 8;
++        const size_t to   = out.find(", ", from);
++        std::string unet  = out.substr(from, to == std::string::npos ? std::string::npos : to - from);
++        const size_t dot  = unet.rfind('.');
++        if (dot != std::string::npos && dot > 0) {
++            unet.erase(dot);
++        }
++        if (!unet.empty() && unet.find('\n') == std::string::npos) {
++            out.insert(at_model + 9, unet);
++        }
+     }
+     return out;
+ }
+diff --git a/examples/server/server_activity.h b/examples/server/server_activity.h
+index 71b5a16..0b727b5 100644
+--- a/examples/server/server_activity.h
++++ b/examples/server/server_activity.h
+@@ -22,6 +22,11 @@ std::string sd_server_failure_reason(const std::string& fallback);
+ // stopped the run): such a run is worth one more try.
+ bool sd_server_failure_is_memory();
+ 
++// When the generation that runs now began (ActivityJob::begin), so a saved
++// image can say how long it took. Seconds since then, or -1 before the first.
++void sd_server_generation_begin();
++double sd_server_generation_seconds();
++
+ // One generation as seen by the activity hooks: begin() when the generation
+ // starts, finish() when it is over. If finish() is never reached (an early
+ // return, an exception) the destructor reports the job as failed.
+@@ -45,6 +50,7 @@ public:
+         if (!begun_) {
+             begun_ = true;
+             sd_server_failure_log_begin();
++            sd_server_generation_begin();
+             sd_activity_job_begin(kind_, prompt_.c_str(), width_, height_, steps_);
+         }
+     }
+diff --git a/examples/server/server_hooks.cpp b/examples/server/server_hooks.cpp
+index 74efb8f..a0b192f 100644
+--- a/examples/server/server_hooks.cpp
++++ b/examples/server/server_hooks.cpp
+@@ -7,7 +7,10 @@
+ #include "server_hooks.h"
+ 
+ #include <algorithm>
++#include <atomic>
+ #include <cctype>
++#include <chrono>
++#include <cstdint>
+ #include <deque>
+ #include <mutex>
+ #include <string>
+@@ -84,6 +87,23 @@ void sd_server_failure_log_begin() {
+     g_failure_cancelled = false;
+ }
+ 
++// One generation runs at a time (the context mutex), so one start is enough.
++static std::atomic<int64_t> g_generation_begin_ms{-1};
++
++static int64_t steady_ms() {
++    return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch())
++        .count();
++}
++
++void sd_server_generation_begin() {
++    g_generation_begin_ms = steady_ms();
++}
++
++double sd_server_generation_seconds() {
++    const int64_t begin = g_generation_begin_ms;
++    return begin < 0 ? -1.0 : static_cast<double>(steady_ms() - begin) / 1000.0;
++}
++
+ void sd_server_failure_log_cancelled() {
+     std::lock_guard<std::mutex> lock(g_failure_mutex);
+     g_failure_cancelled = true;

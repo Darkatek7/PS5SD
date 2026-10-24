@@ -213,8 +213,9 @@ inline std::vector<CatalogEntry> entries() {
         {
             "flux2-klein-9b",
             "FLUX.2 Klein 9B (Q4_0)",
-            "The larger Klein: more detail than the 4B, 1024x1024 in 4 steps, about 50 s an image (100 s the first "
-            "after a start). Works with FLUX.2 Klein 9B LoRAs. FLUX Non-Commercial License. 11.0 GB.",
+            "The larger Klein: more detail than the 4B, 1024x1024 in 8 steps with dpm2, about 3 minutes an image "
+            "(4 the first after a start; 4 steps with Euler take about 50 s). Works with FLUX.2 Klein 9B LoRAs. FLUX "
+            "Non-Commercial License. 11.0 GB.",
             {
                 { "https://huggingface.co/leejet/FLUX.2-klein-9B-GGUF/resolve/main/flux-2-klein-9b-Q4_0.gguf",
                   "diffusion_models/flux-2-klein-9b-Q4_0.gguf", 5616208032ull, 0 },
@@ -224,7 +225,7 @@ inline std::vector<CatalogEntry> entries() {
                 PS5SD_KLEIN_VAE,
             },
             "# name: FLUX.2 Klein 9B (Q4_0)\n"
-            "# defaults: steps=4 cfg=1 width=1024 height=1024 sampler=euler\n"
+            "# defaults: steps=8 cfg=1 width=1024 height=1024 sampler=dpm2\n"
             "--diffusion-model\n"
             "diffusion_models/flux-2-klein-9b-Q4_0.gguf\n"
             "--llm\n"
@@ -235,7 +236,7 @@ inline std::vector<CatalogEntry> entries() {
             "--vae-tile-size\n"
             "512\n",
             true,
-            "most detailed fast images",
+            "the most detailed images",
         },
         {
             "flux3-klein-q6",

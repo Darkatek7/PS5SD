@@ -109,6 +109,24 @@ int main() {
               "fan_target under 70");
         check(!ps5sd::apply_settings(R"({"fan_target": 80.5})", settings, error), "fan_target not whole");
         check(nlohmann::json::parse(ps5sd::settings_json(settings))["fan"] == "manual", "fan in the JSON");
+        // A model's default preset: merged, "" or null drops one.
+        check(settings.default_presets.empty(), "no default presets at first");
+        check(ps5sd::apply_settings(R"({"default_presets": {"a.gguf": "a-fast", "b.gguf": "b-hq"}})", settings, error) &&
+                  settings.default_presets.size() == 2 && settings.default_presets["a.gguf"] == "a-fast",
+              "default presets set");
+        check(ps5sd::apply_settings(R"({"default_presets": {"a.gguf": ""}})", settings, error) &&
+                  settings.default_presets.size() == 1 && settings.default_presets.count("b.gguf") == 1,
+              "\"\" drops one, the others stay");
+        check(ps5sd::apply_settings(R"({"default_presets": {"b.gguf": null}})", settings, error) &&
+                  settings.default_presets.empty(),
+              "null drops one");
+        check(!ps5sd::apply_settings(R"({"default_presets": ["x"]})", settings, error) &&
+                  !ps5sd::apply_settings(R"({"default_presets": {"a.gguf": 3}})", settings, error),
+              "default_presets wrong type");
+        settings.default_presets["c.gguf"] = "c-1";
+        ps5sd::AppSettings loaded;
+        check(ps5sd::apply_settings(ps5sd::settings_json(settings), loaded, error) && loaded.default_presets["c.gguf"] == "c-1",
+              "default presets survive the settings file");
     }
 
     // The A1111 and OpenAI model lists, and sd_model_checkpoint back to an id.
@@ -209,6 +227,8 @@ int main() {
         check(lib.create_preset("Flux 512", "flux", { { "width", "512" } }, id, error) && lib.find(id, v, error) &&
                   v.base == "flux" && v.files.size() == 2 && v.args.back() == "--vae-tiling",
               "a variant of a preset copies its arguments");
+        check(ps5sd::model_file(v) == "dit.gguf", "a variant's model file is its base's diffusion model");
+        check(lib.find("portrait-fast", v, error) && ps5sd::model_file(v) == "ilu.safetensors", "a checkpoint's model file");
         check(!lib.create_preset("", "flux", {}, id, error), "no name");
         check(!lib.create_preset("a\nb", "flux", {}, id, error), "a name of two lines");
         check(!lib.create_preset("x", "flux", { { "steps", "1 --evil" } }, id, error), "a default with a space");

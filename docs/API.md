@@ -222,7 +222,7 @@ apart, and still silent) or `no ELF loader`. Without it those
 {"active": "flux3-klein-q4", "loaded": "flux3-klein-q4", "switching": false, "standby": false,
  "models": [{"id": "flux3-klein-q4", "name": "FLUX.3 Image Klein (Q4_K)", "kind": "preset",
              "bytes": 4912345678, "files": ["..."], "missing": [], "base": "", "control_net": "",
-             "family": "FLUX.3 Klein", "defaults": {"steps": "16", "cfg": "1", "width": "1024", "height": "1024", "sampler": "euler"}}]}
+             "family": "FLUX.3 Klein", "model_file": "flux-3-klein-Q4_K.gguf", "defaults": {"steps": "16", "cfg": "1", "width": "1024", "height": "1024", "sampler": "euler"}}]}
 ```
 
 - `base` is set for a saved preset (below): the id of the model it is a preset of.
@@ -249,6 +249,8 @@ apart, and still silent) or `no ELF loader`. Without it those
   `SDXL`, `SD 2.1`, `SD 1.5`, `SD 3`, `Wan 1.3B`, `Wan 5B`, `Wan 14B`, `Z-Image`; `FLUX`, `FLUX.2` or `Wan` when only the
   kind can be told, `""` when nothing can (a `.ckpt`). A LoRA's `family` (`/ps5sd/v1/app/loras`) uses the same names: a
   LoRA works on a model of the same family.
+- `model_file` is the file name of the entry's main model file: its diffusion model, else its checkpoint.
+  A saved preset has its base's. The web UI shows the presets of one model file together.
 - `defaults` are the settings that suit the model. The web UI applies them when you press **Use**. With
   the entry loaded, `steps`, `cfg`, `sampler`, `scheduler`, `width` and `height` are also **the server's
   defaults**: a request that names none of them gets these values, and a request that names one overrides
@@ -593,7 +595,10 @@ Every generated image is also saved as a PNG in `/data/PS5SD/outputs`, and every
 (see [sd-server's own API](#sd-servers-own-api)). Since 0.9.0 each PNG carries what made it as A1111 does,
 in a tEXt chunk named `parameters`, which other tools read too (a request with `"embed_image_metadata":
 false` leaves it out). Since 0.9.5 that includes the loaded preset's name, as `Preset: <name>` in the text
-and `"ps5sd": {"preset": "<name>"}` in sd.cpp's JSON. A video's parameters and the thumbnails are in
+and `"ps5sd": {"preset": "<name>"}` in sd.cpp's JSON. Since 0.9.12 it also says how long the generation
+took, from its start to the saved image (with a batch, the whole run): `Time: 52.3 s` and
+`"ps5sd": {"seconds": 52.3}`, and a model of several files (FLUX, Z-Image, Wan) fills A1111's empty
+`Model:` with its diffusion model's name. A video's parameters and the thumbnails are in
 `/data/PS5SD/outputs/.thumbs`.
 
 | Route | |
@@ -617,13 +622,18 @@ restart.
 
 | Route | |
 |---|---|
-| `GET /ps5sd/v1/app/settings` | `{"tv_images": true, "tv_api_key": true, "fan": "quiet", "fan_target": 85}` |
+| `GET /ps5sd/v1/app/settings` | `{"tv_images": true, "tv_api_key": true, "fan": "quiet", "fan_target": 85, "default_presets": {}}` |
 | `POST /ps5sd/v1/app/settings` | change what the body sets, like `{"tv_images": false}`; the answer is the settings as `GET` gives them, 400 for a field of the wrong type |
 
 `tv_images` false: the dashboard on the TV shows no images (no live preview, no last image, no
 thumbnails) and no prompts. The web UI's switch is in Settings, "Show images and prompts on the TV".
 
 `tv_api_key` false: the TV does not show the API key. The switch is in Settings, under API key.
+
+`default_presets`: `{"<model_file>": "<preset id>"}`, the preset the web UI loads when you press **Use** on a
+model (Models, ⋯, **Make default**). A `POST` merges it: `{"default_presets": {"model.gguf": "fast"}}` sets
+one, `""` or `null` drops one, the others stay. Only the web UI reads it: an API that switches models
+(`sd_model_checkpoint`, `/ps5sd/v1/app/models/active`) loads the id it names.
 
 `fan`: `quiet`, `balanced`, `cool` or `manual`; `fan_target`: manual's target temperature, 70 to 95 °C.
 The PS5 speeds its fan up when the chip nears a target temperature (91 °C on the console we measured);

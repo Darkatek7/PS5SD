@@ -457,7 +457,7 @@
       if (k === 46) { askDeleteImage(); return false; }
       if (k === 9) {
         // keep Tab inside the viewer
-        var ring = [$('lb-prev'), $('lb-dl'), $('lb-open'), $('lb-up'), $('lb-edit'), $('lb-guide'), $('lb-label'), $('lb-del'), $('lb-close'),
+        var ring = [$('lb-prev'), $('lb-dl'), $('lb-open'), $('lb-up'), $('lb-edit'), $('lb-guide'), $('lb-label'), $('lb-infobtn'), $('lb-del'), $('lb-close'),
           $('lb-next'), $('lb-cp'), $('lb-cn'), $('lb-ca'), $('lb-use')];
         var live = [];
         for (var i = 0; i < ring.length; i++) if (!ring[i].disabled && ring[i].style.display !== 'none' && ring[i].offsetParent !== null) live.push(ring[i]);

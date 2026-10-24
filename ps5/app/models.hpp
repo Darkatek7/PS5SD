@@ -48,6 +48,7 @@
 #pragma once
 
 #include <cstdint>
+#include <map>
 #include <string>
 #include <utility>
 #include <vector>
@@ -140,8 +141,8 @@ PresetSettings preset_settings(const std::vector<std::pair<std::string, std::str
 
 // The library as JSON for GET /ps5sd/v1/app/models: {"active", "loaded",
 // "switching", "standby", "load_error", "models": [{"id", "name", "kind",
-// "bytes", "files", "missing", "base", "control_net", "family", "part",
-// "prompt", "negative", "defaults": {...}}]}. prompt, negative: the prompt
+// "bytes", "files", "missing", "base", "control_net", "family", "model_file",
+// "part", "prompt", "negative", "defaults": {...}}]}. prompt, negative: the prompt
 // starters ("# prompt:", "# negative:"), or "". control_net: the file name of the preset's
 // --control-net, or "". part: what a single file is when it is only a part of a
 // model (net_part), else "". standby: the server runs without a model.
@@ -168,6 +169,11 @@ std::string loras_json(const std::string & dir);
 
 // The network an entry runs (net_family.hpp): that of its diffusion model, else of its checkpoint.
 std::string model_family(const ModelEntry & e);
+
+// The file name (no folder) of an entry's main model file: its diffusion
+// model, else its checkpoint. The web UI groups the presets of one model by
+// it; a variant has its base's (create_preset copies the model arguments).
+std::string model_file(const ModelEntry & e);
 
 // For a single file that is only a part of a model (net_part: "diffusion
 // model", "text encoder" or "VAE"), why it cannot be loaded on its own and what
@@ -237,13 +243,19 @@ struct AppSettings {
     bool        tv_api_key = true;     // the TV shows the API key (when there is one)
     std::string fan        = "quiet";  // "quiet" (the console's own), "balanced", "cool", "manual"
     int         fan_target = 85;       // manual's target temperature, 70..95 C (ps5/fan/fan_policy.h)
+    // The preset the web UI loads for a model (model_file -> preset id), set
+    // with its "Make default". Only the web UI reads it; the APIs switch to the
+    // id they name.
+    std::map<std::string, std::string> default_presets;
 };
 
-// {"tv_images": true, "tv_api_key": true, "fan": "quiet", "fan_target": 85}.
+// {"tv_images": true, "tv_api_key": true, "fan": "quiet", "fan_target": 85,
+// "default_presets": {"model.gguf": "preset-id"}}.
 std::string settings_json(const AppSettings & settings);
 
 // Applies what a body (or the settings file) sets to settings; a field it
-// leaves out keeps its value. False, with error, when the body is not a JSON
+// leaves out keeps its value. default_presets is merged: a model file with an
+// id sets its default, one with "" or null drops it. False, with error, when the body is not a JSON
 // object or a field has the wrong type (settings is then unchanged).
 bool apply_settings(const std::string & body, AppSettings & settings, std::string & error);
 

@@ -144,7 +144,7 @@
       setForm(st.preset);
       $('seed').value = seed;
       persist();
-      toast('The model\'s defaults are set.');
+      toast('The preset\'s settings are back: ' + presetNote(st.preset).replace(/^Defaults: /, ''));
     };
     // Save as preset opens the save box under the button, on this tab
     $('savepreset').onclick = function () {
@@ -168,14 +168,15 @@
     $('doc-page').onclick = function () { showDoc('page'); };
     $('doc').onclick = onDocClick;
     $('doc-notes').onclick = onDocClick;
-    // The model name in the header and Change on the Create tab open the same model list.
+    // The model name in the header opens the Models tab; the one on the Create tab its own list.
     $('model').onclick = function () { if (st.app !== false) setView('models'); };
     $('m-refresh').onclick = enterModels;
     $('dl-go').onclick = addByUrl;
     $('lora-add').onchange = addLora;
     $('up-pick').onclick = function () { $('up-file').click(); };
     $('up-file').onchange = upStart;
-    $('up-cancel').onclick = function () { if (upXhr) upXhr.abort(); };
+    $('lfind').oninput = drawLoraList;
+    $('up-cancel').onclick = upCancel;
     window.onbeforeunload = function () { return upXhr ? 'An upload is still running.' : undefined; };
     $('dl-url').onkeydown = function (e) { e = e || window.event; if (e.keyCode === 13) { addByUrl(); return false; } return true; };
     $('hf-go').onclick = hfSearch;
@@ -193,6 +194,7 @@
     $('gsel-dl').onclick = downloadSelected;
     $('gsel-del').onclick = askDeleteSelected;
     $('lb-use').onclick = useSettings;
+    $('lb-infobtn').onclick = toggleLbInfo;
     $('prompt-copy').onclick = function () { copyText($('prompt').value, 'The prompt'); };
     $('neg-copy').onclick = function () { copyText($('neg').value, 'The negative prompt'); };
     show('prompt-paste', canPaste(), 'inline-block');

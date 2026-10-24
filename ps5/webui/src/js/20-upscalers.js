@@ -123,6 +123,7 @@
     }
     if (img.length) setSelect('opt-up', want, img[0]);
     show('opt-up-box', img.length > 0);
+    if (img.length) show('pnl-oncon', true);
     show('lb-up', img.length > 0, 'inline-block');
     drawUpscalers();  // the "Upscale button" mark
     if (!st.busy && st.results) pickResult(st.pick);

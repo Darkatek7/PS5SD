@@ -80,7 +80,8 @@
   button.model { display: block; min-height: 0; margin: 0; padding: 0; border: 0; border-radius: 0; background: transparent;
     text-align: left; line-height: 1.5; cursor: pointer; }
   button.model:hover { background: transparent; color: var(--text); }
-  button.model::after { content: "\00a0\25BE"; color: var(--faint); }
+  button.model::after { content: ""; display: inline-block; margin-left: 0.45rem; vertical-align: middle;
+    border-left: 0.3rem solid transparent; border-right: 0.3rem solid transparent; border-top: 0.38rem solid var(--faint); }
   .pill { display: flex; align-items: center; font-size: 0.875rem; color: var(--faint); background: var(--surface);
     border: 1px solid var(--border); border-radius: 2rem; padding: 0.2rem 1rem 0.2rem 0.8rem; margin-left: 1rem; white-space: nowrap; }
   .pill .dot { width: 0.6rem; height: 0.6rem; border-radius: 50%; background: var(--faint); margin-right: 0.55rem; }
@@ -184,21 +185,13 @@
     border: 1px solid var(--border); border-radius: 12px; }
   .cmlist .mrow { margin-top: 0.4rem; }
 
-  .prblock { margin-top: 1rem; }
-  .prrow { display: flex; align-items: center; flex-wrap: wrap; }
-  .prtoggle { display: inline-flex; align-items: center; min-height: 2.8rem; max-width: 100%; padding: 0 0.9rem; background: transparent;
-    font-size: 1rem; color: var(--text); overflow: hidden; }
-  .prtoggle:hover { background: var(--raised); }
-  .prtoggle #pr-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-  .prlabel { color: var(--muted); margin-right: 0.35rem; white-space: nowrap; }
-  .prtoggle .caret, .grphead .caret { flex: none; margin-left: 0.6rem; color: var(--faint); transition: transform 0.15s; }
-  .prtoggle[aria-expanded="true"] .caret, .grphead[aria-expanded="true"] .caret { transform: rotate(180deg); }
-  .prrow #savepreset { margin-left: 0.6rem; min-height: 2.8rem; }
-  .prmenu { margin-top: 0.5rem; padding: 0.5rem; background: var(--field); border: 1px solid var(--border); border-radius: 12px; }
-  .prmenu button { display: block; width: 100%; min-height: 2.9rem; margin: 0.2rem 0; text-align: left; overflow: hidden; text-overflow: ellipsis; }
-  .prmenu button.on { background: var(--sel-bg); border-color: var(--accent-hi); color: var(--text); }
-  .prmenu .prfoot { margin-top: 0.4rem; padding-top: 0.4rem; border-top: 1px solid var(--border); }
-  .prmenu .prfoot button { background: transparent; }
+  .prrow { display: flex; align-items: center; flex-wrap: wrap; margin-top: 0.3rem; }
+  .prrow .linkbtn { margin-right: 1.2rem; }
+  /* the fold mark: a triangle of borders, since the PS5's browser has no glyph for U+25BE */
+  .caret { display: inline-block; width: 0; height: 0; overflow: hidden; font-size: 0; line-height: 0; vertical-align: middle;
+    border-left: 0.32rem solid transparent; border-right: 0.32rem solid transparent; border-top: 0.4rem solid currentColor; }
+  .grphead .caret { flex: none; margin-left: 0.6rem; color: var(--faint); transition: transform 0.15s; }
+  .grphead[aria-expanded="true"] .caret { transform: rotate(180deg); }
 
   .modes { display: flex; margin-top: 1.1rem; padding: 0.3rem; background: var(--field); border: 1px solid var(--border); border-radius: 14px; }
   .modes button { flex: 1 1 0; min-width: 0; min-height: 2.9rem; margin: 0; padding: 0 0.5rem; background: transparent; border: 0; border-radius: 10px; color: var(--muted); }
@@ -231,6 +224,9 @@
   .seed button { flex: none; }
   .hint { color: var(--faint); font-size: 0.8125rem; margin: 0.5rem 0 0; }
   .hint button { min-height: 2.5rem; margin-left: 0.5rem; font-size: 0.85rem; padding: 0 0.9rem; }
+  .sublabel { display: block; margin: 0.9rem 0 0.4rem; color: var(--muted); font-size: 0.875rem; }
+  .ph + .sublabel, #opt-up-box .sublabel { margin-top: 0.3rem; }
+  #opt-up { width: 100%; }
   label.opt { display: flex; align-items: center; color: var(--text); font-size: 1rem; margin: 0.3rem 0; min-height: 2.75rem; cursor: pointer; }
   label.opt input { width: 1.4rem; height: 1.4rem; margin: 0 0.75rem 0 0; padding: 0; flex: none; accent-color: var(--accent); }
   .presets button.mine { padding-right: 0.3rem; }
@@ -361,9 +357,26 @@
     border: 1px solid var(--accent-hi); color: var(--text); border-radius: 2rem; padding: 0.7rem 1.6rem; transform: translateX(-50%); }
 
   /* model in use, on the Create tab */
-  .curmodel { display: flex; align-items: center; }
-  .cm-name { flex: 1; min-width: 0; color: var(--text); font-size: 1.05rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .curmodel button { flex: none; margin-left: 0.8rem; min-height: 2.75rem; }
+  .cmpick { display: flex; align-items: center; width: 100%; min-height: 3.2rem; padding: 0.45rem 0.9rem; text-align: left;
+    background: var(--field); border: 1px solid var(--border); border-radius: 12px; }
+  .cmpick:hover { background: var(--raised); }
+  .cmpick:disabled { opacity: 1; }
+  .cmtext { display: block; flex: 1; min-width: 0; }
+  .cm-name, .cm-pre { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .cm-name { color: var(--text); font-size: 1.05rem; }
+  .cm-pre { color: var(--muted); font-size: 0.85rem; }
+  .cmpick .caret { flex: none; margin-left: 0.6rem; color: var(--faint); transition: transform 0.15s; }
+  .cmpick[aria-expanded="true"] .caret { transform: rotate(180deg); }
+  .cmg { margin-top: 0.4rem; padding: 0.35rem 0.5rem 0.5rem; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; }
+  .cmg.on { border-color: var(--accent-hi); background: var(--sel-bg); }
+  .cmg-head { display: block; width: 100%; min-height: 2.6rem; margin: 0; padding: 0.2rem 0.3rem; text-align: left;
+    background: transparent; border: 0; }
+  .cmg-head:disabled { opacity: 1; cursor: default; }
+  .cmg-name { display: block; color: var(--text); }
+  .cmg-meta { display: block; color: var(--muted); font-size: 0.8rem; }
+  .chips { display: flex; flex-wrap: wrap; padding: 0 0.2rem; }
+  .chips button { min-height: 2.3rem; margin: 0.3rem 0.4rem 0 0; padding: 0 0.75rem; font-size: 0.85rem; border-radius: 2rem; }
+  .chips button.on { color: #fff; background: var(--accent); border-color: var(--accent); opacity: 1; }
   .tabdot { display: none; width: 0.55rem; height: 0.55rem; margin-left: 0.5rem; border-radius: 50%; background: var(--accent-hi); }
 
   /* Models tab */
@@ -439,6 +452,8 @@
   .sacts { display: flex; flex: none; margin-left: 0.6rem; }
   .sacts button { flex: none; min-height: 2.5rem; min-width: 4.2rem; margin-left: 0.4rem; padding: 0 0.6rem; font-size: 0.9rem; }
   .sacts button:first-child { margin-left: 0; }
+  .star { margin-right: 0.35rem; color: var(--accent-hi); }
+  .sname .tag { margin: 0 0 0 0.4rem; }
   .rmore { position: relative; flex: none; margin-left: 0.9rem; }
   .macts .rmore { margin-left: 0.5rem; }
   .macts .more-btn, .rmore .more-btn { flex: none; min-width: 3rem; padding: 0 0.6rem; font-size: 1.2rem; line-height: 1; }
@@ -462,6 +477,12 @@
   .inrow { display: flex; }
   .lrow { display: flex; align-items: center; margin-bottom: 0.5rem; }
   .lrow .lname { flex: 1; min-width: 0; color: var(--text); word-wrap: break-word; }
+  .lfind { display: block; width: 100%; box-sizing: border-box; margin: 0.3rem 0 0.2rem; }
+  .mrow.lora { padding: 0.55rem 0.9rem; margin-top: 0.4rem; }
+  .mrow.lora .mname { font-size: 0.95rem; }
+  .lrow .lon { flex: none; width: 1.4rem; height: 1.4rem; margin: 0 0.6rem 0 0; }
+  .lrow.off .lname { color: var(--faint); text-decoration: line-through; }
+  .lrow.off input[type="number"] { opacity: 0.5; }
   .lrow input { flex: none; width: 6rem; margin: 0 0.5rem; }
   .lrow button { flex: none; min-width: 3.25rem; padding: 0 0.8rem; }
   .inrow select.upkind { flex: none; width: auto; margin-right: 0.6rem; }
@@ -500,7 +521,6 @@
   .arow { display: flex; justify-content: space-between; align-items: baseline; padding: 0.55rem 0; border-bottom: 1px solid var(--border); }
   .arow span:first-child { color: var(--muted); }
   .arow span:last-child { color: var(--text); text-align: right; min-width: 0; overflow-wrap: anywhere; margin-left: 1rem; }
-  #savepreset { margin-left: 0.5rem; }
   /* the ⓘ buttons: a small round button that opens Help at its section (it comes after the .hint and .ph buttons) */
   button.info { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 2.4rem; min-width: 2.4rem;
     height: 2.4rem; min-height: 2.4rem; margin: 0 0 0 0.45rem; padding: 0; border-radius: 50%; background: transparent;
@@ -573,11 +593,7 @@
 
   /* the model and preset at the top of Create: one line each */
   .cm-name { font-size: 1rem; font-weight: 600; letter-spacing: -0.01em; }
-  .curmodel button { min-height: 2.2rem; padding: 0 0.85rem; font-size: 0.875rem; }
-  .prblock { margin-top: 0.5rem; }
-  .prtoggle { min-height: 2.3rem; padding: 0 0.7rem; font-size: 0.9rem; background: var(--field); border: 1px solid var(--sep); }
-  .prtoggle:hover { background: var(--raised); }
-  .prrow #savepreset { min-height: 2.3rem; font-size: 0.875rem; }
+  .cmpick { min-height: 2.9rem; border-color: var(--sep); }
   #presetnote { margin-top: 0.3rem; }
   .linkrow { margin-top: 0.15rem; }
   .linkbtn { min-height: 2.1rem; font-size: 0.875rem; }
@@ -665,10 +681,13 @@
     .mrow > button { flex: 1; margin: 0.7rem 0 0; }
     .macts { flex: 1 1 100%; justify-content: flex-end; margin: 0.7rem 0 0; }
     .macts > button { flex: 1; }
-    .sub { flex-wrap: wrap; }
-    .smain { flex: 1 1 100%; }
-    .sacts { flex: 1 1 100%; justify-content: flex-end; margin: 0.5rem 0 0; }
-    .sacts > button { flex: 1; }
+    /* a model and its presets keep Use beside the name: more of the list fits */
+    .mrow.mgrp { flex-wrap: nowrap; align-items: flex-start; }
+    .mrow.mgrp .mmain { flex: 1 1 0; }
+    .mrow.mgrp .macts { flex: none; margin: 0 0 0 0.6rem; }
+    .mrow.mgrp .macts > button { flex: none; min-width: 4.5rem; }
+    .smain { flex: 1 1 0; }
+    .sacts { margin-left: 0.5rem; }
     .mseg button { padding: 0 0.3rem; font-size: 0.95rem; }
     .inrow { flex-wrap: wrap; }
     .inrow input { flex-basis: 100%; margin: 0 0 0.6rem; }
@@ -700,6 +719,21 @@
     .lb-acts a, .lb-acts button { margin: 0; padding: 0 0.3rem; text-align: center; white-space: nowrap; overflow: hidden;
       text-overflow: ellipsis; }
   }
+  /* The viewer on a PC, a tablet and a phone on its side: what made the image floats over the picture on
+     the right, clear of the arrow, and Info hides it. Upright (a tablet held so), it stays under the picture. */
+  @media (min-width: 721px) and (orientation: landscape) {
+    .lb.withinfo .lb-img img, .lb.withinfo .lb-img video { height: calc(100vh - 8rem); }
+    .lb-info { position: absolute; right: 6.5rem; bottom: 1.25rem; z-index: 2; box-sizing: border-box; width: 24rem; max-width: 42vw;
+      max-height: calc(100vh - 7.5rem); overflow-y: auto; flex-direction: column; align-items: stretch; padding: 1rem 1.1rem;
+      background: rgba(18, 18, 20, 0.72); -webkit-backdrop-filter: blur(18px) saturate(160%); backdrop-filter: blur(18px) saturate(160%);
+      border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 16px; box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45); }
+    .lb-info .lb-main { margin: 0 0 0.8rem; }
+    .lb-info .lb-prompt { max-height: 12.8em; }
+    .lb-info .lb-copy button { margin-top: 0.4rem; }
+    .lb.infohide .lb-info { display: none !important; }
+    #lb-infobtn[aria-pressed="true"] { background: var(--sel-bg); color: var(--text); }
+  }
+  @media (max-width: 720px), (orientation: portrait) { #lb-infobtn { display: none !important; } }
   /* Create tab on a PC: settings on the left, the result large on the right, in view while the settings scroll */
   @media (min-width: 721px) {
     #view-create > .controls { flex: 0 0 min(27rem, 42%); width: min(27rem, 42%); max-width: none; }
@@ -824,6 +858,7 @@
     button:active:not(:disabled) { transform: none; }
   }
   @media (prefers-reduced-transparency: reduce) {
+    .lb-info { background: #121214 !important; -webkit-backdrop-filter: none !important; backdrop-filter: none !important; }
     html .top, html .tabs, html #toast { background: var(--chrome-solid); -webkit-backdrop-filter: none; backdrop-filter: none; }
   }
   @media (prefers-contrast: more) {

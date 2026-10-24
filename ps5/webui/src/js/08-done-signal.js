@@ -79,6 +79,7 @@
       $('opt-tv').checked = data.tv_images;
       $('opt-tvkey').checked = data.tv_api_key !== false;
       show('opt-tv-box', true);
+      show('pnl-oncon', true);
     });
   }
 

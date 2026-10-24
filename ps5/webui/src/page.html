@@ -81,30 +81,20 @@
 <div class="main" id="view-create">
   <section class="panel controls">
     <div class="cmblock" id="cm-block">
-      <div class="curmodel">
-        <span class="cm-name" id="cm-name">connecting&hellip;</span>
-        <button type="button" id="cm-change" aria-expanded="false" aria-controls="cm-list">Change</button>
-      </div>
+      <button type="button" class="cmpick" id="cm-change" aria-expanded="false" aria-controls="cm-list" title="Change the model or the preset">
+        <span class="cmtext"><span class="cm-name" id="cm-name">connecting&hellip;</span><span class="cm-pre" id="pr-name"></span></span><span class="caret" aria-hidden="true">&#9662;</span>
+      </button>
       <div class="cm-tags" id="cm-tags"></div>
       <div class="bar ind" id="cm-bar" style="display:none;margin:0.5rem 0 0"><div></div></div>
       <div class="hint" id="cm-sub" style="display:none"></div>
       <div class="cmlist" id="cm-list" style="display:none"></div>
-    </div>
-
-    <div class="prblock" id="pr-block">
-      <div class="prrow">
-        <button type="button" class="prtoggle" id="pr-toggle" aria-expanded="false" aria-controls="pr-menu"><span class="prlabel">Preset:</span> <span id="pr-name">model defaults</span><span class="caret" aria-hidden="true">&#9662;</span></button>
-        <button type="button" id="savepreset" style="display:none">Save as preset</button>
+      <div class="prrow" id="pr-row">
+        <button type="button" class="linkbtn" id="savepreset" style="display:none">Save as preset</button>
+        <button type="button" class="linkbtn" id="resetpreset">Reset to the preset</button>
       </div>
-      <div class="prmenu" id="pr-menu" style="display:none">
-        <div id="pr-list"></div>
-        <div class="prfoot"><button type="button" id="resetpreset">Use defaults</button></div>
-      </div>
-      <p class="hint" id="presetnote"></p>
       <div id="ps-box" class="hrow" style="display:none">
         <div class="hint" id="ps-what" style="margin-top:0"></div>
         <div class="inrow" style="margin-top:0.8rem"><input id="ps-name" type="text" maxlength="100" placeholder="Name, e.g. Portrait fast" autocomplete="off"><button type="button" id="ps-save">Save</button></div>
-        <p class="hint">The settings above are saved with the model. <button type="button" class="info" data-help="help-saved" aria-label="More about saved settings">&#9432;</button></p>
       </div>
     </div>
 
@@ -296,7 +286,7 @@
               <div class="seed"><input id="seed" type="number" step="1" value="-1"><button type="button" id="rnd">Random</button></div>
             </div>
           </div>
-          <p class="hint">-1 picks a random seed. <button type="button" class="info" data-help="help-seed" aria-label="More about the seed">&#9432;</button></p>
+          <p class="hint">-1: a new random seed for each image.</p>
         </div>
       </div>
 
@@ -321,7 +311,7 @@
             </div>
             <div></div>
           </div>
-          <p class="hint">Auto is the preset's: 3 for Wan 2.1, 5 for Wan 2.2 TI2V. Higher spends more of the steps on the large shapes and the motion, lower on the details.</p>
+          <p class="hint">Auto is the preset's. Higher favours the large shapes and the motion, lower the details.</p>
         </div>
       </div>
     </div>
@@ -373,19 +363,19 @@
         </div>
         <div class="ghead">Image models</div>
         <div id="mlist"></div>
-        <p class="hint" id="mnote"></p>
         <div class="ghead" id="gh-vid" style="display:none">Video models</div>
         <div id="vlist"></div>
-        <p class="hint">Delete removes only the saved setting, never the model. <button type="button" class="info" data-help="help-saved" aria-label="More about saved settings">&#9432;</button></p>
+        <p class="hint">Use on a model loads its default preset (★). <button type="button" class="info" data-help="help-saved" aria-label="More about presets">&#9432;</button></p>
       </section>
     </div>
     <div class="mcol">
       <section class="panel" id="pnl-loras" style="display:none">
         <div class="ph"><h2>LoRAs</h2><button type="button" class="info" data-help="help-loras" aria-label="More about LoRAs">&#9432;</button></div>
+        <input type="search" id="lfind" class="lfind" placeholder="Find a LoRA" autocomplete="off" aria-label="Find a LoRA" style="display:none">
         <div id="llist"></div>
       </section>
       <section class="panel" id="pnl-ups" style="display:none">
-        <div class="ph"><h2>Upscalers</h2><button type="button" class="info" data-help="help-upscalers" aria-label="More about upscalers">&#9432;</button></div>
+        <div class="ph"><h2>Upscalers</h2></div>
         <div id="ulist"></div>
       </section>
     </div>
@@ -411,15 +401,15 @@
       <div class="inrow"><select id="dl-kind" class="upkind" aria-label="What it is"><option value="">Model</option><option value="loras">LoRA</option><option value="upscalers">Upscaler</option></select><input id="dl-url" type="text" placeholder="Hugging Face or Civitai link to a model file" autocomplete="off" autocapitalize="off" spellcheck="false"><button type="button" id="dl-go">Download</button></div>
     </section>
     <section class="panel" id="pnl-up" style="display:none">
-      <div class="ph"><h2>Upload from this computer</h2><button type="button" class="info" data-help="help-upload" aria-label="More about uploads">&#9432;</button></div>
-      <div class="inrow"><select id="up-kind" class="upkind" aria-label="What it is"><option value="models">Model</option><option value="loras">LoRA</option><option value="embeddings">Embedding</option><option value="presets">Preset (.txt)</option><option value="upscalers">Upscaler</option><option value="tags">Tags (.csv)</option></select><button type="button" id="up-pick">Choose a file</button></div>
-      <input id="up-file" type="file" style="display:none">
+      <div class="ph"><h2>Upload from this computer</h2></div>
+      <div class="inrow"><select id="up-kind" class="upkind" aria-label="What it is"><option value="models">Model</option><option value="loras">LoRA</option><option value="embeddings">Embedding</option><option value="presets">Preset (.txt)</option><option value="upscalers">Upscaler</option><option value="tags">Tags (.csv)</option></select><button type="button" id="up-pick">Choose files</button></div>
+      <input id="up-file" type="file" multiple style="display:none">
       <div id="up-box" style="display:none">
         <div class="mname" id="up-name"></div>
         <div class="bar"><div id="up-fill"></div></div>
         <div class="upmeta"><div class="mmeta" id="up-meta"></div><button type="button" id="up-cancel" class="danger">Cancel</button></div>
       </div>
-      <p class="hint">Keep this page open until the upload is done.</p>
+      <p class="hint">One or more files; keep this page open until they are on the console.</p>
     </section>
     <section class="panel" id="pnl-hf" style="display:none">
       <div class="ph"><h2>Search Hugging Face</h2></div>
@@ -441,15 +431,45 @@
 
 <div class="main" id="view-settings" style="display:none">
   <div class="mcol">
-    <section class="panel" id="pnl-console">
-      <div class="ph"><h2>Console</h2><button type="button" class="info" data-help="help-console" aria-label="More about the console's readings">&#9432;</button></div>
-      <div class="mseg crange" id="con-range" role="group" aria-label="Time shown">
-        <button type="button" id="con-sec" class="on" aria-pressed="true">2 minutes</button>
-        <button type="button" id="con-min" aria-pressed="false">1 hour</button>
+    <section class="panel">
+      <div class="ph"><h2>This browser</h2></div>
+      <div class="sublabel">Theme</div>
+      <div class="mseg crange themes" id="theme" role="group" aria-label="Theme">
+        <button type="button" data-theme="auto" aria-pressed="false">Auto</button>
+        <button type="button" data-theme="light" aria-pressed="false">Light</button>
+        <button type="button" data-theme="dark" aria-pressed="false">Dark</button>
       </div>
-      <div class="cgrid" id="con-charts"></div>
-      <p class="hint" id="con-note"></p>
+      <div class="sublabel">When an image is done</div>
+      <label class="opt"><input type="checkbox" id="opt-sound"> Play a sound</label>
+      <label class="opt" id="opt-notify-row" style="display:none"><input type="checkbox" id="opt-notify"> Show a notification</label>
+      <p class="hint">Kept in this browser only. Auto follows the device's theme.</p>
     </section>
+    <section class="panel" id="pnl-oncon" style="display:none">
+      <div class="ph"><h2>On the console</h2></div>
+      <div id="opt-tv-box" style="display:none">
+        <label class="opt"><input type="checkbox" id="opt-tv"> Show images and prompts on the TV</label>
+      </div>
+      <div id="opt-up-box" style="display:none">
+        <label class="sublabel" for="opt-up">Upscaler of the Upscale button</label>
+        <select id="opt-up"></select>
+      </div>
+      <p class="hint">Kept on the console, for every browser.</p>
+    </section>
+    <section class="panel" id="opt-auth-box" style="display:none">
+      <div class="ph"><h2>API key</h2><button type="button" class="info" data-help="help-apikey" aria-label="More about the API key">&#9432;</button></div>
+      <p class="hint" id="auth-state" style="margin-top:0"></p>
+      <div id="auth-key-row" style="display:none"><code class="key" id="auth-key"></code></div>
+      <div class="authbtns">
+        <button type="button" id="auth-on">Turn on</button>
+        <button type="button" id="auth-show">Show key</button>
+        <button type="button" id="auth-new">New key</button>
+        <button type="button" id="auth-off" class="danger">Turn off</button>
+        <button type="button" id="auth-out">Sign out</button>
+      </div>
+      <label class="opt" id="opt-tvkey-row" style="display:none"><input type="checkbox" id="opt-tvkey"> Show the API key on the TV</label>
+    </section>
+  </div>
+  <div class="mcol">
     <section class="panel" id="pnl-fan" style="display:none">
       <div class="ph"><h2>Fan</h2><button type="button" class="info" data-help="help-fan" aria-label="More about the fan modes">&#9432;</button></div>
       <div class="mseg crange fanmodes" id="fan-mode" role="group" aria-label="Fan mode">
@@ -464,44 +484,14 @@
       </div>
       <p class="hint" id="fan-note"></p>
     </section>
-    <section class="panel">
-      <div class="ph"><h2>Appearance</h2></div>
-      <div class="mseg crange themes" id="theme" role="group" aria-label="Theme">
-        <button type="button" data-theme="auto" aria-pressed="false">Auto</button>
-        <button type="button" data-theme="light" aria-pressed="false">Light</button>
-        <button type="button" data-theme="dark" aria-pressed="false">Dark</button>
+    <section class="panel" id="pnl-console">
+      <div class="ph"><h2>Console readings</h2><button type="button" class="info" data-help="help-console" aria-label="More about the console's readings">&#9432;</button></div>
+      <div class="mseg crange" id="con-range" role="group" aria-label="Time shown">
+        <button type="button" id="con-sec" class="on" aria-pressed="true">2 minutes</button>
+        <button type="button" id="con-min" aria-pressed="false">1 hour</button>
       </div>
-      <p class="hint">Auto follows the device. It is kept in this browser.</p>
-    </section>
-    <section class="panel">
-      <div class="ph"><h2>When an image is done</h2></div>
-      <label class="opt"><input type="checkbox" id="opt-sound"> Play a sound</label>
-      <label class="opt" id="opt-notify-row" style="display:none"><input type="checkbox" id="opt-notify"> Show a notification</label>
-      <p class="hint">The tab's title shows a mark too, while you are in another tab.</p>
-    </section>
-    <section class="panel" id="opt-tv-box" style="display:none">
-      <div class="ph"><h2>PS5 screen</h2></div>
-      <label class="opt"><input type="checkbox" id="opt-tv"> Show images and prompts on the TV</label>
-    </section>
-    <section class="panel" id="opt-up-box" style="display:none">
-      <div class="ph"><h2>Upscale button</h2><button type="button" class="info" data-help="help-upscale-button" aria-label="More about the Upscale button">&#9432;</button></div>
-      <select id="opt-up" aria-label="Upscaler of the Upscale button"></select>
-    </section>
-  </div>
-  <div class="mcol">
-    <section class="panel" id="opt-auth-box" style="display:none">
-      <div class="ph"><h2>API key</h2></div>
-      <p class="hint" id="auth-state" style="margin-top:0"></p>
-      <div id="auth-key-row" style="display:none"><code class="key" id="auth-key"></code></div>
-      <div class="authbtns">
-        <button type="button" id="auth-on">Turn on</button>
-        <button type="button" id="auth-show">Show key</button>
-        <button type="button" id="auth-new">New key</button>
-        <button type="button" id="auth-off" class="danger">Turn off</button>
-        <button type="button" id="auth-out">Sign out</button>
-      </div>
-      <label class="opt" id="opt-tvkey-row" style="display:none"><input type="checkbox" id="opt-tvkey"> Show the API key on the TV</label>
-      <p class="hint">Apps send it with each request. <button type="button" class="info" data-help="help-apikey" aria-label="More about the API key">&#9432;</button></p>
+      <div class="cgrid" id="con-charts"></div>
+      <p class="hint" id="con-note"></p>
     </section>
     <section class="panel" id="pnl-about">
       <div class="ph"><h2>About</h2></div>
@@ -544,11 +534,12 @@
     <h2 id="help-vstart">A start image for video</h2>
     <p>Wan 2.2 TI2V 5B (Models tab, Get more) makes a video from a picture: the first frame is the picture, and the prompt says what moves. The size follows the picture's aspect, and the picture is cut to it at the middle. Press Edit on an image of the gallery to start from it.</p>
     <p>On the console, 33 frames at 1280×704 take about 16 minutes at 20 steps, at 832×480 about 6. Without a start image this model needs its own size, 1280×704: smaller videos from a prompt alone come out washed out. For video from a prompt alone, Wan 2.1 is faster.</p>
-    <h2 id="help-saved">Saved settings</h2>
-    <p>A saved setting is a model with its own size, steps, CFG, sampler and LoRAs. Delete removes only the saved setting, never the model. To make one, set up the Create tab and press Save as preset there.</p>
-    <p>The settings above are saved with the model. Its own options (VAE, tiling and so on) come along. The list is under Models.</p>
+    <h2 id="help-saved">Presets</h2>
+    <p>A preset is a model with its settings: size, steps, CFG, sampler, scheduler, CLIP skip, LoRAs and hires fix. Under Models each model is listed once, with its presets under it: the ones it came with and the ones you saved.</p>
+    <p><b>Use</b> on a model loads its default preset, marked ★; <b>⋯, Make default</b> picks another one. The default is kept on the console, so it holds in every browser; an API that switches models loads the preset it names. <b>⋯, Edit text</b> opens the preset's file (its settings and the model's files and options). Deleting a saved preset leaves the model; deleting the model deletes its saved presets too.</p>
+    <p>To save one, set up the Create tab and press Save there. A preset of the loaded model switches at once; another model restarts the server: 10 to 20 seconds, about a minute for SDXL.</p>
     <h2 id="help-loras">LoRAs</h2>
-    <p>A LoRA adds a style, a character or a look to a model. It works only with models of the family it was made for (SD 1.5, SDXL, FLUX…). Pick them on the Create tab, under Style.</p>
+    <p>A LoRA adds a style, a character or a look to a model. It works only with models of the family it was made for (SD 1.5, SDXL, FLUX…). Pick them on the Create tab, under Style: the box in front of one turns it off for a while and keeps its strength. Their order does not matter: sd.cpp adds them up. Under Models they are listed by the family they are made for, those for the model in use first.</p>
     <p>DMD2 (anime) and SDXL-Lightning (photos) make SDXL models fast: CFG 1, 4 to 8 steps, sampler LCM for DMD2 and Euler for Lightning. CausVid does the same for Wan 2.1 1.3B videos: CFG 1, 4 steps. Adding one of them sets these settings; removing it again brings back the ones from before, unless you changed them. With DMD2 an SDXL image takes about 11 s instead of 29. It does not suit every finetune: if the image comes out grey and flat, try CFG 1.5 and 8 steps.</p>
     <h2 id="help-upscalers">Upscalers</h2>
     <p>An upscaler (ESRGAN) makes an image larger and sharper: with the Upscale button, or in the hires fix on the Create tab. More of them under Get more, or a .pth file under Upload.</p>
@@ -558,7 +549,7 @@
     <p>A link to a file on huggingface.co, or a Civitai model version (a link that ends in modelVersionId=...). The file goes into the models folder on the console, or the loras folder for a LoRA; a Civitai LoRA goes there by itself.</p>
     <h2 id="help-upload">Upload</h2>
     <p>Any model file on this computer: your own merge or training, or one from another site. It keeps its file name. A model in several files also needs a preset; the <a href="#help" data-doc="models">Getting models</a> page shows how.</p>
-    <p>Keep this page open until the upload is done.</p>
+    <p>You can choose several files at once; they go one after the other. Keep this page open until the uploads are done.</p>
     <h2 id="help-apikey">API key</h2>
     <p>Apps send it as <code>Authorization: Bearer &lt;key&gt;</code>, A1111 apps as the password of their API login. The <a href="#help" data-doc="api">HTTP API</a> page has the details and how to reach the console from outside your network.</p>
     <h2 id="help-fan">Fan</h2>
@@ -610,6 +601,7 @@
       <button type="button" id="lb-edit" title="Use as the start image on the Create tab">Edit</button>
       <button type="button" id="lb-guide" title="Use as the guide image (ControlNet) on the Create tab">Guide</button>
       <button type="button" id="lb-label" title="A name and tags for this file, which the search finds">Name</button>
+      <button type="button" id="lb-infobtn" aria-pressed="true" title="Show or hide what made the image" style="display:none">Info</button>
       <button type="button" class="danger" id="lb-del">Delete</button>
     </div>
     <button type="button" id="lb-close">Close</button>
@@ -633,7 +625,7 @@
         <button type="button" id="lb-ca" title="The prompt and the settings as text, as other tools paste them">Copy all</button>
       </div>
     </div>
-    <button type="button" id="lb-use" title="Put the prompt and the settings of this image into the Create tab">Use these settings</button>
+    <button type="button" id="lb-use" title="Load the model and the preset this image was made with, and put its prompt and settings into the Create tab">Use all</button>
   </div>
 </div>
 <div class="dlg" id="ldlg" style="display:none" role="dialog" aria-modal="true" aria-labelledby="ld-title">
