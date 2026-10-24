@@ -1,0 +1,83 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: ps5sd <ps5sd@localhost>
+Date: Sat, 24 Oct 2026 12:00:00 +0200
+Subject: [PATCH] loader: tensors for device buffers in 8 MB pieces
+
+A tensor for a device buffer was read whole into the loader thread's
+read_buffer and then copied over, so every thread kept a buffer as large as
+the largest tensor it had read: 85 MB for a layer of FLUX.2 Klein 9B, over
+half a GB for all threads. On the PS5 that CPU heap comes out of the pool
+the model fills, and a run that loaded weights again ran out of memory there
+(four times in a row right after a start with Klein 9B and a LoRA). A tensor
+with nothing to convert now goes over in pieces of at most 8 MB, through a
+buffer of its own.
+---
+diff --git a/src/model_loader.cpp b/src/model_loader.cpp
+index 6761d3e..950fecb 100644
+--- a/src/model_loader.cpp
++++ b/src/model_loader.cpp
+@@ -1172,6 +1172,7 @@ bool ModelLoader::load_tensors(on_new_tensor_cb_t on_new_tensor_cb,
+                 std::vector<uint8_t> read_buffer;
+                 std::vector<uint8_t> convert_buffer;
+                 std::vector<uint8_t> zip_entry_buffer;
++                std::vector<uint8_t> staging_buffer;
+ 
+                 while (true) {
+                     int64_t t0, t1;
+@@ -1271,6 +1272,53 @@ bool ModelLoader::load_tensors(on_new_tensor_cb_t on_new_tensor_cb,
+                         return true;
+                     };
+ 
++                    // PS5SD: a tensor for a device buffer with nothing to convert goes over in pieces. Read
++                    // whole, each thread kept a buffer as large as the largest tensor it had read (85 MB for a
++                    // layer of FLUX.2 Klein 9B, so over half a GB for all threads) on the CPU heap, which on
++                    // the PS5 comes out of the pool the model fills; loading weights again in a run then ran
++                    // out of memory (docs/CONSOLE.md).
++                    constexpr size_t k_staging_bytes = 8u << 20;
++                    if (zip == nullptr && dst_tensor->buffer != nullptr &&
++                        !ggml_backend_buffer_is_host(dst_tensor->buffer) &&
++                        tensor_storage.type == dst_tensor->type && !tensor_storage.is_f64 && !tensor_storage.is_i64 &&
++                        nbytes_to_read == tensor_storage.nbytes() && nbytes_to_read == ggml_nbytes(dst_tensor) &&
++                        nbytes_to_read > k_staging_bytes) {
++                        staging_buffer.resize(k_staging_bytes);
++                        bool piece_failed = false;
++                        for (size_t done = 0; done < nbytes_to_read && !piece_failed;) {
++                            const size_t n = std::min(k_staging_bytes, nbytes_to_read - done);
++                            char* buf      = (char*)staging_buffer.data();
++                            t0             = ggml_time_ms();
++                            if (mmapped) {
++                                piece_failed = !mmapped->copy_data(buf, n, tensor_storage.offset + done);
++                            } else {
++                                file.seekg(tensor_storage.offset + done);
++                                file.read(buf, n);
++                                piece_failed = !file;
++                            }
++                            t1 = ggml_time_ms();
++                            read_time_ms.fetch_add(t1 - t0);
++                            if (piece_failed) {
++                                LOG_ERROR("read tensor data failed: '%s'", file_path.c_str());
++                                break;
++                            }
++                            t0 = ggml_time_ms();
++                            {
++                                std::lock_guard<std::mutex> lock(backend_tensor_set_mutex);
++                                ggml_backend_tensor_set(dst_tensor, buf, done, n);
++                            }
++                            t1 = ggml_time_ms();
++                            copy_to_backend_time_ms.fetch_add(t1 - t0);
++                            done += n;
++                        }
++                        if (piece_failed) {
++                            failed = true;
++                            break;
++                        }
++                        bytes_processed.fetch_add((uint64_t)nbytes_to_read);
++                        continue;
++                    }
++
+                     char* read_buf    = nullptr;
+                     char* target_buf  = nullptr;
+                     char* convert_buf = nullptr;
+-- 
+2.47.0
+

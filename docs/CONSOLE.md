@@ -855,6 +855,21 @@ On 0.9.8's release build the first image after a start with Klein 9B and `lenovo
 "loading tensors from '...flux-2-klein-9b-Q4_0.gguf': out of memory", the run failed with "Not enough
 memory", PS5SD kept running, and the same request again made the image (57 s).
 
+`patches/sdcpp/0072` runs such a job once more by itself. Right after a start that was not enough: Klein 9B
+with lenovo failed four times in a row at the same place (segment 32 of 34), the fifth attempt ran. The cause
+was the loader: on the PS5 the weights go into Vulkan buffers, so each of its threads read every tensor whole
+into a buffer of its own first and kept it as large as the largest tensor it had read (85 MB for a layer of
+Klein 9B). `patches/sdcpp/0073` copies such a tensor over in pieces of 8 MB. On 0.9.9's build, from a start:
+
+| | Before 0073 | With 0073 |
+|---|---|---|
+| Klein 9B + lenovo, first image after a start | out of memory, 4 times | 109 s, first try |
+| CPU heap after a request (peak) | 0.64 to 0.73 GiB (1.31 to 1.35) | 0.53 to 0.58 GiB (0.69 to 0.72) |
+| Loading the weights the first time | 13.9 s | 14.0 s |
+
+The image is the same to the bit (seed 11, the townhouse prompt). Four images with `res_2s` and a Klein 9B LoRA
+left the heap at 0.58 GiB and 1.46 GiB of the pool free; SDXL Q8_0 made a 1024x1024 image in 30 s, as before.
+
 The CPU heap after each request, the same series on 0.9.7 from a start:
 
 | Images | sd.cpp's conditioning cache: 4 prompts | 1 prompt (PS5SD's default after 0.9.7) |
