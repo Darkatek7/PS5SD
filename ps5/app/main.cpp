@@ -629,6 +629,13 @@ bool server_plan(ServerPlan & plan, std::string & error) {
     if (!names({ "--lora-model-dir" })) {
         args.insert(args.end(), { "--lora-model-dir", kLoras });
     }
+    // The text encoder's result for the last prompt only (sd.cpp keeps 4): the
+    // same prompt with a new seed still skips the encoder. Each entry is CPU heap,
+    // which comes from the same pool as the model: about 30 MB for FLUX.2 Klein 9B
+    // (Qwen3-8B), and 4 of them rose the heap by 0.1 GiB on the console.
+    if (!names({ "--conditioning-cache-size" })) {
+        args.insert(args.end(), { "--conditioning-cache-size", "1" });
+    }
     if (!names({ "--embd-dir" })) {
         args.insert(args.end(), { "--embd-dir", kEmbeddings });
     }

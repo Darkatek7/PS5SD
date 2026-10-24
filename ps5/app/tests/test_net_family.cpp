@@ -87,6 +87,24 @@ void test_flux() {
     lora(diffusers, "transformer.single_transformer_blocks.0.proj_mlp", 3072, 12288, ".lora_A.weight", ".lora_B.weight");
     is(diffusers, "FLUX.1", "diffusers FLUX.1 LoRA");
 
+    T klein9;  // PEFT FLUX.2 Klein 9B LoRA in diffusers names, no prefix (lenovo_flux_klein9b): 8/24 blocks
+    for (int i = 0; i < 8; i++) {
+        lora(klein9, "transformer_blocks." + std::to_string(i) + ".attn.to_q", 4096, 4096, ".lora_A.default.weight",
+             ".lora_B.default.weight");
+        lora(klein9, "transformer_blocks." + std::to_string(i) + ".ff.linear_in", 4096, 24576, ".lora_A.default.weight",
+             ".lora_B.default.weight");
+    }
+    for (int i = 0; i < 24; i++) {
+        lora(klein9, "single_transformer_blocks." + std::to_string(i) + ".attn.to_qkv_mlp_proj", 4096, 36864,
+             ".lora_A.default.weight", ".lora_B.default.weight");
+    }
+    is(klein9, "FLUX.2 Klein 9B", "PEFT diffusers FLUX.2 Klein 9B LoRA");
+
+    T klein9_singles;  // its single blocks alone: the fused projection is 9x wide
+    lora(klein9_singles, "single_transformer_blocks.0.attn.to_qkv_mlp_proj", 4096, 36864, ".lora_A.default.weight",
+         ".lora_B.default.weight");
+    is(klein9_singles, "FLUX.2 Klein 9B", "diffusers FLUX.2 single blocks only");
+
     T sd3;  // diffusers transformer_blocks without single blocks, another width: not FLUX
     lora(sd3, "transformer.transformer_blocks.0.attn.to_q", 1536, 1536, ".lora_A.weight", ".lora_B.weight");
     lora(sd3, "transformer.transformer_blocks.0.ff.net.0.proj", 1536, 6144, ".lora_A.weight", ".lora_B.weight");

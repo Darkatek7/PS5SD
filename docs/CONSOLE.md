@@ -840,3 +840,32 @@ leejet's Q4_0 of FLUX.2 Klein 9B (5.62 GB, FLUX Non-Commercial License), unsloth
 The first image: 47.8 s for the first step, which loads the weights, then about 11 s a step (80.7 s of
 sampling), and 6 s to decode. The Klein 4B Q8_0 makes the same image in about 30 s warm; the 9B has more
 detail. Larger images are not measured: with under 1 GiB in one block left, 1536×1536 is unlikely to fit.
+
+## PS5SD ended by a full CPU heap (2026-10-24)
+
+A series of FLUX.2 Klein 9B images (1024x1024, `res_2s`, 6 steps, a Klein 9B LoRA, a new prompt each time)
+ended the title at about the 13th image: the system logged "Internal Memory is running out", and a
+`std::bad_alloc` that nothing caught ended the process (a coredump, back to the home screen). It came while the
+model's weights were loaded again (the loader's progress, "step 3/198"), right after the run's GPU buffers
+(1024 and 534 MiB): `malloc` takes its memory from the same direct-memory pool as the model and the GPU, which
+had 0.97 GiB left. The loader's worker threads and sd-server's job thread did not catch it; since
+`patches/sdcpp/0071` a run that runs out of CPU memory fails with a reason, and PS5SD keeps running.
+
+The CPU heap after each request, the same series on 0.9.7 from a start:
+
+| Images | sd.cpp's conditioning cache: 4 prompts | 1 prompt (PS5SD's default after 0.9.7) |
+|---|---|---|
+| 1 | 0.64 GiB | 0.64 GiB |
+| 4 | 0.73 GiB | 0.70 GiB |
+| 8 | 0.80 GiB | 0.73 GiB |
+| 12 | 0.83 GiB | |
+
+Each cached prompt of Klein 9B holds about 30 MB (Qwen3-8B's states). Its weights moving in and out of the
+pool added another 30 to 70 MB twice. With one prompt cached (`--conditioning-cache-size 1`, the same prompt
+with a new seed still skips the encoder), the heap grows about 10 MB an image; the peak, 1.33 GiB, is in
+the first request after a start.
+
+LoRAs in diffusers' names for FLUX.2 (PEFT, `transformer_blocks.N.ff.linear_in`,
+`single_transformer_blocks.N.attn.to_qkv_mlp_proj`) applied 128 of 280 tensors in sd.cpp, the attention
+of the double blocks only; `patches/sdcpp/0070` maps the rest, and `lenovo_flux_klein9b` applies 280 of
+280 (58 s with Klein 9B at 4 steps).

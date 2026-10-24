@@ -170,7 +170,10 @@ Key key_of(const std::string & name) {
     Key out;
     for (const auto & r : std::initializer_list<std::pair<const char *, Role>>{
              { ".lora.down.weight", Role::down }, { ".lora.a.weight", Role::down }, { ".lora.up.weight", Role::up },
-             { ".lora.b.weight", Role::up }, { ".weight", Role::weight } }) {
+             { ".lora.b.weight", Role::up },
+             // PEFT names the adapter: "...lora_A.default.weight"
+             { ".lora.a.default.weight", Role::down }, { ".lora.b.default.weight", Role::up },
+             { ".weight", Role::weight } }) {
         if (ends(s, r.first)) {
             out.k    = s.substr(0, s.size() - std::strlen(r.first));
             out.role = r.second;
@@ -246,13 +249,14 @@ std::string net_family_of(const std::vector<NetTensor> & tensors) {
             if (rest == "img.attn.qkv" || rest == "attn.to.q") {
                 hidden = std::max(hidden, in_dim(key, t));
             }
-            if (rest == "img.mlp.0" || rest == "ff.net.0.proj") {
+            // diffusers names FLUX.2's gated MLP ff.linear_in
+            if (rest == "img.mlp.0" || rest == "ff.net.0.proj" || rest == "ff.linear.in") {
                 mlp = std::max(mlp, out_dim(key, t));
             }
         }
         if (!(rest = after_index(k, "single.blocks.")).empty() || !(rest = after_index(k, "single.transformer.blocks.")).empty()) {
             flux_single = std::max(flux_single, std::max(index_after(k, "single.blocks."), index_after(k, "single.transformer.blocks.")) + 1);
-            if (rest == "linear1") {
+            if (rest == "linear1" || rest == "attn.to.qkv.mlp.proj") {  // the second: diffusers' FLUX.2
                 linear1 = std::max(linear1, out_dim(key, t));
                 hidden  = std::max(hidden, in_dim(key, t));
             }

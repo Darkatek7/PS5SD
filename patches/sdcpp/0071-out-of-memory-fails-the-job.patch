@@ -1,0 +1,116 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: ps5sd <ps5sd@localhost>
+Date: Sat, 24 Oct 2026 12:00:00 +0200
+Subject: [PATCH] out of memory fails the job, not the process
+
+An exception that leaves a std::thread ends the process. On the PS5 the
+title has about 2 GB of CPU heap, and a run of FLUX.2 Klein 9B with a LoRA
+ended PS5SD that way: std::bad_alloc while the model's weights were loaded
+again (the loader's worker threads). The loader's workers now catch it and
+fail the load with "out of memory" in the log; the async job worker catches
+what reaches it and fails the job with a reason. The graph code catches its
+own already, and sd::parallel_for passes exceptions to its caller.
+---
+diff --git a/examples/server/async_jobs.cpp b/examples/server/async_jobs.cpp
+index f816613..018c5b6 100644
+--- a/examples/server/async_jobs.cpp
++++ b/examples/server/async_jobs.cpp
+@@ -4,6 +4,7 @@
+ 
+ #include <algorithm>
+ #include <iomanip>
++#include <new>
+ #include <random>
+ #include <sstream>
+ 
+@@ -481,18 +482,34 @@ void async_job_worker(ServerRuntime& runtime) {
+         std::string error_message;
+         bool ok = false;
+ 
+-        if (job->kind == AsyncJobKind::ImgGen) {
+-            ok = execute_img_gen_job(runtime, manager, *job, output_images, error_message);
+-        } else if (job->kind == AsyncJobKind::VidGen) {
+-            ok = execute_vid_gen_job(runtime,
+-                                     *job,
+-                                     output_media_b64,
+-                                     output_media_mime_type,
+-                                     output_frame_count,
+-                                     output_fps,
+-                                     error_message);
+-        } else {
+-            error_message = "unsupported job kind";
++        // PS5SD: an exception out of a generation ended this thread and with it the
++        // process (std::terminate). On the PS5 the CPU heap is about 2 GB, and a run
++        // that needs more throws std::bad_alloc outside the graph code, which catches
++        // its own. The job fails with a reason instead, and the server keeps running.
++        try {
++            if (job->kind == AsyncJobKind::ImgGen) {
++                ok = execute_img_gen_job(runtime, manager, *job, output_images, error_message);
++            } else if (job->kind == AsyncJobKind::VidGen) {
++                ok = execute_vid_gen_job(runtime,
++                                         *job,
++                                         output_media_b64,
++                                         output_media_mime_type,
++                                         output_frame_count,
++                                         output_fps,
++                                         error_message);
++            } else {
++                error_message = "unsupported job kind";
++            }
++        } catch (const std::bad_alloc&) {
++            clear_preview_callback();
++            LOG_ERROR("job %s: out of CPU memory (std::bad_alloc)", job->id.c_str());
++            ok            = false;
++            error_message = "Not enough CPU memory on the console for this run. Close and open PS5SD to free it.";
++        } catch (const std::exception& error) {
++            clear_preview_callback();
++            LOG_ERROR("job %s: %s", job->id.c_str(), error.what());
++            ok            = false;
++            error_message = std::string("Generation failed: ") + error.what();
+         }
+ 
+         {
+diff --git a/src/model_loader.cpp b/src/model_loader.cpp
+index 8822b2c..6761d3e 100644
+--- a/src/model_loader.cpp
++++ b/src/model_loader.cpp
+@@ -8,6 +8,7 @@
+ #include <fstream>
+ #include <functional>
+ #include <mutex>
++#include <new>
+ #include <regex>
+ #include <set>
+ #include <stdexcept>
+@@ -1145,7 +1146,11 @@ bool ModelLoader::load_tensors(on_new_tensor_cb_t on_new_tensor_cb,
+         std::mutex backend_tensor_set_mutex;
+ 
+         for (int i = 0; i < n_threads; ++i) {
++            // PS5SD: an exception ends a std::thread with std::terminate, and with it
++            // the title. On the PS5 the CPU heap is small (about 2 GB); a buffer that
++            // does not fit fails the load instead, with "out of memory" in the log.
+             workers.emplace_back([&, file_path, is_zip]() {
++              auto work = [&]() {
+                 std::ifstream file;
+                 zip_t* zip = nullptr;
+                 if (is_zip) {
+@@ -1352,6 +1357,16 @@ bool ModelLoader::load_tensors(on_new_tensor_cb_t on_new_tensor_cb,
+                 if (zip != nullptr) {
+                     zip_close(zip);
+                 }
++              };
++              try {
++                  work();
++              } catch (const std::bad_alloc&) {
++                  LOG_ERROR("loading tensors from '%s': out of memory", file_path.c_str());
++                  failed = true;
++              } catch (const std::exception& error) {
++                  LOG_ERROR("loading tensors from '%s' failed: %s", file_path.c_str(), error.what());
++                  failed = true;
++              }
+             });
+         }
+ 
+-- 
+2.47.0
+
