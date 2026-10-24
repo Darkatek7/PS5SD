@@ -10,6 +10,8 @@ can rely on.
 
 ## Done
 
+- **0.9.8**: Klein 9B LoRAs in diffusers names load fully; a run out of CPU memory fails instead of ending
+  PS5SD; less CPU memory per prompt.
 - **0.9.7**: FLUX.2 Klein 9B in the catalog, featured: 1024x1024 in about 50 s, with its LoRAs.
 - **0.9.6**: video from a picture with Wan 2.2 TI2V 5B, Flow shift on the Create tab, and CLIP skip for
   every model that reads the prompt with CLIP.
@@ -258,6 +260,14 @@ selected for one delete or download.
 - [x] **FLUX.2 Klein 9B** (Q4_0, with Qwen3-8B Q4_K_M, 11 GB) in the catalog, featured: 1024x1024 in 4 steps
   in about 50 s (100 s right after a start), with its LoRAs. Measured on the console: it fits, with 0.9 GiB
   left in one block after a 1024x1024 image. FLUX Non-Commercial License.
+
+## 0.9.8: LoRAs and memory, done
+
+- [x] **FLUX.2 LoRAs in diffusers names** (PEFT): sd.cpp applied only their attention layers (128 of 280
+  tensors); `patches/sdcpp/0070` maps the rest, and the Models tab shows them as FLUX.2 Klein 9B.
+- [x] **Out of memory ends a run, not PS5SD**: a series of Klein 9B images ended the title when the CPU heap
+  could not grow while the weights were loaded again. `patches/sdcpp/0071` fails the run with a reason.
+- [x] **One prompt cached**, not four: about 30 MB less CPU memory per prompt with Klein 9B.
 
 ## Later in 0.9.x
 
