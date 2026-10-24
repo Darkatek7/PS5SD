@@ -10,6 +10,8 @@ can rely on.
 
 ## Done
 
+- **0.9.11**: the web UI: a Create tab without scrolling, a denser look, light and dark, a sidebar that
+  folds, Delete under the result, CLIP skip as a number (issues 7, 8 and 9).
 - **0.9.10**: fan modes, Quiet, Balanced, Cool and Manual: the fan starts earlier, and long runs stay at
   about 84 °C instead of up to 95 °C.
 - **0.9.9**: loading weights takes half the CPU memory (Klein 9B with a LoRA runs right after a start); a run
@@ -288,7 +290,7 @@ selected for one delete or download.
   and puts it back when PS5SD closes or the mode is Quiet. Balanced is 3 °C under the console's own, Cool
   6 °C, Manual from 70 °C. Measured in [docs/CONSOLE.md](docs/CONSOLE.md#the-fan-2026-10-24).
 
-## 0.9.11: the web UI, denser and with everything in reach ([issue 7](https://github.com/Darkatek7/PS5SD/issues/7))
+## 0.9.11: the web UI, denser and with everything in reach ([issue 7](https://github.com/Darkatek7/PS5SD/issues/7)), done
 
 - [x] **Create without scrolling** on a PC and a tablet: the settings scroll inside their panel with
   Generate fixed at its foot, the picture fills the rest and its actions stay under it. On a phone Generate
@@ -302,10 +304,15 @@ selected for one delete or download.
   press to be sure.
 - [x] **CLIP skip as a number** ([issue 9](https://github.com/Darkatek7/PS5SD/issues/9)): 1 to 12 typed or
   with − and +, empty for Auto.
-- [ ] **React, TypeScript and Tailwind** (as in the issue's fork): built down to ES5 in one page, so the
-  PS5's browser keeps working, with every feature of the current page. On its own branch first.
+- [x] **Tested in the PS5's own browser**: all five tabs.
 
 ## Later in 0.9.x
+
+**Web UI**
+
+- [ ] **React, TypeScript and Tailwind** (as in [issue 7](https://github.com/Darkatek7/PS5SD/issues/7)'s
+  fork): only built down to ES5 in one page, so the PS5's browser keeps working, and with every feature of
+  the current page. Not started; first a word with the people who would work on it.
 
 **Images**
 
