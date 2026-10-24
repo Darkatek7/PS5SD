@@ -319,6 +319,7 @@
   .doc th { color: var(--text); font-weight: 500; background: var(--field); }
   .foot { text-align: center; color: var(--faint); font-size: 0.8125rem; padding: 0 1rem 2rem; }
 
+  body.modal-open { overflow: hidden; }
   .lb { position: fixed; left: 0; top: 0; right: 0; bottom: 0; z-index: 10; background: var(--lb-bg); flex-direction: column; }
   .lb-bar { display: flex; align-items: center; padding: 0.75rem 1.25rem; }
   .lb-title { flex: 1; min-width: 0; color: var(--muted); font-size: 0.95rem; }

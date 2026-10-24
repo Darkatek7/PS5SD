@@ -5,7 +5,15 @@
 
   function clear(node) { while (node.firstChild) node.removeChild(node.firstChild); }
   function text(node, value) { node.textContent = value; }
-  function show(id, on, how) { $(id).style.display = on ? (how || 'block') : 'none'; }
+  // An overlay (viewer, mask, preset editor, dialog, login) puts body.modal-open on: the page behind it
+  // stays where it is (app.css).
+  function show(id, on, how) {
+    $(id).style.display = on ? (how || 'block') : 'none';
+    if (/^(lb|me|pe|dlg|login)$/.test(id)) {
+      var b = document.body;
+      b.className = b.className.replace(/\s*\bmodal-open\b/g, '') + (overlayOpen() ? ' modal-open' : '');
+    }
+  }
 
   // Text to the clipboard. The page comes over plain HTTP from the console, where browsers give no
   // navigator.clipboard; a selected text field and the copy command work there too.

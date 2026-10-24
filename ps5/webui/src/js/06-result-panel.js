@@ -131,6 +131,7 @@
       clear(stage);
       stage.appendChild(el('div', 'empty', 'Deleted. Your next image appears here.'));
       clear($('actions'));
+      status('Deleted.');
       text($('sub'), '');
     }, 30000);
   }
