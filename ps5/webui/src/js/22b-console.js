@@ -161,6 +161,7 @@
             ? 'Temperature, power and fan: ps5-exporter was sent to the ELF loader twice and does not answer on port 9100.'
             : 'Starting ps5-exporter for the temperature, power and fan…';
     text($('con-note'), note);
+    drawFan(d ? d.fan_control : null);
   }
 
   function initConsole() {

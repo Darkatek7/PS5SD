@@ -888,3 +888,28 @@ LoRAs in diffusers' names for FLUX.2 (PEFT, `transformer_blocks.N.ff.linear_in`,
 `single_transformer_blocks.N.attn.to_qkv_mlp_proj`) applied 128 of 280 tensors in sd.cpp, the attention
 of the double blocks only; `patches/sdcpp/0070` maps the rest, and `lenovo_flux_klein9b` applies 280 of
 280 (58 s with Klein 9B at 4 steps).
+
+## The fan (2026-10-24)
+
+The PS5 drives its fan towards a target temperature. `/dev/icc_fan`'s autoservo object (ioctl `8F08` to
+read, `8F07` to write, 28 bytes) has it in byte 5; the interface is from drakmor/fan_target. A payload may
+open the device on 13.00. Selector 0 is the SoC with 91 °C; 1, 2 and 3 had 90, 100 and 85 °C, and under
+load only selector 0 came near its target, so it alone sets the fan. While PS5SD runs and while the target
+is not reached, the fan stays at 23% (236 of 1024): with FLUX.2 Klein 9B the chip ran at 88 to 95 °C.
+
+Under Klein 9B at 1024x1024, 4 steps, one image after another:
+
+| Target | Fan, highest | SoC, mean of the second half |
+|---|---|---|
+| 91 °C (the console's) | 29% | 89.8 °C |
+| 90 °C, set one degree lower | 31% | 88.7 °C |
+| 89 °C | 34% | 87.8 °C |
+| 88 °C, for 3 minutes | 35% | 85.8 °C |
+| 85 °C (Cool), for 5 minutes, through PS5SD | 37% | 83.8 °C (mean under load) |
+| 91 to 80 °C at once | 96% within 2 s | (stopped: far too loud) |
+
+A big step at once makes the console's controller drive the fan to almost full speed; one degree at a time
+keeps it quiet. So `ps5/fan` (ps5sd-fan.elf) lowers the target one degree every 20 s and raises it at once.
+When PS5SD closes, the console sets its own fan pattern again, and with it 91 °C; the payload ends 15 s
+after PS5SD's last word. A model switch that restarts PS5SD does the same, and the new instance starts the
+payload again.

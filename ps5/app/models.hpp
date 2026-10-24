@@ -233,11 +233,13 @@ std::string id_from_json(const std::string & body);
 // The app's own settings: GET and POST /ps5sd/v1/app/settings, kept in
 // /data/PS5SD/settings.json.
 struct AppSettings {
-    bool tv_images  = true;  // the TV shows the images and the prompts
-    bool tv_api_key = true;  // the TV shows the API key (when there is one)
+    bool        tv_images  = true;     // the TV shows the images and the prompts
+    bool        tv_api_key = true;     // the TV shows the API key (when there is one)
+    std::string fan        = "quiet";  // "quiet" (the console's own), "balanced", "cool", "manual"
+    int         fan_target = 85;       // manual's target temperature, 70..95 C (ps5/fan/fan_policy.h)
 };
 
-// {"tv_images": true, "tv_api_key": true}.
+// {"tv_images": true, "tv_api_key": true, "fan": "quiet", "fan_target": 85}.
 std::string settings_json(const AppSettings & settings);
 
 // Applies what a body (or the settings file) sets to settings; a field it

@@ -43,6 +43,7 @@
     buildPresets();
     initSignal();
     loadTvOption();
+    initFan();
     $('opt-tv').onchange = setTvOption;
     $('opt-tvkey').onchange = setTvKeyOption;
     $('hr-on').onchange = function () { drawHires(); persist(); };

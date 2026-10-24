@@ -100,6 +100,15 @@ int main() {
         check(!ps5sd::apply_settings("[]", settings, error) && !ps5sd::apply_settings("", settings, error), "not an object");
         check(ps5sd::apply_settings(ps5sd::settings_json(ps5sd::AppSettings{}), settings, error) && settings.tv_images,
               "round trip");
+        check(settings.fan == "quiet" && settings.fan_target == 85, "fan default: quiet");
+        check(ps5sd::apply_settings(R"({"fan": "manual", "fan_target": 80})", settings, error) &&
+                  settings.fan == "manual" && settings.fan_target == 80,
+              "fan manual 80");
+        check(!ps5sd::apply_settings(R"({"fan": "loud"})", settings, error) && settings.fan == "manual", "no such fan mode");
+        check(!ps5sd::apply_settings(R"({"fan_target": 60})", settings, error) && settings.fan_target == 80,
+              "fan_target under 70");
+        check(!ps5sd::apply_settings(R"({"fan_target": 80.5})", settings, error), "fan_target not whole");
+        check(nlohmann::json::parse(ps5sd::settings_json(settings))["fan"] == "manual", "fan in the JSON");
     }
 
     // The A1111 and OpenAI model lists, and sd_model_checkpoint back to an id.

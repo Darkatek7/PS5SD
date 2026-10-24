@@ -1121,6 +1121,7 @@ void load_settings() {
         std::printf("ps5sd: %s: %s; using the defaults\n", kSettings, error.c_str());
     }
     g_status.set_tv_images(g_settings.tv_images);
+    g_console.set_fan(g_settings.fan, g_settings.fan_target);
 }
 
 // Writes the settings to a temporary file and renames it over the old one.
@@ -1373,6 +1374,7 @@ extern "C" int sd_app_request(const char * method, const char * path, const char
         } else {
             g_settings = next;
             g_status.set_tv_images(next.tv_images);
+            g_console.set_fan(next.fan, next.fan_target);
             std::lock_guard<std::mutex> key_lock(g_key_mutex);
             show_api_key(g_api_key, next);
             out    = settings_json(next);

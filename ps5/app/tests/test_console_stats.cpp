@@ -101,6 +101,15 @@ void test_job_seconds() {
     CHECK(s.job_seconds() >= one);
 }
 
+void test_fan_reply() {
+    FanState f;
+    CHECK(parse_fan_reply("OK mode=cool stock=91 target=88 wanted=85 duty=300 filtered=86.5\n", f));
+    CHECK(f.mode == "cool" && f.stock == 91 && f.target == 88 && f.wanted == 85 && f.duty == 300);
+    CHECK(std::fabs(f.filtered - 86.5) < 1e-9);
+    CHECK(!parse_fan_reply("", f) && f.mode == "cool");  // unchanged
+    CHECK(!parse_fan_reply("ERR no", f) && !parse_fan_reply("OK stock=91", f));
+}
+
 }  // namespace
 
 int main() {
@@ -108,6 +117,7 @@ int main() {
     test_samples();
     test_history();
     test_job_seconds();
+    test_fan_reply();
     if (failures) {
         std::printf("%d check(s) failed\n", failures);
         return 1;

@@ -177,7 +177,8 @@ last two minutes and the last hour. The web UI's header and its Settings tab sho
   "seconds": { "soc_c": [ ... ], "watts": [ ... ], ... },
   "seconds_interval": 1,
   "minutes": { "soc_c": [ ... ], ... },
-  "minutes_interval": 30
+  "minutes_interval": 30,
+  "fan_control": { "mode": "cool", "manual_target": 85, "state": "running", "stock": 91, "target": 88, "wanted": 85 }
 }
 ```
 
@@ -197,6 +198,10 @@ last two minutes and the last hour. The web UI's header and its Settings tab sho
 apart, and still silent) or `no ELF loader`. Without it those
   values are `null`; `cpu` and `job` are there either way. The exporter keeps running after PS5SD closes,
   until the console restarts.
+- `fan_control` is the fan mode (App settings, `fan`) and what it does. `state` is `off` (Quiet),
+  `starting`, `running`, `no ELF loader` or `not answering`. `stock` is the console's own target
+  temperature, `target` the one it has now and `wanted` the mode's, in °C; `null` until the payload
+  answers.
 
 ## Model library and switching
 
@@ -612,10 +617,19 @@ restart.
 
 | Route | |
 |---|---|
-| `GET /ps5sd/v1/app/settings` | `{"tv_images": true, "tv_api_key": true}` |
+| `GET /ps5sd/v1/app/settings` | `{"tv_images": true, "tv_api_key": true, "fan": "quiet", "fan_target": 85}` |
 | `POST /ps5sd/v1/app/settings` | change what the body sets, like `{"tv_images": false}`; the answer is the settings as `GET` gives them, 400 for a field of the wrong type |
 
 `tv_images` false: the dashboard on the TV shows no images (no live preview, no last image, no
 thumbnails) and no prompts. The web UI's switch is in Settings, "Show images and prompts on the TV".
 
 `tv_api_key` false: the TV does not show the API key. The switch is in Settings, under API key.
+
+`fan`: `quiet`, `balanced`, `cool` or `manual`; `fan_target`: manual's target temperature, 70 to 95 °C.
+The PS5 speeds its fan up when the chip nears a target temperature (91 °C on the console we measured);
+the modes lower that target and leave the speed to the console's own fan control. Quiet leaves it,
+Balanced is 3 °C under it, Cool 6 °C, Manual `fan_target`, but never over the console's own target and
+never under 70 °C. A payload sets it, as a title may not: `payloads/ps5sd-fan.elf`, sent to the ELF loader
+on port 9021 and told the mode every 3 s on `127.0.0.1:9075`. It lowers the target one degree every 20 s
+and raises it at once. In Quiet, or 15 s after PS5SD stopped telling it the mode (PS5SD closed), it puts
+the console's own target back and ends. The web UI's buttons are in Settings, under Fan.

@@ -49,6 +49,11 @@ target_include_directories(test_thread_guard PRIVATE ..)
 target_link_libraries(test_thread_guard PRIVATE Threads::Threads)
 add_test(NAME thread_guard COMMAND test_thread_guard)
 
+# The fan payload's modes and steps (ps5/fan/fan_policy.h).
+add_executable(test_fan_policy test_fan_policy.cpp)
+target_include_directories(test_fan_policy PRIVATE ../../fan)
+add_test(NAME fan_policy COMMAND test_fan_policy)
+
 add_executable(test_sd_plan test_sd_plan.cpp ../sd_plan.cpp ../gen_args.cpp)
 target_include_directories(test_sd_plan PRIVATE ..)
 target_link_libraries(test_sd_plan PRIVATE stable-diffusion)

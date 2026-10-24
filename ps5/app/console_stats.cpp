@@ -33,6 +33,8 @@ constexpr int kSendFlags = 0;
 constexpr int          kExporterPort = 9100;
 constexpr int          kLoaderPort   = 9021;
 constexpr const char * kExporterElf  = "/app0/payloads/ps5-exporter.elf";
+constexpr int          kFanPort      = 9075;
+constexpr const char * kFanElf       = "/app0/payloads/ps5sd-fan.elf";
 
 int connect_loopback(int port, int timeout_s) {
     const int fd = ::socket(AF_INET, SOCK_STREAM, 0);
@@ -82,6 +84,24 @@ std::string http_get(int port, const char * path) {
     ::close(fd);
     const size_t at = out.find("\r\n\r\n");
     return at == std::string::npos ? std::string() : out.substr(at + 4);
+}
+
+// The fan payload's answer to one line, or empty.
+std::string fan_command(const std::string & line) {
+    const int fd = connect_loopback(kFanPort, 2);
+    if (fd < 0) {
+        return {};
+    }
+    std::string       out;
+    const std::string req = line + "\n";
+    if (send_all(fd, req.data(), req.size())) {
+        char buf[256];
+        for (ssize_t got; (got = ::recv(fd, buf, sizeof(buf), 0)) > 0 && out.size() < 1024;) {
+            out.append(buf, static_cast<size_t>(got));
+        }
+    }
+    ::close(fd);
+    return out;
 }
 
 // Hands the ELF to the loader, which runs it once the connection ends.
@@ -237,13 +257,109 @@ std::string ConsoleHistory::json(const std::string & exporter) const {
     return out.dump();
 }
 
+bool parse_fan_reply(const std::string & line, FanState & out) {
+    if (line.compare(0, 3, "OK ") != 0) {
+        return false;
+    }
+    FanState    f;
+    std::size_t at = 3;
+    while (at < line.size()) {
+        std::size_t end = line.find_first_of(" \r\n", at);
+        if (end == std::string::npos) {
+            end = line.size();
+        }
+        const std::string word = line.substr(at, end - at);
+        const std::size_t eq   = word.find('=');
+        if (eq != std::string::npos) {
+            const std::string k = word.substr(0, eq), v = word.substr(eq + 1);
+            if (k == "mode") {
+                f.mode = v;
+            } else if (k == "filtered") {
+                f.filtered = std::atof(v.c_str());
+            } else if (k == "stock") {
+                f.stock = std::atoi(v.c_str());
+            } else if (k == "target") {
+                f.target = std::atoi(v.c_str());
+            } else if (k == "wanted") {
+                f.wanted = std::atoi(v.c_str());
+            } else if (k == "duty") {
+                f.duty = std::atoi(v.c_str());
+            }
+        }
+        at = end + 1;
+    }
+    if (f.mode.empty()) {
+        return false;
+    }
+    out = f;
+    return true;
+}
+
+void ConsoleStats::set_fan(const std::string & mode, int target) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    fan_mode_   = mode;
+    fan_target_ = target;
+}
+
+// Tells the payload the mode (its heartbeat), and starts it when it does not
+// answer: at most three times, 20 s apart.
+void ConsoleStats::fan_tick(double up) {
+    std::string mode;
+    int         target;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        mode   = fan_mode_;
+        target = fan_target_;
+    }
+    if (mode == "quiet" && !fan_on_) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        fan_status_ = "off";
+        fan_        = FanState{};
+        return;
+    }
+    const std::string line  = "MODE " + mode + (mode == "manual" ? " " + std::to_string(target) : std::string());
+    const std::string reply = fan_command(line);
+    FanState          f;
+    std::string       status;
+    if (parse_fan_reply(reply, f)) {
+        fan_on_ = mode != "quiet";  // in quiet it puts the console's own target back and ends
+        status  = mode == "quiet" ? "off" : "running";
+    } else if (mode == "quiet") {
+        fan_on_ = false;
+        status  = "off";
+    } else if (fan_sent_ < 3 && up - fan_sent_at_ >= 20) {
+        fan_sent_++;
+        fan_sent_at_  = up;
+        const bool ok = send_payload(kFanElf, kLoaderPort);
+        std::printf("ps5sd: fan mode %s: %s\n", mode.c_str(),
+                    ok ? "sent ps5sd-fan.elf to the ELF loader" : "no ELF loader on 9021 took ps5sd-fan.elf");
+        status = ok ? "starting" : "no ELF loader";
+    } else {
+        std::lock_guard<std::mutex> lock(mutex_);
+        status = fan_sent_ >= 3 && up - fan_sent_at_ >= 20 ? "not answering" : fan_status_;
+    }
+    std::lock_guard<std::mutex> lock(mutex_);
+    fan_status_ = status;
+    fan_        = f;
+}
+
 void ConsoleStats::start(AppStatus & status) {
     std::thread([this, &status] { run_guarded("console stats", [&] { run(status); }); }).detach();
 }
 
 std::string ConsoleStats::json() {
     std::lock_guard<std::mutex> lock(mutex_);
-    return history_.json(exporter_);
+    nlohmann::json j = nlohmann::json::parse(history_.json(exporter_));
+    auto           c = [](int v) { return v < 0 ? nlohmann::json() : nlohmann::json(v); };
+    j["fan_control"] = {
+        { "mode", fan_mode_ },
+        { "manual_target", fan_target_ },
+        { "state", fan_status_ },
+        { "stock", c(fan_.stock) },
+        { "target", c(fan_.target) },
+        { "wanted", c(fan_.wanted) },
+    };
+    return j.dump();
 }
 
 void ConsoleStats::run(AppStatus & status) {
@@ -251,9 +367,13 @@ void ConsoleStats::run(AppStatus & status) {
     const double   start = now_seconds();
     double         last_wall = start, last_cpu = cpu_seconds(), last_job = status.job_seconds();
     int            sent = 0;  // times the exporter was sent: at the start and a minute later, no more
+    unsigned       ticks = 0;
     std::printf("ps5sd: console stats: %u CPUs, sensors from ps5-exporter on port %d\n", cpus, kExporterPort);
     for (;;) {
         std::this_thread::sleep_for(std::chrono::seconds(1));
+        if (++ticks % 3 == 0) {
+            fan_tick(now_seconds() - start);
+        }
         const std::string text = http_get(kExporterPort, "/metrics");
         std::string       state = "running";
         if (text.empty()) {

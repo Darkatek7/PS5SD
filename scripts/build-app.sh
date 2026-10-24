@@ -178,6 +178,13 @@ mkdir -p "$out/ftpsrv"
 make -C "$ftpsrv" -f Makefile.ps5 PS5_PAYLOAD_SDK="$sdk" ELF="$ftpsrv_elf" > "$out/ftpsrv.build.log" 2>&1 ||
     { tail -30 "$out/ftpsrv.build.log" >&2; exit 1; }
 
+# ---- ps5sd-fan, the fan modes ------------------------------------------------
+# A payload too (a title may not open /dev/icc_fan): ps5/fan/main.c. console_stats.hpp sends it.
+fan_elf="$out/fan/ps5sd-fan.elf"
+mkdir -p "$out/fan"
+make -C "$root/ps5/fan" PS5_PAYLOAD_SDK="$sdk" ELF="$fan_elf" > "$out/fan.build.log" 2>&1 ||
+    { tail -30 "$out/fan.build.log" >&2; exit 1; }
+
 # ---- stable-diffusion.cpp and ggml, as static libraries -----------------------
 flags="-I$headers/include"
 # sd.cpp and ggml throw, catch and use dynamic_cast; the PS5 target turns
@@ -495,6 +502,7 @@ mkdir -p "$app/payloads"
 cp "$exporter" "$app/payloads/ps5-exporter.elf"
 printf '%s\n' "ps5-exporter v0.2.0 by Marice, GPL-3.0-or-later: https://github.com/Marice/ps5-exporter" \
     "Source: https://github.com/Marice/ps5-exporter/tree/v0.2.0" > "$app/payloads/ps5-exporter-NOTICE.txt"
+cp "$fan_elf" "$app/payloads/ps5sd-fan.elf"
 # libwebp and libwebm (BSD-3-Clause), linked for the WebM videos: their licences go with the binary.
 rm -rf "$app/licenses"
 if [ "$webm" = ON ]; then

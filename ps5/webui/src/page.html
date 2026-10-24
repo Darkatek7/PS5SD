@@ -436,6 +436,20 @@
       <div class="cgrid" id="con-charts"></div>
       <p class="hint" id="con-note"></p>
     </section>
+    <section class="panel" id="pnl-fan" style="display:none">
+      <div class="ph"><h2>Fan</h2><button type="button" class="info" data-help="help-fan" aria-label="More about the fan modes">&#9432;</button></div>
+      <div class="mseg crange fanmodes" id="fan-mode" role="group" aria-label="Fan mode">
+        <button type="button" data-fan="quiet" aria-pressed="false">Quiet</button>
+        <button type="button" data-fan="balanced" aria-pressed="false">Balanced</button>
+        <button type="button" data-fan="cool" aria-pressed="false">Cool</button>
+        <button type="button" data-fan="manual" aria-pressed="false">Manual</button>
+      </div>
+      <div id="fan-manual" style="display:none">
+        <label for="fan-target">Target temperature, °C</label>
+        <div class="step fanstep"><button type="button" id="fan-target-" aria-label="Lower">&minus;</button><input id="fan-target" type="number" min="70" max="95" step="1" value="85"><button type="button" id="fan-target+" aria-label="Higher">+</button></div>
+      </div>
+      <p class="hint" id="fan-note"></p>
+    </section>
     <section class="panel">
       <div class="ph"><h2>When an image is done</h2></div>
       <label class="opt"><input type="checkbox" id="opt-sound"> Play a sound</label>
@@ -522,6 +536,10 @@
     <p>Keep this page open until the upload is done.</p>
     <h2 id="help-apikey">API key</h2>
     <p>Apps send it as <code>Authorization: Bearer &lt;key&gt;</code>, A1111 apps as the password of their API login. The <a href="#help" data-doc="api">HTTP API</a> page has the details and how to reach the console from outside your network.</p>
+    <h2 id="help-fan">Fan</h2>
+    <p>The PS5 speeds its fan up when the chip gets near a target temperature, 91 °C on the console we measured. Until then the fan stays at about 23%, so the chip runs up to 90 °C and more during long runs. The modes lower that target, and the console's own fan control still sets the speed.</p>
+    <p><b>Quiet</b> leaves the console's target as it is. <b>Balanced</b> is 3 °C under it, <b>Cool</b> 6 °C under it, <b>Manual</b> the target you set, from 70 °C up to the console's own. The lower the target, the louder the fan.</p>
+    <p>The target goes down one degree every 20 seconds, because a big step at once drives the fan to almost full speed. It needs an ELF loader on port 9021, like the readings: PS5SD starts a small payload, ps5sd-fan. When PS5SD closes, or the mode is Quiet, the payload puts the console's own target back within 15 seconds and ends.</p>
     <h2 id="help-console">The console's readings</h2>
     <p>A PS5 app may not read the temperature, the power or the fan. A payload may: PS5SD brings Marice's ps5-exporter and starts it through the ELF loader (port 9021) when it does not run yet. It keeps running after PS5SD closes, until the console restarts. Without an ELF loader these three stay empty.</p>
     <p>The temperature is the hottest of the chip's sensors; the power is the whole chip's (CPU, GPU and memory). The fan shows how hard it is driven, from 0 to 100%; its speed cannot be read. CPU is what PS5SD itself uses of the console's CPUs. GPU busy is the share of the time an image or video is made: the GPU has no reading of its own.</p>
@@ -685,6 +703,7 @@
 @@include js/21b-video-start.js
 @@include js/22-server-info.js
 @@include js/22b-console.js
+@@include js/22c-fan.js
 @@include js/23-start-up.js
 </script>
 </body>

@@ -69,18 +69,47 @@ class ConsoleHistory {
     std::deque<ConsoleReading> pending_;  // the seconds of the next mean
 };
 
+// The fan payload's answer (ps5/fan/main.c), like
+// "OK mode=cool stock=91 target=88 wanted=85 duty=300 filtered=86.5".
+struct FanState {
+    std::string mode;             // the payload's mode
+    int         stock    = -1;    // the console's own target temperature, C
+    int         target   = -1;    // the target the console has now
+    int         wanted   = -1;    // the mode's target; target goes there one degree at a time
+    int         duty     = -1;    // the fan, 0..1024
+    double      filtered = NAN;   // the temperature the console's controller goes by
+};
+
+// False for a line that is not such an answer (out is then unchanged).
+bool parse_fan_reply(const std::string & line, FanState & out);
+
 // The thread that reads once a second, and its JSON for the route.
+//
+// It also runs the fan mode (AppSettings::fan): for any mode but Quiet it
+// sends ps5sd-fan.elf (/app0/payloads) to the ELF loader and tells it the mode
+// every 3 s, which is its heartbeat. In Quiet, or once PS5SD has closed, the
+// payload puts the console's own target back and ends.
 class ConsoleStats {
   public:
     void        start(AppStatus & status);
     std::string json();
+    // "quiet", "balanced", "cool" or "manual", and manual's target in C.
+    void        set_fan(const std::string & mode, int target);
 
   private:
     void run(AppStatus & status);
+    void fan_tick(double up);
 
     std::mutex     mutex_;
     ConsoleHistory history_;
     std::string    exporter_ = "starting";  // "running", "not running", "no ELF loader"
+    std::string    fan_mode_    = "quiet";
+    int            fan_target_  = 85;
+    FanState       fan_;
+    std::string    fan_status_  = "off";  // "off", "starting", "running", "no ELF loader", "not answering"
+    bool           fan_on_      = false;  // the payload was told a mode other than quiet
+    int            fan_sent_    = 0;      // times the payload was sent
+    double         fan_sent_at_ = -1e9;
 };
 
 }  // namespace ps5sd
