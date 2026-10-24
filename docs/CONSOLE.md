@@ -850,6 +850,10 @@ model's weights were loaded again (the loader's progress, "step 3/198"), right a
 (1024 and 534 MiB): `malloc` takes its memory from the same direct-memory pool as the model and the GPU, which
 had 0.97 GiB left. The loader's worker threads and sd-server's job thread did not catch it; since
 `patches/sdcpp/0071` a run that runs out of CPU memory fails with a reason, and PS5SD keeps running.
+On 0.9.8's release build the first image after a start with Klein 9B and `lenovo_flux_klein9b` (169 MB,
+4 steps) ran out the same way, in segment 33 of 34 while its weights were loaded again: the log says
+"loading tensors from '...flux-2-klein-9b-Q4_0.gguf': out of memory", the run failed with "Not enough
+memory", PS5SD kept running, and the same request again made the image (57 s).
 
 The CPU heap after each request, the same series on 0.9.7 from a start:
 
