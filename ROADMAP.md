@@ -10,6 +10,8 @@ can rely on.
 
 ## Done
 
+- **0.9.9**: loading weights takes half the CPU memory (Klein 9B with a LoRA runs right after a start); a run
+  out of memory tries once more; the cause of an end in `app.log`.
 - **0.9.8**: Klein 9B LoRAs in diffusers names load fully; a run out of CPU memory fails instead of ending
   PS5SD; less CPU memory per prompt.
 - **0.9.7**: FLUX.2 Klein 9B in the catalog, featured: 1024x1024 in about 50 s, with its LoRAs.
@@ -268,6 +270,15 @@ selected for one delete or download.
 - [x] **Out of memory ends a run, not PS5SD**: a series of Klein 9B images ended the title when the CPU heap
   could not grow while the weights were loaded again. `patches/sdcpp/0071` fails the run with a reason.
 - [x] **One prompt cached**, not four: about 30 MB less CPU memory per prompt with Klein 9B.
+
+## 0.9.9: stability, done
+
+- [x] **Weights loaded in pieces** (`patches/sdcpp/0073`): the loader's threads read each tensor whole into
+  a buffer of their own, up to 85 MB each with Klein 9B; now 8 MB pieces. The CPU heap's peak went from
+  1.33 to 0.72 GiB, and Klein 9B with a LoRA no longer runs out of memory right after a start.
+- [x] **One more try after out of memory** (`patches/sdcpp/0072`), unless the client stopped the run.
+- [x] **The cause of an end in `app.log`**: a `std::terminate` handler writes the exception and the memory;
+  the downloader's and the console readings' threads log an exception instead of ending the title.
 
 ## Later in 0.9.x
 
