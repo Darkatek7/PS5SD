@@ -4,7 +4,7 @@
       w: size8('w', 512), h: size8('h', 512),
       steps: Math.round(num('steps', 20, 1, 150)), cfg: num('cfg', 7, 0, 30),
       sampler: $('sampler').value, scheduler: $('scheduler').value,
-      clip: clipSkipShown() && parseInt($('clipskip').value, 10) > 0 ? parseInt($('clipskip').value, 10) : -1,
+      clip: clipSkipShown() ? clipValue() : -1,
       shift: parseFloat($('shift').value) > 0 ? Math.min(20, parseFloat($('shift').value)) : 0,
       seed: parseInt($('seed').value, 10),
       loras: loraSel.slice(),
@@ -63,8 +63,7 @@
     if (o.cfg !== undefined && o.cfg !== null) $('cfg').value = o.cfg;
     setSelect('sampler', o.sampler || 'default');
     setSelect('scheduler', o.scheduler || 'default');
-    setSelect('clipskip', String(o.clip > 0 ? o.clip : -1), '-1');
-    if ($('clipskip').options[$('clipskip').selectedIndex].disabled) $('clipskip').value = '-1';   // a 1 kept for SDXL
+    $('clipskip').value = o.clip > 0 ? o.clip : '';
     $('shift').value = o.shift > 0 ? o.shift : '';
     if (o.seed !== undefined && o.seed !== null && !isNaN(o.seed)) $('seed').value = o.seed;
     loraSel = [];
@@ -93,22 +92,43 @@
   // with it an SDXL model makes noise, so the server ignores a 1 there.
   function clipSkipShown() { return $('cliprow').style.display !== 'none'; }
 
+  // The CLIP skip field: a whole number from 1 to 12, or -1 for Auto (empty).
+  function clipValue() {
+    var v = parseInt($('clipskip').value, 10);
+    return v >= 1 && v <= 12 ? v : -1;
+  }
+
+  // - and + from Auto start at what Auto is for the model (1 for SD 1.5, else 2); under 1 is Auto again.
+  function clipStep(d) {
+    var v = clipValue();
+    if (v < 0) v = st.clipAuto || 2;
+    v += d;
+    $('clipskip').value = v < 1 ? '' : Math.min(12, v);
+    persist();
+  }
+
+  // a number past 12 is 12; nothing, 0 or text is Auto
+  function clipTyped() {
+    var n = parseInt($('clipskip').value, 10);
+    $('clipskip').value = n > 12 ? 12 : n >= 1 ? n : '';
+    persist();
+  }
+
   function drawClipSkip(entry) {
     var fam = entry ? familyOf(entry, entry.base ? findModel(entry.base) : null) : '';
     var sd1 = fam === 'SD 1.5', on = fam === '' || sd1 || fam === 'SD 2.1' || fam === 'SDXL';
     $('cliprow').style.display = on ? '' : 'none';
     show('cliphint', on);
-    var sel = $('clipskip'), one = sd1 || fam === '';
-    sel.options[0].text = sd1 ? 'Auto (1)' : fam ? 'Auto (2)' : 'Auto';
-    sel.options[1].hidden = sel.options[1].disabled = !one;
-    if (!one && sel.value === '1') sel.value = '-1';
-    text($('cliphint-t'), sd1 ? 'Auto is 1 for SD 1.5; some anime models want 2.'
-      : fam === 'SDXL' ? 'Auto is 2 for SDXL (Pony and Illustrious too); 1 makes noise there, so it is not offered.'
-      : fam ? 'Auto is 2 for ' + fam + '; the server ignores a 1 for it, so it is not offered.'
-      : 'Auto is 1 for SD 1.5 and 2 for SDXL.');
+    st.clipAuto = sd1 ? 1 : 2;
+    $('clipskip').placeholder = sd1 ? 'Auto (1)' : fam ? 'Auto (2)' : 'Auto';
+    text($('cliphint-t'), sd1 ? 'Empty is Auto, 1 for SD 1.5; some anime models want 2.'
+      : fam === 'SDXL' ? 'Empty is Auto, 2 for SDXL (Pony and Illustrious too). A 1 counts as Auto here: it makes noise on SDXL.'
+      : fam ? 'Empty is Auto, 2 for ' + fam + '. A 1 counts as Auto for it.'
+      : 'Empty is Auto: 1 for SD 1.5, 2 for SDXL.');
   }
 
   function persist() {
+    growPrompt();
     save('prompt', $('prompt').value);
     save('neg', $('neg').value);
     save('set.' + (st.mkey || '_'), JSON.stringify(getForm()));
@@ -123,7 +143,7 @@
     text($('grp-size-s'), parseInt($('w').value, 10) + '×' + parseInt($('h').value, 10));
     text($('grp-quality-s'), steps + (steps === 1 ? ' step' : ' steps') + ' · CFG ' + num('cfg', 7, 0, 30) +
       ($('sampler').value !== 'default' ? ' · ' + $('sampler').value : '') +
-      (clipSkipShown() && parseInt($('clipskip').value, 10) > 0 ? ' · CLIP skip ' + $('clipskip').value : ''));
+      (clipSkipShown() && clipValue() > 0 ? ' · CLIP skip ' + clipValue() : ''));
     text($('grp-style-s'), loraSel.length ? loraSel.length + (loraSel.length === 1 ? ' LoRA' : ' LoRAs') : 'none');
     text($('hr-sect-s'), !$('hr-on').checked ? 'off' : scale === 1 ? 'refine pass' : '×' + scale);
     text($('grp-seed-s'), isNaN(seed) || seed < 0 ? 'random' : String(seed));

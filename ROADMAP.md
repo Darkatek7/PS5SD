@@ -288,6 +288,23 @@ selected for one delete or download.
   and puts it back when PS5SD closes or the mode is Quiet. Balanced is 3 °C under the console's own, Cool
   6 °C, Manual from 70 °C. Measured in [docs/CONSOLE.md](docs/CONSOLE.md#the-fan-2026-10-24).
 
+## 0.9.11: the web UI, denser and with everything in reach ([issue 7](https://github.com/Darkatek7/PS5SD/issues/7))
+
+- [x] **Create without scrolling** on a PC and a tablet: the settings scroll inside their panel with
+  Generate fixed at its foot, the picture fills the rest and its actions stay under it. On a phone Generate
+  sits above the tab bar.
+- [x] **Apple's look**: the system font, a denser scale on a PC and a phone (the PS5's browser keeps the
+  large one its cursor needs), grouped surfaces, segmented controls, feedback on the press.
+- [x] **Light and dark** (Settings, Appearance: Auto, Light, Dark), kept in the browser. The viewer stays
+  dark.
+- [x] **The sidebar folds to its icons** on a PC; the prompt grows with its text.
+- [x] **Delete under the result** ([issue 8](https://github.com/Darkatek7/PS5SD/issues/8)), with a second
+  press to be sure.
+- [x] **CLIP skip as a number** ([issue 9](https://github.com/Darkatek7/PS5SD/issues/9)): 1 to 12 typed or
+  with − and +, empty for Auto.
+- [ ] **React, TypeScript and Tailwind** (as in the issue's fork): built down to ES5 in one page, so the
+  PS5's browser keeps working, with every feature of the current page. On its own branch first.
+
 ## Later in 0.9.x
 
 **Images**

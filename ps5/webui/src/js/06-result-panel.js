@@ -81,5 +81,57 @@
       if (!st.video) box.appendChild(actionButton('Edit', function () { setInit(r && r.url ? r.url : href, r ? r.name : ''); }));
       if (!st.video && st.cnModel) box.appendChild(actionButton('Guide', function () { setGuide(r && r.url ? r.url : href, r ? r.name : ''); }));
     }
+    // a file on the console (in the gallery, or not kept yet): Delete, a second press to be sure
+    if (openHref && name) {
+      var db = actionButton('Delete', function () { deleteResult(name, db); });
+      db.className = 'danger';
+      box.appendChild(db);
+    }
+  }
+
+  // Delete under the result: the first press asks ("Delete?") for 4 s, the second deletes the file.
+  // The image leaves the stage, the strip and the gallery; the next one of the run shows, if any.
+  function deleteResult(name, b) {
+    if (!b.armed) {
+      b.armed = true;
+      text(b, 'Delete? Press again');
+      b.className = 'danger armed';
+      b.armTimer = setTimeout(function () { b.armed = false; text(b, 'Delete'); b.className = 'danger'; }, 4000);
+      return;
+    }
+    clearTimeout(b.armTimer);
+    b.disabled = true;
+    req('DELETE', '/ps5sd/v1/app/gallery/' + encodeURIComponent(name), null, function (code, data) {
+      if (code !== 200 && code !== 404) {
+        b.disabled = false;
+        b.armed = false;
+        text(b, 'Delete');
+        b.className = 'danger';
+        toast(errText(code, data, 'Could not delete ' + name), 5000);
+        return;
+      }
+      for (var g = 0; g < galleryList.length; g++) {
+        if (galleryList[g].name === name) { galleryList.splice(g, 1); break; }
+      }
+      drawGallery();
+      var list = st.results, at = -1;
+      for (var i = 0; list && i < list.length; i++) if (list[i].name === name) { at = i; break; }
+      if (at >= 0) list.splice(at, 1);
+      if (st.vidResult && st.vidResult.name === name) st.vidResult = null;
+      toast('Deleted ' + name + '.');
+      if (list && list.length) {
+        var next = Math.min(at < 0 ? st.pick : at, list.length - 1);
+        drawStrip();
+        pickResult(next);
+        return;
+      }
+      if (list) stripBox(false);
+      freeVideo();
+      var stage = $('stage');
+      clear(stage);
+      stage.appendChild(el('div', 'empty', 'Deleted. Your next image appears here.'));
+      clear($('actions'));
+      text($('sub'), '');
+    }, 30000);
   }
 

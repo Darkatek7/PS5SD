@@ -41,11 +41,24 @@
          DELETE .../downloads/<id>, POST .../app/hf/search
   SPDX-License-Identifier: MIT
 -->
+<script>
+  // Before the page draws: the PS5's browser keeps the large controls its cursor needs (html.tv); the
+  // theme and the folded sidebar this browser chose (Settings, Appearance; 22d-appearance.js).
+  (function () {
+    var h = document.documentElement;
+    if (/PlayStation/i.test(navigator.userAgent || '')) h.className += ' tv';
+    try {
+      var t = localStorage.getItem('ps5sd.theme');
+      if (t === 'light' || t === 'dark') h.setAttribute('data-theme', t);
+      if (localStorage.getItem('ps5sd.sideMini') === '1') h.className += ' side-mini';
+    } catch (e) {}
+  })();
+</script>
 <style>
 @@include app.css
 </style>
 </head>
-<body>
+<body class="v-create">
 <header class="top">
   <div class="brandbox">
     <span class="logo"></span>
@@ -62,6 +75,7 @@
   <button type="button" id="tab-models"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 8l-9-5-9 5v8l9 5 9-5z"/><path d="M3 8l9 5 9-5M12 13v8"/></svg><span>Models<span class="tabdot" id="mdot"></span></span></button>
   <button type="button" id="tab-settings"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/></svg><span>Settings</span></button>
   <button type="button" id="tab-help"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6V14"/><path d="M12 17.5h.01"/></svg><span>Help</span></button>
+  <button type="button" class="sidefold" id="sidefold" aria-pressed="false" title="Fold the sidebar to its icons"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg><span>Fold</span></button>
 </nav>
 
 <div class="main" id="view-create">
@@ -229,7 +243,7 @@
           <div class="row" id="cliprow">
             <div>
               <label for="clipskip">CLIP skip</label>
-              <select id="clipskip"><option value="-1">Auto</option><option value="1">1</option><option value="2">2</option><option value="3">3</option></select>
+              <div class="step"><button type="button" id="clipskip-" aria-label="CLIP skip lower">&minus;</button><input id="clipskip" type="number" min="1" max="12" step="1" placeholder="Auto" inputmode="numeric" aria-label="CLIP skip"><button type="button" id="clipskip+" aria-label="CLIP skip higher">+</button></div>
             </div>
             <div></div>
           </div>
@@ -313,6 +327,7 @@
     </div>
 
     <p class="hint bad" id="fit-hint" role="status" style="display:none"></p>
+    <label class="opt nokeep"><input type="checkbox" id="nokeep"> Don't keep on the console <button type="button" class="info" data-help="help-nokeep" aria-label="More about images that are not kept">&#9432;</button></label>
     <div class="gorow" id="gorow">
       <button type="button" class="go" id="go" title="Generate (Ctrl+Enter)">Generate</button>
       <div class="count" id="count-box" style="display:none">
@@ -322,7 +337,6 @@
       </div>
       <button type="button" class="dice" id="surprise" title="Surprise me: a random prompt" aria-label="Surprise me"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="3.5" width="17" height="17" rx="3.5"/><circle cx="8.5" cy="8.5" r="1.5"/><circle cx="15.5" cy="15.5" r="1.5"/><circle cx="12" cy="12" r="1.5"/></svg></button>
     </div>
-    <label class="opt nokeep"><input type="checkbox" id="nokeep"> Don't keep on the console <button type="button" class="info" data-help="help-nokeep" aria-label="More about images that are not kept">&#9432;</button></label>
   </section>
 
   <section class="panel result">
@@ -451,6 +465,15 @@
       <p class="hint" id="fan-note"></p>
     </section>
     <section class="panel">
+      <div class="ph"><h2>Appearance</h2></div>
+      <div class="mseg crange themes" id="theme" role="group" aria-label="Theme">
+        <button type="button" data-theme="auto" aria-pressed="false">Auto</button>
+        <button type="button" data-theme="light" aria-pressed="false">Light</button>
+        <button type="button" data-theme="dark" aria-pressed="false">Dark</button>
+      </div>
+      <p class="hint">Auto follows the device. It is kept in this browser.</p>
+    </section>
+    <section class="panel">
       <div class="ph"><h2>When an image is done</h2></div>
       <label class="opt"><input type="checkbox" id="opt-sound"> Play a sound</label>
       <label class="opt" id="opt-notify-row" style="display:none"><input type="checkbox" id="opt-notify"> Show a notification</label>
@@ -494,9 +517,11 @@
 
 <section class="gal" id="view-help" style="display:none">
   <div class="docbar">
-    <button type="button" id="doc-page">This page</button>
-    <button type="button" id="doc-models">Getting models</button>
-    <button type="button" id="doc-api">HTTP API</button>
+    <div class="mseg docseg" role="group" aria-label="Help pages">
+      <button type="button" id="doc-page">This page</button>
+      <button type="button" id="doc-models">Getting models</button>
+      <button type="button" id="doc-api">HTTP API</button>
+    </div>
     <a href="https://github.com/Darkatek7/PS5SD#readme" target="_blank" rel="noopener">PS5SD on GitHub</a>
   </div>
   <div class="doc" id="doc-notes" style="display:none">
@@ -504,7 +529,7 @@
     <h2 id="help-seed">Seed</h2>
     <p>-1 picks a random seed. A run of several images (the count next to Generate) takes the seeds one after the other (seed, seed + 1, …); with -1 each image gets a new seed.</p>
     <h2 id="help-clipskip">CLIP skip</h2>
-    <p>Which layer of the text encoder the prompt is read from, counted from the end. Auto is what stable-diffusion.cpp does by itself: 1 for SD 1.5 and 2 for SDXL models (Pony and Illustrious too). Some SD 1.5 anime models want 2. The setting shows for the models that read the prompt with CLIP (SD 1.5, SD 2.1, SDXL); FLUX, Wan and the others read it with another encoder. The field says what Auto is for the loaded model. 1 is offered only for SD 1.5: with it an SDXL model makes noise, so the server ignores a 1 for every other model. A preset can set it with <code>clip_skip=2</code> in its <code># defaults:</code> line.</p>
+    <p>Which layer of the text encoder the prompt is read from, counted from the end. Auto is what stable-diffusion.cpp does by itself: 1 for SD 1.5 and 2 for SDXL models (Pony and Illustrious too). Some SD 1.5 anime models want 2. The setting shows for the models that read the prompt with CLIP (SD 1.5, SD 2.1, SDXL); FLUX, Wan and the others read it with another encoder. Any number from 1 to 12 can be typed; an empty field is Auto, and it says what Auto is for the loaded model. With 1 an SDXL model makes noise, so the server reads a 1 as Auto for every model but SD 1.5. A preset can set it with <code>clip_skip=2</code> in its <code># defaults:</code> line.</p>
     <h2 id="help-starters">Prompt starters</h2>
     <p>Some models want each prompt to begin the same way: Pony models with <code>score_9, score_8_up, score_7_up</code>, and a negative prompt with <code>score_4, score_5</code>. A preset can carry them in a <code># prompt:</code> and a <code># negative:</code> line. While it is loaded, the server puts them before the prompts of every run, from this page and from the API, and the Create tab shows them above the fields. A prompt that starts with them already does not get them twice.</p>
     <h2 id="help-nokeep">Images that are not kept</h2>
@@ -704,6 +729,7 @@
 @@include js/22-server-info.js
 @@include js/22b-console.js
 @@include js/22c-fan.js
+@@include js/22d-appearance.js
 @@include js/23-start-up.js
 </script>
 </body>

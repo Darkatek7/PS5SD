@@ -44,6 +44,7 @@
     initSignal();
     loadTvOption();
     initFan();
+    initAppearance();
     $('opt-tv').onchange = setTvOption;
     $('opt-tvkey').onchange = setTvKeyOption;
     $('hr-on').onchange = function () { drawHires(); persist(); };
@@ -198,7 +199,9 @@
     show('neg-paste', canPaste(), 'inline-block');
     $('prompt-paste').onclick = function () { pasteInto('prompt'); };
     $('neg-paste').onclick = function () { pasteInto('neg'); };
-    $('clipskip').onchange = persist;
+    $('clipskip').onchange = clipTyped;
+    $('clipskip-').onclick = function () { clipStep(-1); };
+    $('clipskip+').onclick = function () { clipStep(1); };
     tagInit();
     $('nokeep').checked = load('nokeep') === '1';
     $('nokeep').onchange = function () { save('nokeep', $('nokeep').checked ? '1' : '0'); };

@@ -1,18 +1,71 @@
+  /* Colours: tokens only (dark here; light below). Apple's system palette: grouped surfaces, hairline
+     separators, one accent. html[data-theme] is the Settings switch (Auto, Light, Dark); without it the
+     system's choice holds, and a browser that does not know prefers-color-scheme (the PS5's) stays dark. */
   :root {
-    --bg: #0a0d14; --surface: #121826; --raised: #1a2336; --field: #0b101b;
-    --border: #26314a; --text: #f4f7fb; --body: #dbe3f0; --muted: #a3b2c9; --faint: #8493ac;
-    --accent: #0070d1; --accent-hi: #2d8ff0; --ok: #5fd38d; --bad: #ff8f8f; --warn: #f5c26b;
+    --bg: #000; --bg-glow: #0b1424; --surface: #1c1c1e; --raised: #2c2c2e; --raised-hi: #3a3a3c; --field: #121214;
+    --border: #38383a; --sep: rgba(84, 84, 88, 0.45);
+    --text: #f5f5f7; --body: #e5e5ea; --muted: #aeaeb2; --faint: #8e8e93;
+    --accent: #0a84ff; --accent-hi: #409cff; --ok: #30d158; --bad: #ff6961; --warn: #ffd60a;
+    --sel-bg: rgba(10, 132, 255, 0.16); --feat-bg: rgba(10, 132, 255, 0.09); --feat-line: rgba(10, 132, 255, 0.42);
+    --danger-line: rgba(255, 105, 97, 0.38); --danger-bg: rgba(255, 105, 97, 0.12);
+    --lb-bg: #000; --scrim: rgba(0, 0, 0, 0.62); --tname-bg: rgba(0, 0, 0, 0.6); --nav-bg: rgba(0, 0, 0, 0.5);
+    --go-off: #2c2c2e; --go-off-fg: #8e8e93; --hover-weak: rgba(255, 255, 255, 0.05); --hover-x: rgba(255, 255, 255, 0.12);
+    --seg-on: #636366; --seg-on-fg: #fff; --chrome: rgba(22, 22, 24, 0.78); --chrome-solid: #161618;
+    --shadow: 0 12px 32px rgba(0, 0, 0, 0.5); --lift: 0 1px 0 rgba(255, 255, 255, 0.04) inset;
+    --focus: #fff; --ctl: 2.6rem; --side: 14rem;
+    color-scheme: dark;
   }
-  html { font-size: 20px; font-size: clamp(17px, 1.3vw, 26px); -webkit-text-size-adjust: 100%; }
+  /* the light set, twice: by the system (unless Dark is chosen), and when Light is chosen */
+  @media (prefers-color-scheme: light) {
+    :root:not([data-theme="dark"]) {
+      --bg: #f2f2f7; --bg-glow: #e8eef9; --surface: #fff; --raised: #e9e9ee; --raised-hi: #dcdce2; --field: #f4f4f7;
+      --border: #d1d1d6; --sep: rgba(60, 60, 67, 0.18);
+      --text: #1d1d1f; --body: #1d1d1f; --muted: #6e6e73; --faint: #6e6e73;
+      --accent: #007aff; --accent-hi: #0066d6; --ok: #1f8a3b; --bad: #d70015; --warn: #a05a00;
+      --sel-bg: rgba(0, 122, 255, 0.1); --feat-bg: rgba(0, 122, 255, 0.06); --feat-line: rgba(0, 122, 255, 0.35);
+      --danger-line: rgba(215, 0, 21, 0.3); --danger-bg: rgba(215, 0, 21, 0.07);
+      --scrim: rgba(0, 0, 0, 0.32); --go-off: #e5e5ea; --go-off-fg: #8e8e93;
+      --hover-weak: rgba(0, 0, 0, 0.04); --hover-x: rgba(0, 0, 0, 0.08);
+      --seg-on: #fff; --seg-on-fg: #1d1d1f; --chrome: rgba(249, 249, 251, 0.8); --chrome-solid: #f9f9fb;
+      --shadow: 0 12px 32px rgba(0, 0, 0, 0.16); --lift: 0 1px 2px rgba(0, 0, 0, 0.06);
+      --focus: #007aff;
+      color-scheme: light;
+    }
+  }
+  :root[data-theme="light"] {
+    --bg: #f2f2f7; --bg-glow: #e8eef9; --surface: #fff; --raised: #e9e9ee; --raised-hi: #dcdce2; --field: #f4f4f7;
+    --border: #d1d1d6; --sep: rgba(60, 60, 67, 0.18);
+    --text: #1d1d1f; --body: #1d1d1f; --muted: #6e6e73; --faint: #6e6e73;
+    --accent: #007aff; --accent-hi: #0066d6; --ok: #1f8a3b; --bad: #d70015; --warn: #a05a00;
+    --sel-bg: rgba(0, 122, 255, 0.1); --feat-bg: rgba(0, 122, 255, 0.06); --feat-line: rgba(0, 122, 255, 0.35);
+    --danger-line: rgba(215, 0, 21, 0.3); --danger-bg: rgba(215, 0, 21, 0.07);
+    --scrim: rgba(0, 0, 0, 0.32); --go-off: #e5e5ea; --go-off-fg: #8e8e93;
+    --hover-weak: rgba(0, 0, 0, 0.04); --hover-x: rgba(0, 0, 0, 0.08);
+    --seg-on: #fff; --seg-on-fg: #1d1d1f; --chrome: rgba(249, 249, 251, 0.8); --chrome-solid: #f9f9fb;
+    --shadow: 0 12px 32px rgba(0, 0, 0, 0.16); --lift: 0 1px 2px rgba(0, 0, 0, 0.06);
+    --focus: #007aff;
+    color-scheme: light;
+  }
+  /* the viewer and the mask editor stay dark in both themes: a picture reads best on black */
+  .lb {
+    --surface: #1c1c1e; --raised: #2c2c2e; --raised-hi: #3a3a3c; --field: #121214; --border: #38383a;
+    --text: #f5f5f7; --body: #e5e5ea; --muted: #aeaeb2; --faint: #8e8e93; --accent-hi: #409cff; --bad: #ff6961;
+    --hover-x: rgba(255, 255, 255, 0.12); --focus: #fff; color-scheme: dark;
+  }
+  /* The PS5's browser (html.tv, set in <head>) keeps the large scale its cursor needs on a TV; a PC and a
+     phone get Apple's denser one. */
+  html { font-size: 16px; font-size: clamp(14px, 0.35vw + 10px, 16px); -webkit-text-size-adjust: 100%; }
+  html.tv { font-size: 20px; font-size: clamp(17px, 1.3vw, 26px); }
   html, body { margin: 0; background: var(--bg); color: var(--body);
-    font-family: "SST", "SST Roman", "SST-Roman", -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; line-height: 1.5; }
-  body { background: var(--bg) linear-gradient(180deg, #0f1a30 0, var(--bg) 24rem) no-repeat; min-height: 100vh; }
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI Variable Text", "Segoe UI", "SST", "SST Roman",
+      "SST-Roman", Roboto, Helvetica, Arial, sans-serif; line-height: 1.47; -webkit-font-smoothing: antialiased; }
+  body { background: var(--bg) linear-gradient(180deg, var(--bg-glow) 0, var(--bg) 24rem) no-repeat; min-height: 100vh; }
   a { color: var(--accent-hi); text-decoration: none; }
   /* The PS5's own focus: a white frame around what the cursor is on. Kept
      apart from :focus-visible, since a browser that does not know it drops
      the whole rule, frame included. */
-  button:focus, input:focus, select:focus, textarea:focus, a:focus { outline: 3px solid #fff; outline-offset: 3px; }
-  :focus-visible { outline: 3px solid #fff; outline-offset: 3px; }
+  button:focus, input:focus, select:focus, textarea:focus, a:focus { outline: 3px solid var(--focus); outline-offset: 3px; }
+  :focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; }
   /* a tap or a click in a browser that knows :focus-visible: no frame (the PS5's browser drops this rule) */
   :focus:not(:focus-visible) { outline: none; }
 
@@ -84,13 +137,13 @@
 
   button { font: inherit; font-size: 1rem; color: var(--text); background: var(--raised); border: 1px solid var(--border);
     border-radius: 10px; min-height: 3.25rem; padding: 0 1.2rem; cursor: pointer; }
-  button:hover { background: #222e47; }
+  button:hover { background: var(--raised-hi); }
   button.on { background: var(--accent); color: #fff; border-color: var(--accent); }
   button:disabled { opacity: 0.45; cursor: default; }
   button.go { flex: 1; min-height: 4.25rem; font-size: 1.3rem; font-weight: 600; color: #fff; letter-spacing: 0.02em;
     background: var(--accent); border: 0; border-radius: 14px; }
   button.go:hover { background: var(--accent-hi); }
-  button.go:disabled { background: #2a3a55; color: #8c9bb4; opacity: 1; }
+  button.go:disabled { background: var(--go-off); color: var(--go-off-fg); opacity: 1; }
   /* Create tab: generate row, mode switch, model and preset blocks, settings groups */
   .gorow { display: flex; align-items: stretch; margin-top: 1.4rem; }
   .gorow .go { min-height: 4.6rem; }
@@ -105,12 +158,12 @@
   .dice:hover { color: var(--text); }
   .linkbtn { display: inline-flex; align-items: center; min-height: 2.6rem; margin: 0.2rem 0 0; padding: 0 0.2rem; background: transparent;
     border: 0; border-radius: 6px; color: var(--accent-hi); font-size: 0.95rem; }
-  .linkbtn:hover { background: transparent; color: #fff; text-decoration: underline; }
+  .linkbtn:hover { background: transparent; color: var(--text); text-decoration: underline; }
   .linkrow { display: flex; margin-top: 0.3rem; }
   .linkrow .fill { flex: 1; }
   .linkrow .linkbtn + .linkbtn { margin-left: 0.6rem; }
   .tagbox { position: absolute; z-index: 6; box-sizing: border-box; max-height: 18rem; overflow-y: auto; background: var(--surface);
-    border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45); }
+    border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow); }
   .tagbox button { display: flex; width: 100%; min-height: 2.6rem; margin: 0; padding: 0 0.8rem; border: 0; border-radius: 0;
     background: transparent; text-align: left; font-size: 0.95rem; }
   .tagbox button.on, .tagbox button:hover { background: var(--raised); }
@@ -124,7 +177,7 @@
   .cm-tags { display: flex; flex-wrap: wrap; margin: 0.35rem 0 0; }
   .tag { display: inline-block; font-size: 0.75rem; line-height: 1.4; padding: 0 0.6rem; margin: 0.2rem 0.4rem 0 0; border-radius: 2rem;
     border: 1px solid var(--border); color: var(--muted); white-space: nowrap; }
-  .tag.fam { color: var(--text); border-color: #2c4a78; background: #0e1a2e; }
+  .tag.fam { color: var(--text); border-color: var(--feat-line); background: var(--feat-bg); }
   .tag.cn { color: var(--ok); border-color: var(--ok); }
   .tag.vid { color: var(--warn); border-color: var(--warn); }
   .cmlist { margin-top: 0.7rem; max-height: 50vh; overflow-y: auto; padding: 0.4rem 0.6rem; background: var(--field);
@@ -143,7 +196,7 @@
   .prrow #savepreset { margin-left: 0.6rem; min-height: 2.8rem; }
   .prmenu { margin-top: 0.5rem; padding: 0.5rem; background: var(--field); border: 1px solid var(--border); border-radius: 12px; }
   .prmenu button { display: block; width: 100%; min-height: 2.9rem; margin: 0.2rem 0; text-align: left; overflow: hidden; text-overflow: ellipsis; }
-  .prmenu button.on { background: #10213a; border-color: var(--accent-hi); color: var(--text); }
+  .prmenu button.on { background: var(--sel-bg); border-color: var(--accent-hi); color: var(--text); }
   .prmenu .prfoot { margin-top: 0.4rem; padding-top: 0.4rem; border-top: 1px solid var(--border); }
   .prmenu .prfoot button { background: transparent; }
 
@@ -158,7 +211,7 @@
   .grp { border-top: 1px solid var(--border); }
   .grphead { display: flex; align-items: center; width: 100%; min-height: 3.4rem; margin: 0; padding: 0.3rem 0.2rem; background: transparent;
     border: 0; border-radius: 8px; text-align: left; color: var(--text); }
-  .grphead:hover { background: rgba(255, 255, 255, 0.04); }
+  .grphead:hover { background: var(--hover-weak); }
   .grptitle { flex: none; font-size: 1rem; color: var(--text); }
   .grpsum { flex: 1 1 auto; min-width: 0; margin-left: 1rem; text-align: right; color: var(--faint); font-size: 0.9rem;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -182,7 +235,7 @@
   label.opt input { width: 1.4rem; height: 1.4rem; margin: 0 0.75rem 0 0; padding: 0; flex: none; accent-color: var(--accent); }
   .presets button.mine { padding-right: 0.3rem; }
   .presets button .x { display: inline-block; margin-left: 0.4rem; padding: 0 0.55rem; border-radius: 8px; color: var(--muted); }
-  .presets button .x:hover { color: var(--text); background: rgba(255, 255, 255, 0.12); }
+  .presets button .x:hover { color: var(--text); background: var(--hover-x); }
   .presets button.save { background: transparent; border-style: dashed; color: var(--muted); }
 
   .state { display: flex; align-items: baseline; }
@@ -206,7 +259,7 @@
   .actions a, .actions button { display: block; margin: 0 0.6rem 0.6rem 0; padding: 0 1.3rem; min-height: 3.25rem; line-height: 3.25rem;
     background: var(--raised); border: 1px solid var(--border); border-radius: 10px; color: var(--text); font-size: 1rem; }
   .actions button { line-height: normal; }
-  .actions a:hover { background: #222e47; }
+  .actions a:hover { background: var(--raised-hi); }
   #cancel { flex: none; margin-left: 1rem; min-height: 2.75rem; }
   /* the queue: "+ 2 waiting" and Cancel all; the prompt of a job this page follows (two lines at most) */
   .waitrow { align-items: center; margin: 0.4rem 0 0; color: var(--muted); font-size: 0.95rem; }
@@ -242,8 +295,7 @@
 
   /* Help tab */
   .docbar { display: flex; flex-wrap: wrap; align-items: center; margin-bottom: 0.5rem; }
-  .docbar button { margin: 0 0.5rem 0.5rem 0; }
-  .docbar button.on { color: #fff; background: var(--accent); border-color: var(--accent); }
+  .docbar .docseg { flex: 0 1 30rem; margin: 0 1rem 0.5rem 0; }
   .docbar a { margin: 0 0 0.5rem auto; color: var(--muted); }
   .doc { max-width: 60rem; color: var(--muted); line-height: 1.55; }
   .doc h1, .doc h2, .doc h3, .doc h4 { color: var(--text); font-weight: 500; line-height: 1.25; margin: 1.8rem 0 0.6rem; }
@@ -266,7 +318,7 @@
   .doc th { color: var(--text); font-weight: 500; background: var(--field); }
   .foot { text-align: center; color: var(--faint); font-size: 0.8125rem; padding: 0 1rem 2rem; }
 
-  .lb { position: fixed; left: 0; top: 0; right: 0; bottom: 0; z-index: 10; background: #05080e; flex-direction: column; }
+  .lb { position: fixed; left: 0; top: 0; right: 0; bottom: 0; z-index: 10; background: var(--lb-bg); flex-direction: column; }
   .lb-bar { display: flex; align-items: center; padding: 0.75rem 1.25rem; }
   .lb-title { flex: 1; min-width: 0; color: var(--muted); font-size: 0.95rem; }
   .lb-acts { display: flex; }
@@ -297,7 +349,7 @@
   .lb-img img { transition: none; user-select: none; -webkit-user-select: none; }
   .thumbs .t { position: relative; }
   .tname { position: absolute; left: 0.4rem; right: 0.4rem; bottom: 0.4rem; padding: 0.25rem 0.5rem; font-size: 0.8rem;
-    color: #fff; background: rgba(5, 8, 14, 0.7); border-radius: 0 0 12px 12px; white-space: nowrap; overflow: hidden;
+    color: #fff; background: var(--tname-bg); border-radius: 0 0 12px 12px; white-space: nowrap; overflow: hidden;
     text-overflow: ellipsis; pointer-events: none; }
   .ld-field input { margin-top: 0.4rem; }
   .ld-used { margin: 0.8rem 0 1.2rem; }
@@ -319,7 +371,7 @@
   .ph button { flex: none; min-height: 2.75rem; }
   .mrow { display: flex; align-items: center; margin-top: 0.6rem; padding: 0.8rem 1rem; background: var(--field);
     border: 1px solid var(--border); border-radius: 12px; }
-  .mrow.on { border-color: var(--accent-hi); background: #10213a; }
+  .mrow.on { border-color: var(--accent-hi); background: var(--sel-bg); }
   .mrow.dim { opacity: 0.7; }
   .mmain { flex: 1; min-width: 0; }
   .mname { color: var(--text); font-size: 1.05rem; word-wrap: break-word; }
@@ -332,11 +384,11 @@
   .macts { display: flex; flex: none; margin-left: 0.9rem; }
   .macts button { flex: none; min-width: 5.5rem; margin-left: 0.5rem; }
   .macts button:first-child { margin-left: 0; }
-  button.danger { color: var(--bad); border-color: #5c3a47; background: transparent; }
-  button.danger:hover { background: #2a1822; }
+  button.danger { color: var(--bad); border-color: var(--danger-line); background: transparent; }
+  button.danger:hover { background: var(--danger-bg); }
   button.danger:disabled { color: var(--faint); border-color: var(--border); }
   .dlg { position: fixed; left: 0; top: 0; right: 0; bottom: 0; z-index: 15; align-items: center; justify-content: center;
-    background: rgba(5, 8, 14, 0.85); }
+    background: var(--scrim); }
   .dlg-box { box-sizing: border-box; width: 90%; max-width: 32rem; padding: 1.6rem; background: var(--surface);
     border: 1px solid var(--border); border-radius: 16px; }
   .dlg-title { color: var(--text); font-size: 1.3rem; font-weight: 500; word-wrap: break-word; }
@@ -351,7 +403,7 @@
   .badge.warn { color: var(--warn); border-color: var(--warn); }
   .featrow { display: flex; flex-wrap: wrap; margin: 0 -0.3rem; }
   .mrow.feat { box-sizing: border-box; flex: 1 1 10rem; min-width: 0; flex-direction: column; align-items: stretch; margin: 0.3rem; padding: 1.1rem 1.2rem;
-    border-color: #2c4a78; background: #0e1a2e; }
+    border-color: var(--feat-line); background: var(--feat-bg); }
   .mrow.feat .mmain { flex: 1 1 auto; }
   .mrow.feat > button { flex: none; margin: 0.9rem 0 0; min-height: 3.75rem; }
   .feat .mname { font-size: 1.25rem; margin-bottom: 0.15rem; }
@@ -379,7 +431,7 @@
   .subhead { color: var(--faint); font-size: 0.8rem; margin-top: 0.5rem; }
   .sub { display: flex; align-items: center; margin-top: 0.4rem; padding: 0.55rem 0.8rem; background: var(--field);
     border: 1px solid var(--border); border-radius: 10px; }
-  .sub.on { border-color: var(--accent-hi); background: #10213a; }
+  .sub.on { border-color: var(--accent-hi); background: var(--sel-bg); }
   .smain { flex: 1; min-width: 0; }
   .sname { color: var(--text); font-size: 0.95rem; word-wrap: break-word; }
   .sacts { display: flex; flex: none; margin-left: 0.6rem; }
@@ -389,15 +441,15 @@
   .macts .rmore { margin-left: 0.5rem; }
   .macts .more-btn, .rmore .more-btn { flex: none; min-width: 3rem; padding: 0 0.6rem; font-size: 1.2rem; line-height: 1; }
   .menu { position: absolute; right: 0; top: calc(100% + 0.3rem); z-index: 6; min-width: 12rem; max-width: 18rem; padding: 0.3rem;
-    background: var(--raised); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5); }
+    background: var(--raised); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow); }
   .menu .menu-item { display: block; width: 100%; min-width: 0; min-height: 2.9rem; margin: 0; padding: 0 0.8rem; text-align: left;
     background: transparent; border: 0; border-radius: 8px; }
-  .menu .menu-item:hover { background: #222e47; }
+  .menu .menu-item:hover { background: var(--raised-hi); }
   .menu .menu-item.danger { color: var(--bad); }
   .menu .menu-item:disabled { opacity: 0.45; }
   .menu .menu-note { padding: 0.4rem 0.8rem 0.3rem; color: var(--faint); font-size: 0.8rem; line-height: 1.35; }
   #dl-clear:disabled { opacity: 0.45; }
-  .notice { margin: 0.6rem 0 0.4rem; padding: 1rem; background: #10213a; border: 1px solid var(--accent-hi); border-radius: 12px; }
+  .notice { margin: 0.6rem 0 0.4rem; padding: 1rem; background: var(--sel-bg); border: 1px solid var(--accent-hi); border-radius: 12px; }
   .nline { color: var(--text); font-size: 1.1rem; }
   .notice .bar { margin: 0.7rem 0 0.4rem; }
   .notice .hint { margin: 0.3rem 0 0; }
@@ -451,10 +503,121 @@
   button.info { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 2.4rem; min-width: 2.4rem;
     height: 2.4rem; min-height: 2.4rem; margin: 0 0 0 0.45rem; padding: 0; border-radius: 50%; background: transparent;
     border-color: var(--border); color: var(--accent-hi); font-size: 1.1rem; line-height: 1; vertical-align: middle; }
-  button.info:hover { background: var(--raised); color: #fff; }
+  button.info:hover { background: var(--raised); color: var(--text); }
   /* the gallery's filter: the Models tab's segmented control, smaller */
   .gal .gfilter { flex: 0 1 auto; max-width: 26rem; margin: 0 0 0.9rem; }
   .gal .gfilter button { min-height: 2.5rem; font-size: 0.95rem; }
+
+  /* ---------- the look: Apple's grouped surfaces, filled controls, one accent ----------
+     Kept before the width rules below, so they still adapt it. Feedback is on the press (:active), at
+     once; nothing waits for a transition. */
+  body { background: var(--bg) linear-gradient(180deg, var(--bg-glow) 0, var(--bg) 20rem) no-repeat; }
+  button, a, input, select, textarea { -webkit-tap-highlight-color: transparent; }
+  .top { position: -webkit-sticky; position: sticky; top: 0; z-index: 7; min-height: 3.25rem; padding: 0 1.25rem; background: var(--chrome-solid);
+    box-shadow: 0 1px 0 var(--sep); }
+  .brand { font-size: 1.05rem; letter-spacing: -0.01em; margin-right: 1rem; }
+  .ver { margin: 0.15rem 1rem 0 -0.7rem; font-size: 0.75rem; }
+  .model { font-size: 0.875rem; }
+  .pill, .cchip { font-size: 0.8125rem; padding-top: 0.15rem; padding-bottom: 0.15rem; border-color: var(--sep); }
+  .panel { margin: 0.5rem; padding: 1.1rem 1.2rem; border-radius: 14px; border-color: var(--sep); box-shadow: var(--lift); }
+  .main { max-width: 110rem; padding: 0.4rem 0.75rem 1.5rem; }
+  .gal { max-width: 110rem; padding: 0.75rem 1.25rem 2.5rem; }
+  .ph h2, .galbar h2, .dlg-title { font-weight: 600; letter-spacing: -0.015em; }
+  .ph h2 { font-size: 1.15rem; }
+  .galbar h2 { font-size: 1.25rem; }
+  label, .lbl { font-size: 0.8125rem; font-weight: 500; margin: 0.85rem 0 0.35rem; }
+  .row label:first-child, .row .lbl:first-child { margin-top: 0.85rem; }
+  .hint { font-size: 0.8125rem; margin-top: 0.4rem; }
+
+  button { min-height: var(--ctl); padding: 0 1rem; border: 0; border-radius: 10px; background: var(--raised); font-weight: 500;
+    transition: transform 0.12s ease-out, background-color 0.15s ease-out, color 0.15s ease-out; }
+  button:hover { background: var(--raised-hi); }
+  button:active:not(:disabled) { transform: scale(0.97); transition-duration: 0.05s; }
+  button.on { border: 0; }
+  button.danger { color: var(--bad); background: var(--danger-bg); }
+  button.danger:hover { background: var(--danger-line); }
+  button.danger.armed { color: #fff; background: var(--bad); }
+  textarea, input, select { border-radius: 10px; padding: 0.55rem 0.8rem; border-color: var(--border); }
+  input, select { height: var(--ctl); }
+  textarea:focus, input:focus, select:focus { border-color: var(--accent); }
+  textarea.big { font-size: 1.0625rem; min-height: 7.5rem; line-height: 1.45; }
+
+  button.go { font-size: 1.05rem; letter-spacing: -0.01em; border-radius: 12px; white-space: nowrap; overflow: hidden;
+    text-overflow: ellipsis; box-shadow: 0 6px 18px rgba(10, 132, 255, 0.28); }
+  button.go:disabled { box-shadow: none; }
+  .gorow { margin-top: 1rem; }
+  .gorow .go { min-height: 3.15rem; }
+  .count { margin-left: 0.5rem; }
+  .count button { width: 2.3rem; min-height: 3.15rem; font-size: 1.15rem; }
+  .count input { width: 3.4rem; height: 3.15rem; margin: 0 0.3rem; font-size: 1.05rem; }
+  .dice { width: 3.15rem; min-height: 3.15rem; margin-left: 0.5rem; }
+  .dice svg { width: 1.45rem; height: 1.45rem; }
+  .step button { width: 2.6rem; font-size: 1.15rem; }
+
+  /* segmented controls: a sunken track, the chosen part raised */
+  .modes, .mseg { background: var(--field); border: 1px solid var(--sep); border-radius: 12px; padding: 0.2rem; }
+  .mseg { border-radius: 2rem; }
+  .modes button, .mseg button { min-height: 2.25rem; font-weight: 500; }
+  .modes button.on, .mseg button.on { background: var(--seg-on); color: var(--seg-on-fg); box-shadow: 0 1px 4px rgba(0, 0, 0, 0.22); }
+  .mseg button.on .seg-badge { background: var(--accent); color: #fff; }
+
+  /* settings groups: an inset list with hairlines */
+  .groups { margin-top: 0.9rem; border-bottom-color: var(--sep); }
+  .grp { border-top-color: var(--sep); }
+  .grphead { min-height: 2.75rem; padding: 0.2rem 0.1rem; font-weight: 500; }
+  .grptitle { font-size: 0.95rem; }
+  .grpsum { font-size: 0.85rem; font-weight: 400; }
+  .grpbody { padding-bottom: 0.9rem; }
+
+  /* the model and preset at the top of Create: one line each */
+  .cm-name { font-size: 1rem; font-weight: 600; letter-spacing: -0.01em; }
+  .curmodel button { min-height: 2.2rem; padding: 0 0.85rem; font-size: 0.875rem; }
+  .prblock { margin-top: 0.5rem; }
+  .prtoggle { min-height: 2.3rem; padding: 0 0.7rem; font-size: 0.9rem; background: var(--field); border: 1px solid var(--sep); }
+  .prtoggle:hover { background: var(--raised); }
+  .prrow #savepreset { min-height: 2.3rem; font-size: 0.875rem; }
+  #presetnote { margin-top: 0.3rem; }
+  .linkrow { margin-top: 0.15rem; }
+  .linkbtn { min-height: 2.1rem; font-size: 0.875rem; }
+
+  /* the result: the picture as large as the space allows, the actions as a row of chips */
+  #status { font-size: 1.15rem; font-weight: 600; letter-spacing: -0.01em; }
+  .bar { height: 0.35rem; margin: 0.55rem 0 0.75rem; }
+  .stage { border-color: var(--sep); border-radius: 12px; }
+  .actions { margin-top: 0.75rem; min-height: 0; }
+  .actions a, .actions button { min-height: 2.3rem; line-height: 2.3rem; padding: 0 0.95rem; margin: 0 0.45rem 0.45rem 0;
+    border: 0; border-radius: 2rem; font-size: 0.875rem; font-weight: 500; }
+  .actions button { line-height: normal; }
+  .actions a:hover { background: var(--raised-hi); }
+  #cancel, .waitrow button { min-height: 2.2rem; font-size: 0.875rem; }
+
+  /* lists, menus and dialogs */
+  .mrow, .sub, .hrow { border-color: var(--sep); }
+  .menu { background: var(--surface); border-color: var(--sep); }
+  .menu .menu-item { min-height: 2.5rem; }
+  .menu .menu-item:hover { background: var(--hover-x); }
+  .dlg { background: var(--scrim); }
+  .dlg-box { border-color: var(--sep); border-radius: 18px; box-shadow: var(--shadow); }
+  .dlg-btns button { min-height: 2.9rem; font-size: 1rem; }
+  #toast { border: 0; background: var(--chrome-solid); color: var(--text); box-shadow: var(--shadow); padding: 0.6rem 1.3rem; }
+  .thumbs a { border-color: var(--sep); }
+  .ccard { border-color: var(--sep); }
+  .lb-bar a, .lb-bar button { min-height: 2.6rem; line-height: 2.6rem; border: 0; border-radius: 2rem; }
+  .lb-bar button { line-height: normal; }
+
+  /* the tab bar and the sidebar: the chosen tab in the accent's colour */
+  .tabs button { min-height: 2.6rem; font-size: 0.95rem; border: 0; font-weight: 500; }
+  .tabs button.on { background: var(--sel-bg); color: var(--accent-hi); }
+  .sidefold { display: none; }
+
+  /* translucent chrome where the browser has it (not on the TV: blur over 4K is slow there) */
+  @supports ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+    html:not(.tv) .top { background: var(--chrome); -webkit-backdrop-filter: saturate(180%) blur(20px); backdrop-filter: saturate(180%) blur(20px); }
+    html:not(.tv) #toast { background: var(--chrome); -webkit-backdrop-filter: saturate(180%) blur(20px); backdrop-filter: saturate(180%) blur(20px); }
+  }
+
+  /* Settings, Appearance */
+  .themes { max-width: 22rem; }
 
   @media (max-width: 1300px) { .thumbs .t { flex-basis: 25%; } }
   @media (max-width: 900px) { .thumbs .t { flex-basis: 33.333%; } }
@@ -487,7 +650,7 @@
     #cancel { margin: 0.5rem 0 0; width: 100%; }
     /* Create tab on a phone: the result comes first once a run starts; Generate stays above the tab bar */
     #view-create > .controls, #view-create > .result { flex: 1 1 100%; }
-    .gorow { position: sticky; bottom: calc(4.6rem + env(safe-area-inset-bottom)); z-index: 3; margin: 0; padding: 0.6rem 0 0.5rem;
+    .gorow { position: -webkit-sticky; position: sticky; bottom: calc(4.6rem + env(safe-area-inset-bottom)); z-index: 3; margin: 0; padding: 0.6rem 0 0.5rem;
       background: var(--surface); }
     .gorow .go { min-height: 4rem; }
     .gorow .go { font-size: 1.1rem; min-width: 0; }
@@ -522,7 +685,7 @@
     .lb-img img, .lb-img video, .lb.withinfo .lb-img img, .lb.withinfo .lb-img video {
       width: auto; height: auto; max-width: 100%; max-height: 65vh; border-radius: 0; }
     .lb-body .nav { position: absolute; top: 50%; transform: translateY(-50%); z-index: 1; width: 2.75rem; height: 4.5rem;
-      font-size: 2rem; background: rgba(5, 8, 14, 0.55); border-color: transparent; }
+      font-size: 2rem; background: var(--nav-bg); border-color: transparent; }
     #lb-prev { left: 0.4rem; }
     #lb-next { right: 0.4rem; }
     .lb-info { order: 4; flex: 0 0 100%; flex-direction: column; align-items: stretch; box-sizing: border-box; padding: 0.9rem 1rem 0; }
@@ -538,7 +701,7 @@
   /* Create tab on a PC: settings on the left, the result large on the right, in view while the settings scroll */
   @media (min-width: 721px) {
     #view-create > .controls { flex: 0 0 min(27rem, 42%); width: min(27rem, 42%); max-width: none; }
-    #view-create > .result { flex: 1 1 0; min-width: 0; position: sticky; top: 1rem; align-self: flex-start; }
+    #view-create > .result { flex: 1 1 0; min-width: 0; position: -webkit-sticky; position: sticky; top: 1rem; align-self: flex-start; }
     /* the picture fits with the actions under it in view, from the top of the page: the page header, the
        status and the sub line above it, the actions (and the strip) below it */
     #view-create .stage img, #view-create .stage video { max-height: calc(100vh - 23.5rem); }
@@ -569,4 +732,98 @@
     .count button { width: 1.8rem; }
     .count input { width: 2.4rem; margin: 0 0.15rem; }
     .dice { width: 3rem; margin-left: 0.3rem; }
+  }
+
+  /* ---------- the layout around the look (after the width rules, so it wins over them) ---------- */
+  @media (max-width: 720px) {
+    html:not(.tv) { font-size: 16px; }
+    .top { padding: 0.35rem 1rem 0.25rem; }
+    .panel { margin: 0.4rem 0; padding: 1rem; }
+    .main { padding: 0.2rem 0.6rem 1.25rem; }
+    /* iOS's tab bar: no fill, the chosen tab in the accent's colour */
+    .tabs { background: var(--chrome-solid); border-top: 0; box-shadow: 0 -1px 0 var(--sep); }
+    .tabs > button { min-height: 3.7rem; font-size: 0.72rem; background: transparent; color: var(--faint); }
+    .tabs > button.on { background: transparent; color: var(--accent-hi); }
+    .tabs > button:hover { background: transparent; }
+    .tabs svg { width: 1.45rem; height: 1.45rem; }
+    body { padding-bottom: 4.6rem; padding-bottom: calc(4.6rem + env(safe-area-inset-bottom)); }
+    /* Generate stays in reach of the thumb, above the tab bar */
+    .gorow { bottom: calc(4.35rem + env(safe-area-inset-bottom)); margin: 0.6rem -1rem 0; padding: 0.6rem 1rem;
+      background: var(--surface); box-shadow: 0 -1px 0 var(--sep); }
+    .gorow .go { min-height: 3.15rem; font-size: 1.05rem; }
+    .count button { width: 2.1rem; min-height: 3.15rem; }
+    .count input { width: 2.9rem; height: 3.15rem; }
+    .dice { width: 3.15rem; min-height: 3.15rem; }
+    .stage { min-height: 10rem; }
+    textarea.big { min-height: 6rem; }
+    .v-create .top .model { display: none; }
+    @supports ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+      html:not(.tv) .tabs { background: var(--chrome); -webkit-backdrop-filter: saturate(180%) blur(20px); backdrop-filter: saturate(180%) blur(20px); }
+    }
+  }
+  /* Create on a PC: nothing to scroll for. The settings scroll inside their panel with Generate fixed at
+     its foot; the result panel takes the rest of the height, the picture fills it and its actions stay
+     under it. */
+  @media (min-width: 721px) {
+    :root { --head: 3.25rem; }
+    #view-create { align-items: flex-start; }
+    #view-create > .controls { flex: 0 0 26rem; width: 26rem; position: -webkit-sticky; position: sticky; top: calc(var(--head) + 0.5rem);
+      max-height: calc(100vh - var(--head) - 1rem); overflow-y: auto; overscroll-behavior: contain; padding-bottom: 0; }
+    #view-create > .result { position: -webkit-sticky; position: sticky; top: calc(var(--head) + 0.5rem); height: calc(100vh - var(--head) - 1rem);
+      display: flex; flex-direction: column; }
+    #view-create .stage { flex: 1 1 auto; min-height: 8rem; overflow: hidden; }
+    #view-create .stage img, #view-create .stage video, #view-create .stage.with-strip img { max-height: 100%; }
+    #view-create .strip, #view-create .actions { flex: none; }
+    #view-create .gorow { position: -webkit-sticky; position: sticky; bottom: 0; z-index: 3; margin: 0.9rem -1.2rem 0; padding: 0.75rem 1.2rem 0.85rem;
+      background: var(--surface); box-shadow: 0 -1px 0 var(--sep); }
+    #view-create .nokeep { margin: 0.4rem 0 0; }
+    /* Create fills the window and no more: no foot under it, no padding past the panels */
+    .v-create .foot { display: none; }
+    #view-create { padding-bottom: 0; }
+    #view-create > .controls, #view-create > .result { margin-bottom: 0; }
+    /* the model has its own block on Create; the header keeps its place */
+    .v-create .top .model { visibility: hidden; }
+  }
+  @media (min-width: 721px) and (max-width: 1000px) {
+    #view-create > .controls { flex-basis: 22rem; width: 22rem; }
+  }
+  /* a tablet: the tabs are a bar under the header that stays, and the height above the panels counts it */
+  @media (min-width: 721px) and (max-width: 1099px) {
+    :root { --head: 6.55rem; }
+    .tabs { position: -webkit-sticky; position: sticky; top: 3.25rem; z-index: 6; box-sizing: border-box; height: 3.3rem; max-width: none; align-items: center;
+      padding: 0 1.25rem; background: var(--chrome-solid); box-shadow: 0 1px 0 var(--sep); }
+    .tabs button { min-height: 2.4rem; }
+  }
+  /* the sidebar on a PC: a material column; it folds to its icons (the button at its foot) */
+  @media (min-width: 1100px) {
+    :root { --side: 13rem; }
+    html.side-mini { --side: 4.25rem; }
+    .brandbox { height: 3.25rem; background: var(--chrome-solid); border-right: 0; border-bottom: 0; box-shadow: 1px 0 0 var(--sep); }
+    .tabs { top: 3.25rem; padding: 0.5rem 0.6rem; background: var(--chrome-solid); border-right: 0; box-shadow: 1px 0 0 var(--sep); }
+    .tabs button { min-height: 2.5rem; margin-bottom: 0.2rem; padding: 0 0.75rem; border-radius: 8px; font-size: 0.95rem; }
+    .tabs svg { width: 1.15rem; height: 1.15rem; margin-right: 0.7rem; }
+    .sidefold { display: flex; margin-top: auto !important; color: var(--faint); background: transparent; }
+    .sidefold svg { transition: transform 0.2s ease-out; }
+    html.side-mini .sidefold svg { transform: rotate(180deg); }
+    html.side-mini .tabs { padding: 0.5rem 0.45rem; }
+    html.side-mini .tabs button { justify-content: center; padding: 0; }
+    html.side-mini .tabs button > span, html.side-mini .brand, html.side-mini .ver { display: none; }
+    html.side-mini .tabs svg { margin: 0; }
+    html.side-mini .brandbox { justify-content: center; padding: 0; }
+    html.side-mini .logo { margin: 0; }
+    /* a blurred header would hold the fixed brand box (backdrop-filter makes a containing block) */
+    html:not(.tv) .top { background: var(--chrome-solid); -webkit-backdrop-filter: none; backdrop-filter: none; }
+  }
+  /* the TV: the old, larger controls (the cursor needs them), no folding */
+  html.tv { --ctl: 3.25rem; }
+  html.tv .sidefold { display: none; }
+  @media (prefers-reduced-motion: reduce) {
+    button, .sidefold svg { transition: none; }
+    button:active:not(:disabled) { transform: none; }
+  }
+  @media (prefers-reduced-transparency: reduce) {
+    html .top, html .tabs, html #toast { background: var(--chrome-solid); -webkit-backdrop-filter: none; backdrop-filter: none; }
+  }
+  @media (prefers-contrast: more) {
+    :root { --sep: var(--border); }
   }

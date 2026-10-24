@@ -40,8 +40,6 @@
     if (d.scheduler) { p.scheduler = d.scheduler; any = true; }
     n = parseInt(d.clip_skip, 10);
     if (n > 0) { p.clip = n; any = true; }
-    n = parseInt(d.clip_skip, 10);
-    if (n > 0) { p.clip = n; any = true; }
     if (d.loras) { p.loras = parseLoras(d.loras); any = true; }
     n = parseFloat(d.hires_scale);
     if (n >= 1) {

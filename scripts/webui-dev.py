@@ -365,6 +365,7 @@ class Handler(BaseHTTPRequestHandler):
     target = None
     mock = None
     models = None
+    read_only = False
 
     def log_message(self, fmt, *args):
         pass
@@ -437,6 +438,9 @@ class Handler(BaseHTTPRequestHandler):
         if res is not None:
             self._json(res[0], res[1])
             return
+        if self.read_only and self.command not in ("GET", "HEAD", "OPTIONS"):
+            self._json(403, {"error": "webui-dev.py --read-only: " + self.command + " is not sent to the console"})
+            return
         self._proxy(body)
 
     do_GET = do_POST = do_PUT = do_DELETE = do_OPTIONS = _dispatch
@@ -450,11 +454,14 @@ if __name__ == "__main__":
                     help="answer catalog, downloads and Hugging Face search here (simulated)")
     ap.add_argument("--mock-models", action="store_true",
                     help="answer the model library (list, switch, delete) here; implied by --mock-downloads")
+    ap.add_argument("--read-only", action="store_true",
+                    help="send only GET to the console: no job, cancel, delete or setting reaches it (the mocks still answer)")
     ap.add_argument("--mock-standby", action="store_true",
                     help="start without a model, as sd-server --standby does; implies --mock-downloads")
     a = ap.parse_args()
     a.mock_downloads = a.mock_downloads or a.mock_standby
     Handler.target = a.target
+    Handler.read_only = a.read_only
     if a.mock_downloads:
         Handler.mock = MockDownloads()
     if a.mock_downloads or a.mock_models:

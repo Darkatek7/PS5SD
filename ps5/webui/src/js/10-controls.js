@@ -132,6 +132,8 @@
     var tabs = ['create', 'gallery', 'models', 'settings', 'help'];
     st.view = name;
     save('tab', name);
+    document.body.className = document.body.className.replace(/\s*\bv-\w+/g, '') + ' v-' + name;  // app.css: per view
+    if (window.scrollTo) window.scrollTo(0, 0);  // another tab starts at its top
     show('view-create', name === 'create', 'flex');
     show('view-models', name === 'models', 'flex');
     show('view-settings', name === 'settings', 'flex');
