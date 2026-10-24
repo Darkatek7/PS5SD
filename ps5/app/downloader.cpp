@@ -28,6 +28,7 @@
 #include "ftp_writer.hpp"
 #include "https_client.hpp"
 #include "models.hpp"
+#include "thread_guard.hpp"
 #include "version.hpp"
 
 namespace fs = std::filesystem;
@@ -248,13 +249,15 @@ void fetch_whole(Item & item, const Probe & p, int fd, FtpWriter * ftp, const st
     std::thread  monitor;
     std::atomic<bool> done{ false };
     monitor = std::thread([&] {
-        while (!done) {
-            std::this_thread::sleep_for(std::chrono::seconds(1));
-            const double s = std::chrono::duration<double>(clock_type::now() - t0).count();
-            std::lock_guard<std::mutex> lock(g_mutex);
-            item.rec.bytes            = got;
-            item.rec.bytes_per_second = s > 0 ? got / s : 0;
-        }
+        run_guarded("download progress", [&] {
+            while (!done) {
+                std::this_thread::sleep_for(std::chrono::seconds(1));
+                const double s = std::chrono::duration<double>(clock_type::now() - t0).count();
+                std::lock_guard<std::mutex> lock(g_mutex);
+                item.rec.bytes            = got;
+                item.rec.bytes_per_second = s > 0 ? got / s : 0;
+            }
+        });
     });
     const bool ok = http_get_following(
         client, p.final_url, [](const Url & u) { return headers_for(u); },
@@ -495,7 +498,16 @@ void fetch_pieces(Item & item, const Probe & p0, const std::string & url, int fd
     const int n_workers = static_cast<int>(std::min<size_t>(static_cast<size_t>(std::max(1, g_cfg.connections)), todo));
     std::vector<std::thread> threads;
     for (int i = 0; i < n_workers; i++) {
-        threads.emplace_back(worker, i);
+        threads.emplace_back([&, i] {
+            std::string e;
+            if (!run_guarded("download connection", [&] { worker(i); }, &e)) {
+                {
+                    std::lock_guard<std::mutex> lock(m);
+                    last_error = "error: " + e;
+                }
+                fatal = true;
+            }
+        });
     }
 
     // Progress every second; every 5 s the pieces on disk (copied before the
@@ -1065,16 +1077,18 @@ int hf_search(const std::string & body, std::string & out) {
     std::vector<std::thread> threads;
     for (int t = 0; t < 4 && static_cast<size_t>(t) < results.size(); t++) {
         threads.emplace_back([&] {
-            HttpClient c;
-            for (size_t i; (i = next++) < results.size();) {
-                std::string info, e;
-                int         st = 0;
-                if (http_get_text(c, "https://huggingface.co/api/models/" + results[i].repo + "?blobs=true",
-                                  [](const Url & u) { return headers_for(u); }, 16u << 20, info, st, e) &&
-                    st == 200) {
-                    parse_hf_model_files(info, results[i]);
+            run_guarded("Hugging Face search", [&] {
+                HttpClient c;
+                for (size_t i; (i = next++) < results.size();) {
+                    std::string info, e;
+                    int         st = 0;
+                    if (http_get_text(c, "https://huggingface.co/api/models/" + results[i].repo + "?blobs=true",
+                                      [](const Url & u) { return headers_for(u); }, 16u << 20, info, st, e) &&
+                        st == 200) {
+                        parse_hf_model_files(info, results[i]);
+                    }
                 }
-            }
+            });
         });
     }
     for (auto & t : threads) {
@@ -1238,21 +1252,24 @@ void downloader_start(const DownloaderConfig & config) {
     if (const char * v = std::getenv("PS5SD_DL_WRITETEST"); v != nullptr && *v != '\0') {
         const std::string spec = v;
         std::thread([spec] {
-            size_t at = 0;
-            while (at <= spec.size() && !g_stop) {
-                size_t end = spec.find(';', at);
-                if (end == std::string::npos) {
-                    end = spec.size();
+            run_guarded("download manager", [&] {
+                size_t at = 0;
+                while (at <= spec.size() && !g_stop) {
+                    size_t end = spec.find(';', at);
+                    if (end == std::string::npos) {
+                        end = spec.size();
+                    }
+                    write_test(spec.substr(at, end - at));
+                    at = end + 1;
                 }
-                write_test(spec.substr(at, end - at));
-                at = end + 1;
-            }
-            std::printf("ps5sd: write tests done\n");
-            manager();
+                std::printf("ps5sd: write tests done\n");
+                manager();
+            });
         }).detach();
         return;
     }
-    std::thread(manager).detach();
+    // A manager that throws stops the queue (logged), not the title.
+    std::thread([] { run_guarded("download manager", manager); }).detach();
 }
 
 void downloader_stop() {

@@ -18,6 +18,7 @@
 #include <vector>
 
 #include "json.hpp"
+#include "thread_guard.hpp"
 
 namespace ps5sd {
 
@@ -237,7 +238,7 @@ std::string ConsoleHistory::json(const std::string & exporter) const {
 }
 
 void ConsoleStats::start(AppStatus & status) {
-    std::thread([this, &status] { run(status); }).detach();
+    std::thread([this, &status] { run_guarded("console stats", [&] { run(status); }); }).detach();
 }
 
 std::string ConsoleStats::json() {

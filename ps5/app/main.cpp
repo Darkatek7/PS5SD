@@ -390,6 +390,36 @@ void log_memory(const char * when) {
     g_status.set_memory(free / kGiB, pool / kGiB);
 }
 
+// The last lines of a title that ends on an exception nothing caught: libc++
+// prints its type, this adds what it said and where memory stood, which is
+// what explained the one in docs/CONSOLE.md ("PS5SD ended by a full CPU heap").
+// No locks (the thread that threw may hold g_status's) and as little
+// allocation as can be: the cause may be a full heap.
+[[noreturn]] void on_terminate() {
+    static char what[256];
+    std::snprintf(what, sizeof what, "%s", "no exception (std::terminate was called)");
+    if (const std::exception_ptr e = std::current_exception()) {
+        try {
+            std::rethrow_exception(e);
+        } catch (const std::exception & x) {
+            std::snprintf(what, sizeof what, "%s", x.what());
+        } catch (...) {
+            std::snprintf(what, sizeof what, "%s", "an exception that is not a std::exception");
+        }
+    }
+    std::printf("ps5sd: ending on an uncaught exception: %s\n", what);
+    int64_t       at   = 0;
+    size_t        free = 0;
+    const int64_t pool = sceKernelGetDirectMemorySize();
+    sceKernelAvailableDirectMemorySize(0, pool, 2 * 1024 * 1024, &at, &free);
+    struct ps5_heap_stats heap = {};
+    ps5_heap_stats(&heap);
+    std::printf("ps5sd: memory at the end: pool free %.2f of %.2f GiB (the largest part), cpu heap %.2f GiB (peak %.2f)\n",
+                free / kGiB, pool / kGiB, heap.mapped_bytes / kGiB, heap.peak_bytes / kGiB);
+    std::fflush(stdout);
+    std::abort();
+}
+
 // stable-diffusion.cpp's and ggml's log: to app.log, and the readable part to
 // the screen.
 void on_log(enum sd_log_level_t level, const char * text, void *) {
@@ -1715,6 +1745,7 @@ int main(int, char **) {
         setvbuf(stderr, nullptr, _IONBF, 0);
     }
     std::printf("ps5sd: version " PS5SD_VERSION ", stable-diffusion.cpp %s (%s)\n", sd_version(), sd_commit());
+    std::set_terminate(on_terminate);
     load_settings();
     load_api_key();
     // The images made with "Don't keep on the console" last until the title starts again.

@@ -42,6 +42,13 @@ add_executable(test_mem_fit test_mem_fit.cpp ../mem_fit.cpp)
 target_include_directories(test_mem_fit PRIVATE .. "${SD_DIR}/thirdparty")
 add_test(NAME mem_fit COMMAND test_mem_fit)
 
+# An exception in a thread's body is caught there (thread_guard.hpp).
+find_package(Threads REQUIRED)
+add_executable(test_thread_guard test_thread_guard.cpp)
+target_include_directories(test_thread_guard PRIVATE ..)
+target_link_libraries(test_thread_guard PRIVATE Threads::Threads)
+add_test(NAME thread_guard COMMAND test_thread_guard)
+
 add_executable(test_sd_plan test_sd_plan.cpp ../sd_plan.cpp ../gen_args.cpp)
 target_include_directories(test_sd_plan PRIVATE ..)
 target_link_libraries(test_sd_plan PRIVATE stable-diffusion)

@@ -1,0 +1,179 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: ps5sd <ps5sd@localhost>
+Date: Sat, 24 Oct 2026 12:00:00 +0200
+Subject: [PATCH] server: run a job once more after it ran out of memory
+
+On the PS5, a run that ran out of memory mostly fits when it runs again
+right away (measured with FLUX.2 Klein 9B and a LoRA right after a start:
+the first attempt failed while the weights were loaded again, the same
+request then ran in 57 s). An img_gen or vid_gen job whose log says it ran
+out of memory now runs once more before it fails, unless the client stopped
+it. A std::bad_alloc out of generate_image or generate_video counts as out
+of memory. The failure reason says that the second try failed too.
+---
+diff --git a/examples/server/async_jobs.cpp b/examples/server/async_jobs.cpp
+index 018c5b6..e60cdd6 100644
+--- a/examples/server/async_jobs.cpp
++++ b/examples/server/async_jobs.cpp
+@@ -51,6 +51,24 @@ static void clear_preview_callback() {
+     sd_set_preview_callback(nullptr, PREVIEW_NONE, 1, false, false, nullptr);
+ }
+ 
++// PS5SD: a run that ran out of memory mostly fits when it runs again right away: what the failed
++// attempt held is freed then, and the model's weights are back where they fit (docs/CONSOLE.md, "PS5SD
++// ended by a full CPU heap"). One more try, then the failure stands. Not after a stop by the client.
++static bool run_once_more_after(AsyncJobManager* manager, AsyncGenerationJob& job, int attempt) {
++    if (attempt > 1 || !sd_server_failure_is_memory()) {
++        return false;
++    }
++    if (manager != nullptr) {
++        std::lock_guard<std::mutex> lock(manager->mutex);
++        if (job.cancel_requested) {
++            return false;
++        }
++    }
++    LOG_WARN("job %s ran out of memory; running it once more", job.id.c_str());
++    sd_server_failure_log_begin();
++    return true;
++}
++
+ static void set_preview_callback(AsyncGenerationJob& job) {
+     preview_t mode = str_to_preview(job.kind == AsyncJobKind::ImgGen
+                                         ? job.img_gen.preview_mode.c_str()
+@@ -314,14 +332,25 @@ bool execute_img_gen_job(ServerRuntime& runtime,
+             if (!cancelled) {
+                 activity.begin();
+                 set_preview_callback(job);
+-                sd_image_t* raw_results = nullptr;
+-                int num_results         = 0;
+-                if (!generate_image(runtime.sd_ctx, &params, &raw_results, &num_results)) {
+-                    raw_results = nullptr;
+-                    num_results = 0;
++                for (int attempt = 1;; ++attempt) {
++                    sd_image_t* raw_results = nullptr;
++                    int num_results         = 0;
++                    try {
++                        if (!generate_image(runtime.sd_ctx, &params, &raw_results, &num_results)) {
++                            raw_results = nullptr;
++                            num_results = 0;
++                        }
++                    } catch (const std::bad_alloc&) {
++                        LOG_ERROR("generate_image: out of memory (std::bad_alloc)");
++                        raw_results = nullptr;
++                        num_results = 0;
++                    }
++                    results.adopt(raw_results, num_results);
++                    if (results.count() > 0 || !run_once_more_after(&manager, job, attempt)) {
++                        break;
++                    }
+                 }
+                 clear_preview_callback();
+-                results.adopt(raw_results, num_results);
+             }
+         }
+         if (cancelled) {
+@@ -406,12 +435,27 @@ bool execute_vid_gen_job(ServerRuntime& runtime,
+         std::lock_guard<std::mutex> lock(*runtime.sd_ctx_mutex);
+         activity.begin();
+         set_preview_callback(job);
+-        sd_image_t* raw_results = nullptr;
+-        if (!generate_video(runtime.sd_ctx, &params, &raw_results, &num_results, &generated_audio, &output_fps)) {
+-            raw_results = nullptr;
++        for (int attempt = 1;; ++attempt) {
++            sd_image_t* raw_results = nullptr;
++            num_results             = 0;
++            try {
++                if (!generate_video(runtime.sd_ctx, &params, &raw_results, &num_results, &generated_audio,
++                                    &output_fps)) {
++                    raw_results = nullptr;
++                }
++            } catch (const std::bad_alloc&) {
++                LOG_ERROR("generate_video: out of memory (std::bad_alloc)");
++                raw_results = nullptr;
++                num_results = 0;
++            }
++            results.adopt(raw_results, num_results);
++            if (results.count() > 0 || !run_once_more_after(runtime.async_job_manager, job, attempt)) {
++                break;
++            }
++            free_sd_audio(generated_audio);
++            generated_audio = nullptr;
+         }
+         clear_preview_callback();
+-        results.adopt(raw_results, num_results);
+     }
+ 
+     num_results = results.count();
+diff --git a/examples/server/server_activity.h b/examples/server/server_activity.h
+index 4926849..71b5a16 100644
+--- a/examples/server/server_activity.h
++++ b/examples/server/server_activity.h
+@@ -18,6 +18,9 @@ void sd_server_failure_log_cancelled();
+ // when the log says the console ran out of memory, else the last ERROR line,
+ // else fallback.
+ std::string sd_server_failure_reason(const std::string& fallback);
++// The log since begin() says the console ran out of memory (and no client
++// stopped the run): such a run is worth one more try.
++bool sd_server_failure_is_memory();
+ 
+ // One generation as seen by the activity hooks: begin() when the generation
+ // starts, finish() when it is over. If finish() is never reached (an early
+diff --git a/examples/server/server_hooks.cpp b/examples/server/server_hooks.cpp
+index 6d42a04..74efb8f 100644
+--- a/examples/server/server_hooks.cpp
++++ b/examples/server/server_hooks.cpp
+@@ -100,7 +100,10 @@ void sd_server_failure_log_add(sd_log_level_t level, const char* text) {
+     }
+ }
+ 
+-std::string sd_server_failure_reason(const std::string& fallback) {
++namespace {
++
++// The kept lines say the console ran out of memory. g_failure_mutex is held.
++bool memory_line_locked() {
+     static const char* const k_memory_markers[] = {
+         "cannot make enough memory available",
+         "out of memory",
+@@ -108,18 +111,33 @@ std::string sd_server_failure_reason(const std::string& fallback) {
+         "outofhostmemory",
+         "failed to allocate",
+     };
+-    std::lock_guard<std::mutex> lock(g_failure_mutex);
+-    if (g_failure_cancelled) {
+-        return "Cancelled";
+-    }
+     for (const FailureLine& line : g_failure_lines) {
+         for (const char* marker : k_memory_markers) {
+             if (contains_ci(line.text, marker)) {
+-                return "Not enough memory on the console for this run. Try a smaller size, fewer images or frames, "
+-                       "a lower hires scale, or a smaller model.";
++                return true;
+             }
+         }
+     }
++    return false;
++}
++
++}  // namespace
++
++bool sd_server_failure_is_memory() {
++    std::lock_guard<std::mutex> lock(g_failure_mutex);
++    return !g_failure_cancelled && memory_line_locked();
++}
++
++std::string sd_server_failure_reason(const std::string& fallback) {
++    std::lock_guard<std::mutex> lock(g_failure_mutex);
++    if (g_failure_cancelled) {
++        return "Cancelled";
++    }
++    if (memory_line_locked()) {
++        return "Not enough memory on the console for this run, even on a second try. Try a smaller size, fewer "
++               "images or frames, a lower hires scale, or a smaller model; closing and opening PS5SD frees all "
++               "of its memory.";
++    }
+     for (auto it = g_failure_lines.rbegin(); it != g_failure_lines.rend(); ++it) {
+         if (it->level == SD_LOG_ERROR) {
+             std::string text         = it->text;
+-- 
+2.47.0
+
