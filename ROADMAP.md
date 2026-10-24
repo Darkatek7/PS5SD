@@ -10,6 +10,8 @@ can rely on.
 
 ## Done
 
+- **0.9.10**: fan modes, Quiet, Balanced, Cool and Manual: the fan starts earlier, and long runs stay at
+  about 84 °C instead of up to 95 °C.
 - **0.9.9**: loading weights takes half the CPU memory (Klein 9B with a LoRA runs right after a start); a run
   out of memory tries once more; the cause of an end in `app.log`.
 - **0.9.8**: Klein 9B LoRAs in diffusers names load fully; a run out of CPU memory fails instead of ending
@@ -279,6 +281,12 @@ selected for one delete or download.
 - [x] **One more try after out of memory** (`patches/sdcpp/0072`), unless the client stopped the run.
 - [x] **The cause of an end in `app.log`**: a `std::terminate` handler writes the exception and the memory;
   the downloader's and the console readings' threads log an exception instead of ending the title.
+
+## 0.9.10: fan modes, done
+
+- [x] **Fan modes** (`ps5/fan`): a payload lowers the console's target temperature, one degree every 20 s,
+  and puts it back when PS5SD closes or the mode is Quiet. Balanced is 3 °C under the console's own, Cool
+  6 °C, Manual from 70 °C. Measured in [docs/CONSOLE.md](docs/CONSOLE.md#the-fan-2026-10-24).
 
 ## Later in 0.9.x
 
