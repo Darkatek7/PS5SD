@@ -109,6 +109,15 @@ struct ModelLibrary {
     // model); false with a message otherwise.
     bool write_preset(const std::string & id, const std::string & text, std::string & error) const;
 
+    // Replaces the "# defaults:" line of an existing preset (a saved variant or
+    // a model's preset) with these settings (keys and values as create_preset
+    // takes them) and keeps every other line as it is. A preset without the
+    // line gets one after its "# key:" comments; no settings remove the line.
+    // False with a message for a setting that does not do or a preset that
+    // is not there ("no preset <id>").
+    bool update_defaults(const std::string & id, const std::vector<std::pair<std::string, std::string>> & defaults,
+                         std::string & error) const;
+
     // Deletes a variant preset's file (and nothing else). A preset without a
     // base is a model: false, to be deleted with remove().
     bool remove_variant(const std::string & id, std::string & error) const;
@@ -243,6 +252,7 @@ struct AppSettings {
     bool        tv_api_key = true;     // the TV shows the API key (when there is one)
     std::string fan        = "quiet";  // "quiet" (the console's own), "balanced", "cool", "manual"
     int         fan_target = 85;       // manual's target temperature, 70..95 C (ps5/fan/fan_policy.h)
+    bool        image_metadata = true;  // the web UI writes the settings into the PNG (false: it asks the server to leave them out)
     // The preset the web UI loads for a model (model_file -> preset id), set
     // with its "Make default". Only the web UI reads it; the APIs switch to the
     // id they name.
@@ -250,7 +260,7 @@ struct AppSettings {
 };
 
 // {"tv_images": true, "tv_api_key": true, "fan": "quiet", "fan_target": 85,
-// "default_presets": {"model.gguf": "preset-id"}}.
+// "image_metadata": true, "default_presets": {"model.gguf": "preset-id"}}.
 std::string settings_json(const AppSettings & settings);
 
 // Applies what a body (or the settings file) sets to settings; a field it

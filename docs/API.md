@@ -294,7 +294,7 @@ A saved preset is a model with other settings: a preset file with `# base: <id>`
 |---|---|
 | `POST /ps5sd/v1/app/presets` | `{"name": "Portrait fast", "base": "<model id>", "defaults": {"width": "832", "height": "1216", "steps": "10", "cfg": "6", "sampler": "dpm++2m", "scheduler": "ays", "clip_skip": "2", "loras": "detail.safetensors:0.8", "hires_scale": "1.5", "hires_steps": "0", "hires_denoise": "0.5", "hires_upscaler": "Latent"}}`: `201`, the library plus `"id"` of the new preset. It takes the model's arguments and its prompt starters from `base` (the loaded model when it is left out; the base's own base when that is a saved preset too). The id comes from the name. `400` for a name of more than one line or 100 characters, a key that is not one of these, or a value with a space |
 | `GET /ps5sd/v1/app/presets/<id>` | `{"id", "text"}`: the preset file as it is |
-| `POST /ps5sd/v1/app/presets/<id>` | `{"text": "..."}`: replaces the file (at most 64 KB, it must name a model); the answer is the library. Changed options count from the next load of that preset |
+| `POST /ps5sd/v1/app/presets/<id>` | `{"text": "..."}`: replaces the file (at most 64 KB, it must name a model); the answer is the library. Changed options count from the next load of that preset. Since 0.9.13 `{"defaults": {"steps": "8", ...}}` (the keys of `POST presets`) replaces only the preset's `# defaults:` line, and the rest of the file stays; `{}` removes the line. For the loaded preset the new settings are the API's defaults at once. `400` for a key or value a preset cannot keep, `404` for no such preset |
 | `DELETE /ps5sd/v1/app/presets/<id>` | deletes a saved preset's file, never a model file. `409` when it is in use, or when the preset is a model itself (no `base`; delete it with `DELETE models/<id>`) |
 
 ```sh
@@ -593,8 +593,11 @@ prompt says what to change ("the same house in winter, snow on the roof"). The l
 
 Every generated image is also saved as a PNG in `/data/PS5SD/outputs`, and every video in its own format
 (see [sd-server's own API](#sd-servers-own-api)). Since 0.9.0 each PNG carries what made it as A1111 does,
-in a tEXt chunk named `parameters`, which other tools read too (a request with `"embed_image_metadata":
-false` leaves it out). Since 0.9.5 that includes the loaded preset's name, as `Preset: <name>` in the text
+in a tEXt chunk named `parameters`, which other tools read too. A request with `"embed_image_metadata":
+false` leaves it out of the PNG, the one saved and the one in the answer; since 0.9.13 the console keeps the
+text in `outputs/.thumbs/<name>.txt` instead, so the gallery's info, its search and Use all still know it
+(the web UI's switch: Create, "Leave the settings out of the file", kept as `image_metadata` in the
+[settings](#app-settings)). Since 0.9.5 that includes the loaded preset's name, as `Preset: <name>` in the text
 and `"ps5sd": {"preset": "<name>"}` in sd.cpp's JSON. Since 0.9.12 it also says how long the generation
 took, from its start to the saved image (with a batch, the whole run): `Time: 52.3 s` and
 `"ps5sd": {"seconds": 52.3}`, and a model of several files (FLUX, Z-Image, Wan) fills A1111's empty
@@ -622,7 +625,7 @@ restart.
 
 | Route | |
 |---|---|
-| `GET /ps5sd/v1/app/settings` | `{"tv_images": true, "tv_api_key": true, "fan": "quiet", "fan_target": 85, "default_presets": {}}` |
+| `GET /ps5sd/v1/app/settings` | `{"tv_images": true, "tv_api_key": true, "fan": "quiet", "fan_target": 85, "image_metadata": true, "default_presets": {}}` |
 | `POST /ps5sd/v1/app/settings` | change what the body sets, like `{"tv_images": false}`; the answer is the settings as `GET` gives them, 400 for a field of the wrong type |
 
 `tv_images` false: the dashboard on the TV shows no images (no live preview, no last image, no
@@ -630,8 +633,12 @@ thumbnails) and no prompts. The web UI's switch is in Settings, "Show images and
 
 `tv_api_key` false: the TV does not show the API key. The switch is in Settings, under API key.
 
+`image_metadata` false: the web UI sends `"embed_image_metadata": false` with each image, so the PNG
+carries no prompt and no settings (see [Gallery](#gallery)). Only the web UI reads it; an API client sends
+the field itself.
+
 `default_presets`: `{"<model_file>": "<preset id>"}`, the preset the web UI loads when you press **Use** on a
-model (Models, ⋯, **Make default**). A `POST` merges it: `{"default_presets": {"model.gguf": "fast"}}` sets
+model (Models, the ☆ of a preset). A `POST` merges it: `{"default_presets": {"model.gguf": "fast"}}` sets
 one, `""` or `null` drops one, the others stay. Only the web UI reads it: an API that switches models
 (`sd_model_checkpoint`, `/ps5sd/v1/app/models/active`) loads the id it names.
 

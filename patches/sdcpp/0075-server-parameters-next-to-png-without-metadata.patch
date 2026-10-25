@@ -1,0 +1,100 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: ps5sd <ps5sd@localhost>
+Date: Sun, 25 Oct 2026 12:00:00 +0200
+Subject: [PATCH] server: parameters next to a PNG saved without metadata
+
+A request with "embed_image_metadata": false got a PNG without its
+parameters, and the gallery lost what made it (its info, its prompt in the
+search, Use these settings). The PNG still carries nothing, so a copy of it
+tells nobody the prompt; the parameters go to .thumbs/<name>.txt instead, as
+a video's do, and the gallery reads them from there when the PNG has none.
+The application already moves and deletes that file with the image.
+---
+diff --git a/examples/server/gallery.cpp b/examples/server/gallery.cpp
+index 1862457..646fff6
+--- a/examples/server/gallery.cpp
++++ b/examples/server/gallery.cpp
+@@ -12,7 +12,8 @@
+ //   GET /ps5sd/v1/gallery/info/<file>   {"name","type","parameters","prompt","sdcpp"}: what made it
+ //
+ // What made a file: a PNG's tEXt "parameters" chunk (A1111's text; sd.cpp ends
+-// it with ", SDCPP: " and a JSON of the request), a video's .thumbs/<name>.txt.
++// it with ", SDCPP: " and a JSON of the request), else .thumbs/<name>.txt: a
++// video's, or a PNG's made without embed_image_metadata.
+ 
+ #include <algorithm>
+ #include <atomic>
+@@ -228,27 +229,36 @@ std::vector<std::string> save_output_images(const SDSvrParams& svr_params,
+     std::error_code ec;
+     fs::create_directories(dir, ec);
+ 
+-    const bool embed    = ctx_params != nullptr && gen_params != nullptr && gen_params->embed_image_metadata;
+-    const int per_batch = embed && gen_params->batch_count > 0 ? std::max(1, images.count() / gen_params->batch_count) : 1;
++    // Without embed_image_metadata the PNG carries nothing, and the parameters
++    // go to .thumbs/<name>.txt as a video's do: the gallery still knows what
++    // made the image, a copy of the file does not.
++    const bool known    = ctx_params != nullptr && gen_params != nullptr;
++    const bool embed    = known && gen_params->embed_image_metadata;
++    const int per_batch = known && gen_params->batch_count > 0 ? std::max(1, images.count() / gen_params->batch_count) : 1;
+     for (int i = 0; i < images.count(); ++i) {
+         const sd_image_t& image = images[i];
+         if (image.data == nullptr) {
+             continue;
+         }
+         // the seed of image i, as sd.cpp's own routes give it in their PNGs
+-        const std::string parameters = embed ? with_preset(get_image_params(*ctx_params, *gen_params, gen_params->seed + i / per_batch)) : "";
++        const std::string parameters = known ? with_preset(get_image_params(*ctx_params, *gen_params, gen_params->seed + i / per_batch)) : "";
+         std::vector<uint8_t> bytes   = encode_image_to_vector(EncodedImageFormat::PNG,
+                                                             image.data,
+                                                             image.width,
+                                                             image.height,
+                                                             image.channel,
+-                                                            parameters);
++                                                            embed ? parameters : "");
+         if (bytes.empty()) {
+             LOG_ERROR("could not encode the image for --output-dir");
+             continue;
+         }
+         const std::string name = next_output_name(dir, "png", temporary);
+         const fs::path path    = dir / name;
++        // before the PNG, so a listing that sees the PNG finds its text too
++        if (!embed && !parameters.empty()) {
++            fs::create_directories(thumbs_dir(dir), ec);
++            write_whole(thumbs_dir(dir) / (name + ".txt"), parameters.data(), parameters.size());
++        }
+         std::ofstream file(path, std::ios::binary);
+         file.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+         file.close();
+@@ -352,10 +362,14 @@ std::string png_parameters(const fs::path& path) {
+     return "";
+ }
+ 
+-// What made a file of the gallery: a PNG's own text, else the text saved next to it.
++// What made a file of the gallery: a PNG's own text, else the text saved next
++// to it (a video's, or a PNG's made without embed_image_metadata).
+ std::string file_parameters(const fs::path& dir, const std::string& name, const char* type) {
+     if (type != nullptr && std::strcmp(type, "image/png") == 0) {
+-        return png_parameters(dir / name);
++        std::string own = png_parameters(dir / name);
++        if (!own.empty()) {
++            return own;
++        }
+     }
+     std::ifstream file(thumbs_dir(dir) / (name + ".txt"), std::ios::binary);
+     return std::string((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+diff --git a/examples/server/gallery.h b/examples/server/gallery.h
+index f2a3a4b..3d68f68
+--- a/examples/server/gallery.h
++++ b/examples/server/gallery.h
+@@ -12,8 +12,9 @@
+ // (sd_<date>_<time>_<n>.png) and returns the full paths that were written.
+ // Does nothing, and returns an empty list, when --output-dir is not set.
+ // With the request's parameters, each PNG carries them as A1111 does (a tEXt
+-// "parameters" chunk, with sd.cpp's "SDCPP: {json}" at the end), unless the
+-// request turned embed_image_metadata off. Each image also gets its
++// "parameters" chunk, with sd.cpp's "SDCPP: {json}" at the end). A request
++// that turned embed_image_metadata off gets a PNG without them, and they go to
++// .thumbs/<name>.txt for the gallery instead. Each image also gets its
+ // thumbnail (.thumbs/<name>.jpg). A temporary image is saved as tmp_<name>: served
+ // like the others, but not in the gallery's list (the application deletes them
+ // when it starts). The loaded preset's name (preset_name_now) goes into the

@@ -150,6 +150,7 @@
     text($('vid-sect-s'), parseInt($('frames').value, 10) + ' frames · ' + parseInt($('fps').value, 10) + ' fps' +
       (parseFloat($('shift').value) > 0 ? ' · shift ' + parseFloat($('shift').value) : ''));
     drawHires();
+    drawUpdate();
     if ($('ps-box').style.display !== 'none') drawSaveBox();
   }
 

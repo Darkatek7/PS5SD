@@ -46,6 +46,7 @@
     initFan();
     initAppearance();
     $('opt-tv').onchange = setTvOption;
+    $('nometa').onchange = setMetaOption;
     $('opt-tvkey').onchange = setTvKeyOption;
     $('hr-on').onchange = function () { drawHires(); persist(); };
     $('hr-up').onchange = function () { save('hrup', this.value); persist(); };
@@ -153,6 +154,7 @@
       if (open) { drawSaveBox(); try { $('ps-name').focus(); } catch (e) {} }
     };
     $('ps-save').onclick = savePreset;
+    $('updpreset').onclick = updatePreset;
     $('ps-name').onkeydown = function (e) { e = e || window.event; if (e.keyCode === 13) { savePreset(); return false; } return true; };
     $('pe-cancel').onclick = closeEdit;
     $('pe-save').onclick = saveEdit;

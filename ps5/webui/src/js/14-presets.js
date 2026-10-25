@@ -1,16 +1,16 @@
   // ---------- presets: the list is in the Models tab (13-models.js); the save box and the edit dialog are here ----------
 
-  // What "Save" keeps: the loaded model and the form of the Create tab.
-  function presetDefaults() {
-    var f = getForm();
+  // What "Save" keeps: the loaded model and the form of the Create tab (or f, a form as getForm gives it).
+  function presetDefaults(f) {
+    f = f || getForm();
     var d = { width: String(f.w), height: String(f.h), steps: String(f.steps), cfg: String(f.cfg) };
     if (f.sampler && f.sampler !== 'default') d.sampler = f.sampler;
     if (f.scheduler && f.scheduler !== 'default') d.scheduler = f.scheduler;
     if (f.clip > 0) d.clip_skip = String(f.clip);
-    var ls = [];
-    for (var i = 0; i < f.loras.length; i++) if (f.loras[i].m !== 0 && !f.loras[i].off) ls.push(f.loras[i].path + ':' + f.loras[i].m);
+    var ls = [], fl = f.loras || [];
+    for (var i = 0; i < fl.length; i++) if (fl[i].m !== 0 && !fl[i].off) ls.push(fl[i].path + ':' + fl[i].m);
     if (ls.length) d.loras = ls.join(',');
-    if (f.hr.on) {
+    if (f.hr && f.hr.on) {
       d.hires_scale = String(f.hr.scale);
       d.hires_steps = String(f.hr.steps);
       d.hires_denoise = String(f.hr.den);
@@ -62,6 +62,58 @@
     }, 15000);
   }
 
+  // Reset and Update preset show when the form is not what the loaded preset says. Reset puts the
+  // preset's settings back; Update writes the form's into the preset: the first press asks, the
+  // second writes (the name, the model and the prompt starters stay).
+  var updArmed = null;
+
+  function formIsPreset() {
+    var a = presetDefaults(), b = presetDefaults(st.preset);
+    if (!clipSkipShown()) { delete a.clip_skip; delete b.clip_skip; }
+    return JSON.stringify(a) === JSON.stringify(b);
+  }
+
+  function drawUpdate() {
+    var m = st.mid ? findModel(st.mid) : null;
+    var differs = !!m && !st.sw && !(st.mdl && st.mdl.standby) && !!st.preset && !formIsPreset();
+    var on = differs && st.app === true && m.kind === 'preset';
+    show('resetpreset', differs, 'inline-block');
+    show('updpreset', on, 'inline-block');
+    if (!on) disarmUpdate();
+  }
+
+  function disarmUpdate() {
+    if (updArmed) clearTimeout(updArmed);
+    updArmed = null;
+    text($('updpreset'), 'Update preset');
+  }
+
+  function updatePreset() {
+    var m = st.mid ? findModel(st.mid) : null, g = m ? groupOf(m.id) : null;
+    if (!m) return;
+    var name = g && g.items.length > 1 ? shortName(m, g.title) : titleOf(m);
+    if (!updArmed) {
+      text($('updpreset'), 'Overwrite it? Press again');
+      $('updpreset').title = 'Writes the form\'s settings into ' + name;
+      updArmed = setTimeout(disarmUpdate, 5000);
+      return;
+    }
+    disarmUpdate();
+    $('updpreset').disabled = true;
+    req('POST', APP + '/presets/' + encodeURIComponent(m.id), { defaults: presetDefaults() }, function (code, data) {
+      $('updpreset').disabled = false;
+      if (code === 200 && data && data.models) {
+        setModels(data);
+        st.preset = presetFor(st.model, findModel(m.id));
+        $('resetpreset').title = presetNote(st.preset);
+        drawUpdate();
+        toast(name + ' has the form\'s settings now: ' + presetNote(st.preset).replace(/^Defaults: /, ''), 6000);
+      } else {
+        toast(errText(code, data, 'Could not update the preset'), 7000);
+      }
+    }, 15000);
+  }
+
   var peFor = null;
 
   function editPreset(m) {
@@ -93,7 +145,12 @@
       if (code === 200 && data && data.models) {
         closeEdit();
         setModels(data);
-        toast('Saved. ' + (st.mdl && st.mdl.loaded === m.id ? 'New settings apply when you press Reset to the preset; other options at the next load.' : ''), 6000);
+        if (st.mid === m.id) {
+          st.preset = presetFor(st.model, findModel(m.id));
+          $('resetpreset').title = presetNote(st.preset);
+          drawUpdate();
+        }
+        toast('Saved. ' + (st.mdl && st.mdl.loaded === m.id ? 'New settings apply when you press Reset; other options at the next load.' : ''), 6000);
       } else {
         text($('pe-err'), errText(code, data, 'Could not save'));
       }

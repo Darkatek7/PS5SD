@@ -197,11 +197,18 @@ tab shows the same, each preset as a button.
   that is loaded, the switch is at once, without loading anything. Its settings take effect at once too:
   they are the defaults of the API, set without a restart. Other files or options restart the server (the
   model loads again, about a minute for SDXL).
-- **Use** on the model loads its default preset, marked ★. **Make default** (in a preset's **⋯** menu)
-  picks another one; it is kept on the console (`default_presets` in the app's settings, see
+- **Use** on the model loads its default preset, marked ★. A click on the ☆ of another preset makes that
+  one the default; it is kept on the console (`default_presets` in the app's settings, see
   [API.md](API.md#app-settings)), so it holds in every browser. Only the web UI reads it: an API that
   switches models loads the preset it names.
 - **Edit text** (in the **⋯** menu) shows the preset file to change, for any preset.
+- **Reset** and **Update preset** (on the Create tab, under the model) show when the form is not what the
+  loaded preset says. Reset puts its settings back; Update preset writes the form's settings into the
+  preset, after a second press, and keeps its name, model and prompt starters.
+- **Models, Presets** lists every preset by name with its model, and a search. **Apply settings** there
+  puts a preset's settings into Create without switching, for another model of the loaded one's family
+  (two SDXL checkpoints, the two FLUX.2 Klein 4B files): the family comes from the tensors, so its
+  LoRAs fit too.
 - **Delete** (in the **⋯** menu) removes a saved preset's file only, never the model.
 
 Deleting a model on the Models tab deletes its saved presets too. A preset without `# base:` (the catalog's, or your own of a model in several files) is a

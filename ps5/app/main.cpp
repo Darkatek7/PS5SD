@@ -1227,7 +1227,7 @@ bool set_api_key(bool on, std::string & error) {
 //   upscalers (GET), upscalers/<file> (DELETE): the upscaler models in
 //                       /data/PS5SD/upscalers.
 //   settings (GET, POST) the app's settings (AppSettings): {"tv_images": bool,
-//                       "tv_api_key": bool}.
+//                       "tv_api_key": bool, "image_metadata": bool, ...}.
 //   auth (GET), auth/enable, auth/disable (POST): the API key; enable makes
 //                       a new one (also when there is one).
 //   presets (POST), presets/<id> (GET, POST, DELETE): saved presets, the
@@ -1442,10 +1442,32 @@ extern "C" int sd_app_request(const char * method, const char * path, const char
         } else if (m == "POST") {
             // {"text": "..."}: the preset's file, as GET gives it. A change to
             // the loaded model's arguments counts from its next load.
+            // {"defaults": {"steps": "10", ...}}: only the "# defaults:" line,
+            // the rest of the file stays; the loaded preset's settings follow at once.
             const nlohmann::json j = nlohmann::json::parse(body != nullptr ? std::string(body, body_len) : std::string(),
                                                            nullptr, false);
-            if (!j.is_object() || !j.contains("text") || !j["text"].is_string()) {
-                out    = error_json("the body must be {\"text\": \"<the preset file>\"}");
+            if (j.is_object() && !j.contains("text") && j.contains("defaults") && j["defaults"].is_object()) {
+                std::vector<std::pair<std::string, std::string>> defaults;
+                for (const auto & kv : j["defaults"].items()) {
+                    defaults.emplace_back(kv.key(), kv.value().is_string() ? kv.value().get<std::string>() : kv.value().dump());
+                }
+                if (!g_library.update_defaults(id, defaults, error)) {
+                    out    = error_json(error);
+                    status = error.rfind("no preset", 0) == 0 ? 404 : 400;
+                } else {
+                    if (id == loaded_id()) {
+                        ModelEntry  entry;
+                        std::string ignored;
+                        if (g_library.find(id, entry, ignored)) {
+                            apply_preset_settings(&entry);
+                        }
+                    }
+                    out    = models_json(g_library, active.empty() ? "" : active[0], loaded_id(), g_switching,
+                                         g_standby && !g_switching);
+                    status = 200;
+                }
+            } else if (!j.is_object() || !j.contains("text") || !j["text"].is_string()) {
+                out    = error_json("the body must be {\"text\": \"<the preset file>\"} or {\"defaults\": {...}}");
                 status = 400;
             } else if (!g_library.write_preset(id, j["text"].get<std::string>(), error)) {
                 out    = error_json(error);

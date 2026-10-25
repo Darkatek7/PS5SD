@@ -96,8 +96,8 @@
       if (st.video) tags.appendChild(el('span', 'tag vid', 'video'));
       if (st.cnModel) tags.appendChild(el('span', 'tag cn', 'ControlNet'));
     }
-    show('resetpreset', !!loaded && !d.standby, 'inline-block');
     drawSaveBox();
+    drawUpdate();
     if (cmOpen) drawCmList();
   }
 

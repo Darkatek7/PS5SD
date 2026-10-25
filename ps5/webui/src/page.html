@@ -90,7 +90,8 @@
       <div class="cmlist" id="cm-list" style="display:none"></div>
       <div class="prrow" id="pr-row">
         <button type="button" class="linkbtn" id="savepreset" style="display:none">Save as preset</button>
-        <button type="button" class="linkbtn" id="resetpreset">Reset to the preset</button>
+        <button type="button" class="linkbtn" id="resetpreset" style="display:none">Reset</button>
+        <button type="button" class="linkbtn" id="updpreset" style="display:none">Update preset</button>
       </div>
       <div id="ps-box" class="hrow" style="display:none">
         <div class="hint" id="ps-what" style="margin-top:0"></div>
@@ -318,6 +319,7 @@
 
     <p class="hint bad" id="fit-hint" role="status" style="display:none"></p>
     <label class="opt nokeep"><input type="checkbox" id="nokeep"> Don't keep on the console <button type="button" class="info" data-help="help-nokeep" aria-label="More about images that are not kept">&#9432;</button></label>
+    <label class="opt nokeep" id="nometa-box" style="display:none"><input type="checkbox" id="nometa"> Leave the settings out of the file <button type="button" class="info" data-help="help-nometa" aria-label="More about the settings in the file">&#9432;</button></label>
     <div class="gorow" id="gorow">
       <button type="button" class="go" id="go" title="Generate (Ctrl+Enter)">Generate</button>
       <div class="count" id="count-box" style="display:none">
@@ -348,6 +350,7 @@
 <div class="main" id="view-models" style="display:none">
   <div class="mseg" role="tablist" aria-label="Models">
     <button type="button" id="ms-installed" role="tab">Installed</button>
+    <button type="button" id="ms-presets" role="tab">Presets</button>
     <button type="button" id="ms-get" role="tab">Get more</button>
     <button type="button" id="ms-dl" role="tab">Downloads<span class="seg-badge" id="dl-badge" style="display:none"></span></button>
   </div>
@@ -377,6 +380,17 @@
       <section class="panel" id="pnl-ups" style="display:none">
         <div class="ph"><h2>Upscalers</h2></div>
         <div id="ulist"></div>
+      </section>
+    </div>
+  </div>
+
+  <div class="mview" id="mv-presets" style="display:none">
+    <div class="mcol wide">
+      <section class="panel">
+        <div class="ph"><h2>Presets</h2><button type="button" class="info" data-help="help-saved" aria-label="More about presets">&#9432;</button></div>
+        <input type="search" id="pfind" class="lfind" placeholder="Find a preset or a model" autocomplete="off" aria-label="Find a preset or a model">
+        <div id="plist"></div>
+        <p class="hint">&#9734; makes a preset the default of its model. <b>Apply settings</b> puts a preset's settings into Create for the loaded model, when both are of one family.</p>
       </section>
     </div>
   </div>
@@ -524,6 +538,8 @@
     <p>Some models want each prompt to begin the same way: Pony models with <code>score_9, score_8_up, score_7_up</code>, and a negative prompt with <code>score_4, score_5</code>. A preset can carry them in a <code># prompt:</code> and a <code># negative:</code> line. While it is loaded, the server puts them before the prompts of every run, from this page and from the API, and the Create tab shows them above the fields. A prompt that starts with them already does not get them twice.</p>
     <h2 id="help-nokeep">Images that are not kept</h2>
     <p>With <b>Don't keep on the console</b> a run's images and videos do not go into the gallery. Download what you want to keep on this device; the console deletes them when PS5SD starts again. <b>Keep on the console</b> under the image puts one into the gallery after all.</p>
+    <h2 id="help-nometa">The settings in the file</h2>
+    <p>A PNG carries what made it, the prompt and the settings, the way AUTOMATIC1111 writes them, so other tools and sites (Civitai) can read them. With <b>Leave the settings out of the file</b> the PNG carries nothing: a copy of it tells nobody the prompt. The console keeps them next to the image, so the gallery's Info and Use all still work there. The switch is kept on the console. An API client sends <code>"embed_image_metadata": false</code>.</p>
     <h2 id="help-gallery">Gallery</h2>
     <p>In the viewer, the mouse wheel or two fingers zoom in, a drag moves the picture, and a double click or double tap switches between the whole picture and its pixels one to one. <b>Copy prompt</b>, <b>Copy negative</b> and <b>Copy all</b> copy what made the image; Copy all is the text other tools (AUTOMATIC1111, Civitai) read when it is pasted.</p>
     <p><b>Name</b> gives a file a name and tags. The search finds them, and <code>#night</code> finds the files tagged night; a tag in the viewer does that search. They are kept on the console next to the gallery, not in the file.</p>
@@ -536,8 +552,9 @@
     <p>On the console, 33 frames at 1280×704 take about 16 minutes at 20 steps, at 832×480 about 6. Without a start image this model needs its own size, 1280×704: smaller videos from a prompt alone come out washed out. For video from a prompt alone, Wan 2.1 is faster.</p>
     <h2 id="help-saved">Presets</h2>
     <p>A preset is a model with its settings: size, steps, CFG, sampler, scheduler, CLIP skip, LoRAs and hires fix. Under Models each model is listed once, with its presets under it: the ones it came with and the ones you saved.</p>
-    <p><b>Use</b> on a model loads its default preset, marked ★; <b>⋯, Make default</b> picks another one. The default is kept on the console, so it holds in every browser; an API that switches models loads the preset it names. <b>⋯, Edit text</b> opens the preset's file (its settings and the model's files and options). Deleting a saved preset leaves the model; deleting the model deletes its saved presets too.</p>
-    <p>To save one, set up the Create tab and press Save there. A preset of the loaded model switches at once; another model restarts the server: 10 to 20 seconds, about a minute for SDXL.</p>
+    <p><b>Use</b> on a model loads its default preset, marked ★; a click on the ☆ of another preset makes that one the default. The default is kept on the console, so it holds in every browser; an API that switches models loads the preset it names. <b>⋯, Edit text</b> opens the preset's file (its settings and the model's files and options). Deleting a saved preset leaves the model; deleting the model deletes its saved presets too.</p>
+    <p>To save one, set up the Create tab and press <b>Save as preset</b> there. <b>Reset</b> and <b>Update preset</b> show when the form is not what the loaded preset says: Reset puts the preset's settings back, Update preset writes the form's settings into that preset (a second press to be sure), and its name, model and prompt starters stay. A preset of the loaded model switches at once; another model restarts the server: 10 to 20 seconds, about a minute for SDXL.</p>
+    <p>Models, <b>Presets</b> lists every preset with its model, with a search. <b>Apply settings</b> puts a preset's settings into Create without switching: for another model of the family that is loaded (two SDXL checkpoints, or the two FLUX.2 Klein 4B files), whose LoRAs and settings fit it too.</p>
     <h2 id="help-loras">LoRAs</h2>
     <p>A LoRA adds a style, a character or a look to a model. It works only with models of the family it was made for (SD 1.5, SDXL, FLUX…). Pick them on the Create tab, under Style: the box in front of one turns it off for a while and keeps its strength. Their order does not matter: sd.cpp adds them up. Under Models they are listed by the family they are made for, those for the model in use first.</p>
     <p>DMD2 (anime) and SDXL-Lightning (photos) make SDXL models fast: CFG 1, 4 to 8 steps, sampler LCM for DMD2 and Euler for Lightning. CausVid does the same for Wan 2.1 1.3B videos: CFG 1, 4 steps. Adding one of them sets these settings; removing it again brings back the ones from before, unless you changed them. With DMD2 an SDXL image takes about 11 s instead of 29. It does not suit every finetune: if the image comes out grey and flat, try CFG 1.5 and 8 steps.</p>

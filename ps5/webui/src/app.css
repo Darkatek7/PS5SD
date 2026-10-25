@@ -186,7 +186,7 @@
   .cmlist .mrow { margin-top: 0.4rem; }
 
   .prrow { display: flex; align-items: center; flex-wrap: wrap; margin-top: 0.3rem; }
-  .prrow .linkbtn { margin-right: 1.2rem; }
+  .prrow .linkbtn { margin-right: 1rem; }
   /* the fold mark: a triangle of borders, since the PS5's browser has no glyph for U+25BE */
   .caret { display: inline-block; width: 0; height: 0; overflow: hidden; font-size: 0; line-height: 0; vertical-align: middle;
     border-left: 0.32rem solid transparent; border-right: 0.32rem solid transparent; border-top: 0.4rem solid currentColor; }
@@ -453,6 +453,12 @@
   .sacts button { flex: none; min-height: 2.5rem; min-width: 4.2rem; margin-left: 0.4rem; padding: 0 0.6rem; font-size: 0.9rem; }
   .sacts button:first-child { margin-left: 0; }
   .star { margin-right: 0.35rem; color: var(--accent-hi); }
+  /* the star of a preset: ★ the default, ☆ a click makes it the default */
+  .sub > .star { flex: none; width: 2.25rem; min-width: 0; min-height: 2.25rem; margin: 0 0.45rem 0 -0.35rem; padding: 0;
+    font-size: 1.2rem; line-height: 1; color: var(--faint); background: transparent; border: 0; box-shadow: none; }
+  .sub > button.star:not(.on):not(:disabled):hover { color: var(--accent-hi); background: var(--raised); }
+  .sub > .star.on { color: var(--accent-hi); cursor: default; }
+  #pfind { margin-bottom: 0.4rem; }
   .sname .tag { margin: 0 0 0 0.4rem; }
   .rmore { position: relative; flex: none; margin-left: 0.9rem; }
   .macts .rmore { margin-left: 0.5rem; }
@@ -688,6 +694,9 @@
     .mrow.mgrp .macts > button { flex: none; min-width: 4.5rem; }
     .smain { flex: 1 1 0; }
     .sacts { margin-left: 0.5rem; }
+    /* the Presets list: the buttons under the name (Apply settings, Use, ⋯ do not fit beside it) */
+    #plist .sub { flex-wrap: wrap; }
+    #plist .sacts { flex: 1 1 100%; justify-content: flex-end; margin: 0.5rem 0 0; }
     .mseg button { padding: 0 0.3rem; font-size: 0.95rem; }
     .inrow { flex-wrap: wrap; }
     .inrow input { flex-basis: 100%; margin: 0 0 0.6rem; }
@@ -773,7 +782,8 @@
   /* ---------- the layout around the look (after the width rules, so it wins over them) ---------- */
   @media (max-width: 720px) {
     html:not(.tv) { font-size: 16px; }
-    .top { padding: 0.35rem 1rem 0.25rem; }
+    /* the header scrolls away with the page: on a phone every line of height counts */
+    .top { position: static; padding: 0.35rem 1rem 0.25rem; }
     .panel { margin: 0.4rem 0; padding: 1rem; }
     .main { padding: 0.2rem 0.6rem 1.25rem; }
     /* iOS's tab bar: no fill, the chosen tab in the accent's colour */
@@ -849,6 +859,21 @@
     html.side-mini .logo { margin: 0; }
     /* a blurred header would hold the fixed brand box (backdrop-filter makes a containing block) */
     html:not(.tv) .top { background: var(--chrome-solid); -webkit-backdrop-filter: none; backdrop-filter: none; }
+    /* No header bar: the brand is the sidebar's top, the console's reading and the status its foot (above
+       Fold), and the views start at the top of the window. The model is on Create and under Models. .top
+       stays in the page without a box (static: no stacking context, so its fixed parts lie over the sidebar). */
+    :root { --head: 0rem; }
+    .top, html:not(.tv) .top { position: static; min-height: 0; height: 0; padding: 0; background: transparent; box-shadow: none; }
+    .top .model { display: none; }
+    .top .cchip, .top .pill { position: fixed; z-index: 9; left: 0.6rem; box-sizing: border-box; width: calc(var(--side) - 1.2rem);
+      margin: 0; justify-content: flex-start; }
+    .top .pill { bottom: 3.6rem; }
+    .top .cchip { bottom: 5.75rem; }
+    .tabs { padding-bottom: 8rem; }
+    .tabs .sidefold { position: fixed; left: 0.6rem; bottom: 0.5rem; width: calc(var(--side) - 1.2rem); margin: 0 !important; }
+    html.side-mini .top .cchip .cw, html.side-mini #pilltext { display: none; }
+    html.side-mini .top .cchip, html.side-mini .top .pill { justify-content: center; padding-left: 0; padding-right: 0; font-size: 0.75rem; }
+    html.side-mini .top .pill .dot { margin: 0; }
   }
   /* the TV: the old, larger controls (the cursor needs them), no folding */
   html.tv { --ctl: 3.25rem; }

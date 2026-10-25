@@ -109,6 +109,20 @@ int main() {
               "fan_target under 70");
         check(!ps5sd::apply_settings(R"({"fan_target": 80.5})", settings, error), "fan_target not whole");
         check(nlohmann::json::parse(ps5sd::settings_json(settings))["fan"] == "manual", "fan in the JSON");
+        // image_metadata: on by default, a bool
+        check(settings.image_metadata && nlohmann::json::parse(ps5sd::settings_json(settings))["image_metadata"] == true,
+              "image_metadata default: on");
+        check(ps5sd::apply_settings(R"({"image_metadata": false})", settings, error) && !settings.image_metadata &&
+                  settings.fan == "manual",
+              "image_metadata off, the rest stays");
+        check(!ps5sd::apply_settings(R"({"image_metadata": "yes"})", settings, error) && !settings.image_metadata,
+              "image_metadata wrong type");
+        {
+            ps5sd::AppSettings loaded_md;
+            check(ps5sd::apply_settings(ps5sd::settings_json(settings), loaded_md, error) && !loaded_md.image_metadata,
+                  "image_metadata survives the settings file");
+        }
+        settings.image_metadata = true;
         // A model's default preset: merged, "" or null drops one.
         check(settings.default_presets.empty(), "no default presets at first");
         check(ps5sd::apply_settings(R"({"default_presets": {"a.gguf": "a-fast", "b.gguf": "b-hq"}})", settings, error) &&
@@ -283,6 +297,41 @@ int main() {
         check(!lib.write_preset("flux-512", "# name: nothing\n--vae-tiling\n", error), "a preset without a model");
         check(!lib.write_preset("nope", "-m\nilu.safetensors\n", error), "only existing presets");
         check(!lib.write_preset("../x", "-m\nilu.safetensors\n", error), "no paths");
+        // update_defaults: only the "# defaults:" line changes
+        write(presets / "upd.txt", "# name: Upd\n# base: flux\n# prompt: masterpiece\n# defaults: steps=10 width=512\n"
+                                   "--diffusion-model\nflux/dit.gguf\n--vae-tiling\n");
+        check(lib.update_defaults("upd", { { "steps", "20" }, { "sampler", "euler" } }, error) &&
+                  lib.read_preset("upd", text, error) &&
+                  text == "# name: Upd\n# base: flux\n# prompt: masterpiece\n# defaults: steps=20 sampler=euler\n"
+                          "--diffusion-model\nflux/dit.gguf\n--vae-tiling\n",
+              "update_defaults replaces the line and keeps the others");
+        check(lib.find("upd", v, error) && v.name == "Upd" && v.base == "flux" && v.prompt_starter == "masterpiece" &&
+                  v.defaults.size() == 2 && v.defaults[0].second == "20",
+              "the updated preset loads with its new defaults");
+        write(presets / "upd.txt", "# name: Upd\n# base: flux\n# prompt: masterpiece\n--diffusion-model\nflux/dit.gguf\n");
+        check(lib.update_defaults("upd", { { "cfg", "4.5" } }, error) && lib.read_preset("upd", text, error) &&
+                  text == "# name: Upd\n# base: flux\n# prompt: masterpiece\n# defaults: cfg=4.5\n"
+                          "--diffusion-model\nflux/dit.gguf\n",
+              "update_defaults adds the line after the header comments");
+        write(presets / "upd.txt", "--diffusion-model\nflux/dit.gguf\n");
+        check(lib.update_defaults("upd", { { "cfg", "4.5" } }, error) && lib.read_preset("upd", text, error) &&
+                  text == "# defaults: cfg=4.5\n--diffusion-model\nflux/dit.gguf\n",
+              "update_defaults adds the line at the top of a file without comments");
+        check(lib.update_defaults("upd", {}, error) && lib.read_preset("upd", text, error) &&
+                  text == "--diffusion-model\nflux/dit.gguf\n",
+              "no settings remove the line");
+        check(lib.update_defaults("upd", {}, error) && lib.read_preset("upd", text, error) &&
+                  text == "--diffusion-model\nflux/dit.gguf\n",
+              "removing a line that is not there changes nothing");
+        write(presets / "upd.txt", "# defaults: steps=1\n-m\nilu.safetensors\n");
+        check(!lib.update_defaults("upd", { { "steps", "1 --evil" } }, error) && !error.empty() &&
+                  lib.read_preset("upd", text, error) && text == "# defaults: steps=1\n-m\nilu.safetensors\n",
+              "a bad value fails and leaves the file");
+        check(!lib.update_defaults("upd", { { "prompt", "a" } }, error), "a bad key fails");
+        check(!lib.update_defaults("nope", { { "steps", "5" } }, error) && error.rfind("no preset", 0) == 0,
+              "update_defaults needs an existing preset");
+        check(!lib.update_defaults("../x", {}, error), "update_defaults: no paths");
+        fs::remove(presets / "upd.txt");
         check(!lib.remove_variant("flux", error), "a model is not a variant");
         check(lib.remove_variant("portrait-fast-2", error) && !fs::exists(presets / "portrait-fast-2.txt") &&
                   fs::exists(models / "ilu.safetensors"),

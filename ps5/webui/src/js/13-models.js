@@ -101,6 +101,7 @@
       (st.delErr ? st.delErr.id + st.delErr.msg : '') + '|' + (st.video ? 'v' : '');
     if (sig === mlistSig) return;
     mlistSig = sig;
+    drawPresetList();
     var box = $('mlist'), vbox = $('vlist');
     clear(box);
     clear(vbox);
@@ -313,18 +314,26 @@
     return item;
   }
 
-  // One preset of a model: its name (a star on the default), its settings, Use and ⋯.
+  // The star of a preset of a model with several: ★ on the default, ☆ on the others makes it the default.
+  function starButton(v, g) {
+    var on = v === g.def;
+    var b = actionButton(on ? '★' : '☆', function () { if (!on) makeDefault(g, v); });
+    b.className = 'star' + (on ? ' on' : '');
+    b.title = on ? 'The default: Use on the model loads it' : 'Make it the default of ' + g.title;
+    b.setAttribute('aria-pressed', on ? 'true' : 'false');
+    b.setAttribute('aria-label', on ? 'The default preset' : 'Make it the default');
+    b.disabled = !on && !st.defp;
+    return b;
+  }
+
+  // One preset of a model: its star, its name, its settings, Use and ⋯.
   function presetRow(v, g, d) {
     var s = stateOf(v, d);
     var miss = v.missing && v.missing.length;
     var row = el('div', 'sub' + (s === 'on' ? ' on' : ''));
+    row.appendChild(starButton(v, g));
     var main = el('div', 'smain');
     var nm = el('div', 'sname');
-    if (v === g.def) {
-      var star = el('span', 'star', '★');
-      star.title = 'Default: Use on the model loads it';
-      nm.appendChild(star);
-    }
     nm.appendChild(document.createTextNode(shortName(v, g.title)));
     if (v.control_net && !/controlnet/i.test(v.name || '')) nm.appendChild(el('span', 'tag cn', 'ControlNet'));
     if (s === 'on') nm.appendChild(el('span', 'badge ok', 'In use'));
@@ -346,11 +355,10 @@
     return row;
   }
 
-  // The ⋯ of a preset: Edit text, Make default, Delete.
+  // The ⋯ of a preset: Edit text, Delete (the star makes it the default).
   function itemMenu(v, g, d) {
     var items = [], why = '';
     if (v.kind === 'preset') items.push({ label: 'Edit text', fn: function () { editPreset(v); } });
-    if (g.items.length > 1 && v !== g.def) items.push({ label: 'Make default', disabled: !st.defp, fn: function () { makeDefault(g, v); } });
     if (v.kind === 'preset' && v.base) {
       var busy = d.loaded === v.id || d.active === v.id;
       if (busy) why = 'Switch to another preset to delete this one.';
@@ -360,6 +368,83 @@
       items.push({ label: 'Delete', danger: true, disabled: !!why || !!st.sw, fn: function () { askDelete(v); } });
     }
     return moreMenu(items, why);
+  }
+
+  // The Presets sub-view: every preset of every model in one list by name, with its model, and the search
+  // over both. Apply settings: a preset of another model of the loaded one's family (its LoRAs fit too).
+  function drawPresetList() {
+    var box = $('plist'), d = st.mdl, i, j;
+    clear(box);
+    if (st.app === false || !d) {
+      box.appendChild(el('div', 'empty-note', st.app === false ? 'This version of the PS5SD app has no presets.' : 'Loading…'));
+      return;
+    }
+    var q = trim($('pfind').value).toLowerCase();
+    var gs = groupsOf(d), rows = [];
+    var loaded = d.loaded && !d.standby ? findModel(d.loaded) : null, lg = null;
+    var lfam = loaded ? familyOf(loaded, loaded.base ? findModel(loaded.base) : null) : '';
+    for (i = 0; i < gs.length; i++) {
+      for (j = 0; j < gs[i].items.length; j++) {
+        var v = gs[i].items[j];
+        if (loaded && v === loaded) lg = gs[i];
+        if (v.part) continue;
+        var fam = familyOf(v, v.base ? findModel(v.base) : null);
+        if (q && (titleOf(v) + ' ' + gs[i].title + ' ' + fam).toLowerCase().indexOf(q) < 0) continue;
+        rows.push({ v: v, g: gs[i], fam: fam });
+      }
+    }
+    rows.sort(function (a, b) { return titleOf(a.v).toLowerCase() < titleOf(b.v).toLowerCase() ? -1 : 1; });
+    if (!rows.length) {
+      box.appendChild(el('div', 'empty-note', q ? 'No preset or model matches.' : 'No models installed yet. Get one under Get more.'));
+      return;
+    }
+    for (i = 0; i < rows.length; i++) box.appendChild(presetListRow(rows[i], d, lfam, lg));
+  }
+
+  function presetListRow(r, d, lfam, lg) {
+    var v = r.v, g = r.g, s = stateOf(v, d);
+    var miss = v.missing && v.missing.length;
+    var row = el('div', 'sub' + (s === 'on' ? ' on' : ''));
+    row.appendChild(g.items.length > 1 ? starButton(v, g) : el('span', 'star none'));
+    var main = el('div', 'smain');
+    var nm = el('div', 'sname', titleOf(v));
+    if (s === 'on') nm.appendChild(el('span', 'badge ok', 'In use'));
+    else if (s === 'loading') nm.appendChild(el('span', 'badge warn', 'Loading…'));
+    if (miss) nm.appendChild(el('span', 'badge bad', 'Files missing'));
+    main.appendChild(nm);
+    // the model (when the name is not the model's), and the family (when neither name says it)
+    var where = [];
+    if (g.title !== titleOf(v)) where.push(g.title);
+    if (r.fam && (g.title + ' ' + titleOf(v)).indexOf(r.fam) < 0) where.push(r.fam);
+    if (where.length) main.appendChild(el('div', 'mmeta', where.join(' · ')));
+    main.appendChild(el('div', 'mmeta', subMeta(v) || 'No settings of its own'));
+    row.appendChild(main);
+    var acts = el('div', 'sacts');
+    if (lfam && r.fam === lfam && g !== lg && !st.sw) {
+      var a = actionButton('Apply settings', function () { applySettings(v); });
+      a.title = 'Its settings into Create, for the loaded model; no switch';
+      acts.appendChild(a);
+    }
+    if (s !== 'on') {
+      var b = actionButton(s === 'loading' ? 'Loading…' : 'Use', function () { useModel(v); });
+      b.disabled = s === 'loading' || !!miss || !!st.sw;
+      acts.appendChild(b);
+    }
+    acts.appendChild(itemMenu(v, g, d));
+    row.appendChild(acts);
+    return row;
+  }
+
+  // A preset's settings into the form, for the model that is loaded; the seed stays.
+  function applySettings(v) {
+    var p = presetFor(st.model, v);
+    var seed = $('seed').value;
+    setForm(p);
+    $('seed').value = seed;
+    persist();
+    setView('create');
+    toast('The settings of ' + titleOf(v) + ' are in the form: ' + presetNote(p).replace(/^Defaults: /, '') +
+      ' Reset brings back the loaded preset\'s.', 7000);
   }
 
   // The preset Use on a model loads, kept on the console (settings: default_presets). The model's
@@ -463,7 +548,7 @@
   function applyMSub() {
     var want = msub === 'dl' && st.dl !== true ? 'installed' : msub;
     show('ms-dl', st.dl === true, 'block');
-    var names = ['installed', 'get', 'dl'];
+    var names = ['installed', 'presets', 'get', 'dl'];
     for (var i = 0; i < names.length; i++) {
       var on = names[i] === want;
       show('mv-' + names[i], on, 'flex');
@@ -475,8 +560,10 @@
 
   function initModelsTabs() {
     var saved = load('mtab');
-    msub = saved === 'get' || saved === 'dl' ? saved : 'installed';
+    msub = saved === 'get' || saved === 'dl' || saved === 'presets' ? saved : 'installed';
     $('ms-installed').onclick = function () { setMSub('installed'); };
+    $('ms-presets').onclick = function () { setMSub('presets'); };
+    $('pfind').oninput = drawPresetList;
     $('ms-get').onclick = function () { setMSub('get'); };
     $('ms-dl').onclick = function () { setMSub('dl'); };
     $('dl-clear').onclick = clearFinished;

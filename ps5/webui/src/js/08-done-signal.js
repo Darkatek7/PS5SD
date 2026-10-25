@@ -80,6 +80,28 @@
       $('opt-tvkey').checked = data.tv_api_key !== false;
       show('opt-tv-box', true);
       show('pnl-oncon', true);
+      if (typeof data.image_metadata === 'boolean') {
+        $('nometa').checked = !data.image_metadata;
+        show('nometa-box', true, 'flex');
+      }
+    });
+  }
+
+  // Leave the settings out of the file (settings: image_metadata), kept on the console; generate()
+  // sends "embed_image_metadata": false while it is on.
+  function setMetaOption() {
+    var box = $('nometa');
+    var want = !box.checked;
+    box.disabled = true;
+    req('POST', APP + '/settings', { image_metadata: want }, function (code, data) {
+      box.disabled = false;
+      if (code === 200 && data && typeof data.image_metadata === 'boolean') {
+        box.checked = !data.image_metadata;
+        toast(data.image_metadata ? 'New images carry their settings again.' : 'New images carry no settings in the file; the console keeps them for the gallery.', 6000);
+      } else {
+        box.checked = want;
+        toast('Could not change it' + (data && data.error ? ': ' + data.error : '.'), 6000);
+      }
     });
   }
 

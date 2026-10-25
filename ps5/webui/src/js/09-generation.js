@@ -18,6 +18,7 @@
     f.guide = !st.video && st.mode === 'guide' && !!st.cn && !!st.cnModel;
     f.vinit = st.vinit && vidStartCapable() ? videoStartData(f.w, f.h) : null;
     f.temp = $('nokeep').checked;
+    f.nometa = $('nometa').checked;
     return f;
   }
 
@@ -77,6 +78,7 @@
     if (p.sampler !== 'default') body.sample_params.sample_method = p.sampler;
     if (p.scheduler !== 'default') body.sample_params.scheduler = p.scheduler;
     if (loraBody(p).length) body.lora = loraBody(p);
+    if (p.nometa) body.embed_image_metadata = false;
     if (p.req && p.req.ref) {
       body.ref_images = [p.req.init];
       body.width = p.req.w;

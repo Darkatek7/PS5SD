@@ -500,6 +500,40 @@ bool valid_default(const std::string & key, const std::string & value) {
     return true;
 }
 
+// False, with a message, when one of the defaults is not a setting a preset can keep.
+bool check_defaults(const std::vector<std::pair<std::string, std::string>> & defaults, std::string & error) {
+    for (const auto & kv : defaults) {
+        if (!valid_default(kv.first, kv.second)) {
+            error = "not a setting a preset can keep: " + kv.first + "=" + kv.second;
+            return false;
+        }
+    }
+    return true;
+}
+
+// The "# defaults:" line for the settings, with its newline; "" for none.
+std::string defaults_line(const std::vector<std::pair<std::string, std::string>> & defaults) {
+    if (defaults.empty()) {
+        return "";
+    }
+    std::string line = "# defaults:";
+    for (const auto & kv : defaults) {
+        line += " " + kv.first + "=" + kv.second;
+    }
+    return line + "\n";
+}
+
+// True for a "# defaults: ..." comment line.
+bool is_defaults_line(const std::string & line_in) {
+    const std::string line = trim(line_in);
+    if (line.empty() || line[0] != '#') {
+        return false;
+    }
+    const std::string body  = trim(line.substr(1));
+    const size_t      colon = body.find(':');
+    return colon != std::string::npos && lower(trim(body.substr(0, colon))) == "defaults";
+}
+
 std::string read_file(const fs::path & p) {
     std::ifstream      in(p, std::ios::binary);
     std::ostringstream text;
@@ -535,11 +569,8 @@ bool ModelLibrary::create_preset(const std::string & name_in, const std::string 
         error = "a preset needs a name of one line (at most 100 characters)";
         return false;
     }
-    for (const auto & kv : defaults) {
-        if (!valid_default(kv.first, kv.second)) {
-            error = "not a setting a preset can keep: " + kv.first + "=" + kv.second;
-            return false;
-        }
+    if (!check_defaults(defaults, error)) {
+        return false;
     }
     ModelEntry base;
     if (!find(base_id, base, error)) {
@@ -587,13 +618,7 @@ bool ModelLibrary::create_preset(const std::string & name_in, const std::string 
     if (!base.negative_starter.empty()) {
         text += "# negative: " + base.negative_starter + "\n";
     }
-    if (!defaults.empty()) {
-        text += "# defaults:";
-        for (const auto & kv : defaults) {
-            text += " " + kv.first + "=" + kv.second;
-        }
-        text += "\n";
-    }
+    text += defaults_line(defaults);
     text += args;
     if (!write_file(fs::u8path(presets_dir) / fs::u8path(id + ".txt"), text)) {
         error = "could not write " + presets_dir + "/" + id + ".txt";
@@ -633,6 +658,46 @@ bool ModelLibrary::write_preset(const std::string & id_in, const std::string & t
         return false;
     }
     return true;
+}
+
+bool ModelLibrary::update_defaults(const std::string & id, const std::vector<std::pair<std::string, std::string>> & defaults,
+                                   std::string & error) const {
+    if (!check_defaults(defaults, error)) {
+        return false;
+    }
+    std::string text;
+    if (!read_preset(id, text, error)) {
+        return false;
+    }
+    const std::string line = defaults_line(defaults);
+    std::string       out;
+    bool              placed = false;  // the new line is in out
+    bool              header = true;   // still in the "# key: value" lines at the top
+    size_t            after  = 0;      // where out stood after the last header comment
+    std::istringstream in(text);
+    for (std::string l; std::getline(in, l);) {
+        if (is_defaults_line(l)) {
+            // the first one is replaced in place, a second one goes
+            if (!placed) {
+                out += line;
+                placed = true;
+            }
+            after = out.size();
+            continue;
+        }
+        const std::string t = trim(l);
+        if (header && !t.empty() && t[0] != '#') {
+            header = false;
+        }
+        out += l + "\n";
+        if (header && !t.empty()) {
+            after = out.size();
+        }
+    }
+    if (!placed) {
+        out.insert(after, line);
+    }
+    return write_preset(id, out, error);
 }
 
 bool ModelLibrary::remove_variant(const std::string & id_in, std::string & error) const {
@@ -1069,6 +1134,7 @@ std::string settings_json(const AppSettings & settings) {
                            { "tv_api_key", settings.tv_api_key },
                            { "fan", settings.fan },
                            { "fan_target", settings.fan_target },
+                           { "image_metadata", settings.image_metadata },
                            { "default_presets", settings.default_presets } }
         .dump(-1, ' ', false, nlohmann::json::error_handler_t::replace);
 }
@@ -1093,6 +1159,13 @@ bool apply_settings(const std::string & body, AppSettings & settings, std::strin
             return false;
         }
         next.tv_api_key = j["tv_api_key"].get<bool>();
+    }
+    if (j.contains("image_metadata")) {
+        if (!j["image_metadata"].is_boolean()) {
+            error = "image_metadata must be true or false";
+            return false;
+        }
+        next.image_metadata = j["image_metadata"].get<bool>();
     }
     if (j.contains("fan")) {
         const auto & f = j["fan"];

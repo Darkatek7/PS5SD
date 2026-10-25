@@ -189,6 +189,8 @@ instead of trapping, so `main.cpp` reports an out-of-memory load or generation a
   `patches/sdcpp/0074` notes when a job's generation begins and writes how long it took into the
   saved image's parameters (`Time: 52.3 s` in the text, `"ps5sd": {"seconds": 52.3}` in the JSON), and
   fills an empty `Model:` with the diffusion model's name.
+  `patches/sdcpp/0075` keeps a PNG's parameters in `.thumbs/<name>.txt` when the request turned
+  `embed_image_metadata` off, and the gallery reads them from there when the PNG has none.
   The request's own settings (steps, CFG, size) win over the server's defaults, which are sd.cpp's, not
   the one-shot's SD-Turbo ones. `main.cpp` defines the activity hooks of `server_hooks.h` (in its own
   object: from an archive, lld could take the weak no-ops instead), which feed the status and the
