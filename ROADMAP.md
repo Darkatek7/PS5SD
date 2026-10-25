@@ -10,6 +10,8 @@ can rely on.
 
 ## Done
 
+- **0.9.13**: a star per preset, Update preset, a Presets list with Apply settings, no header bar on a PC,
+  images without their settings in the file (issues 10 and 12).
 - **0.9.12**: presets under their model with a default for each, Edit text for every preset, the time
   and model in the image, Use all in the viewer, LoRAs on and off, several uploads at once (issues 10 and 11).
 - **0.9.11**: the web UI: a Create tab without scrolling, a denser look, light and dark, a sidebar that
@@ -321,6 +323,17 @@ selected for one delete or download.
   search past 8. Their order does not change the image, so they keep no order.
 - [x] **Several uploads at once**, one after the other, with Cancel.
 - [x] **Klein 9B's preset** at 8 steps with dpm2 (about 3 minutes an image).
+
+## 0.9.13: presets, more room, and images without metadata ([issue 10](https://github.com/Darkatek7/PS5SD/issues/10), [issue 12](https://github.com/Darkatek7/PS5SD/issues/12)), done
+
+- [x] **A star per preset**: a click on ☆ makes it the model's default.
+- [x] **Update preset**: the form's settings into the loaded preset (`POST presets/<id>` with `defaults`), with
+  Reset beside it; both show only when the form differs from the preset.
+- [x] **Models, Presets**: every preset by name with its model and a search; **Apply settings** for another
+  model of the same family (two SDXL checkpoints, the two Klein 4B files), without a switch.
+- [x] **More room**: no header bar on a PC (the status is at the sidebar's foot); on a phone it scrolls away.
+- [x] **Leave the settings out of the file** (issue 12): the PNG carries nothing, the console keeps them
+  for the gallery (patch 0075).
 
 ## Later in 0.9.x
 
