@@ -251,6 +251,9 @@ class MockModels:
             {"id": "flux-klein", "name": "FLUX.3 Image Klein (int8)",
              "defaults": {"steps": "16", "cfg": "1", "width": "1024", "height": "1024", "sampler": "euler"},
              "files": ["flux3-klein-int8.safetensors", "flux3/text_encoder.safetensors", "flux3/ae.safetensors"]},
+            # a saved preset: settings on its base, whose files it shares
+            {"id": "illustxl-quick", "name": "IllustXL quick", "base": "illustxl", "defaults": dict(self.SDXL_DEFAULTS, steps="14"),
+             "files": ["raehoshiIllustXL_v110.safetensors", "vae/sdxl_vae_fp16_fix.safetensors"]},
         ]
         self.active = "sdxl-base"
         self.loaded = "sdxl-base"
@@ -280,7 +283,7 @@ class MockModels:
         models = []
         for e in self._entries():
             models.append({"id": e["id"], "name": e["name"], "kind": e["kind"], "defaults": e["defaults"],
-                           "bytes": sum(self.files[f] for f in e["files"] if f in self.files),
+                           "base": e.get("base", ""), "bytes": sum(self.files[f] for f in e["files"] if f in self.files),
                            "files": [self.DIR + f for f in e["files"]],
                            "missing": [self.DIR + f for f in e["files"] if f not in self.files]})
         return {"active": self.active, "loaded": "" if self.until else self.loaded,
@@ -298,6 +301,8 @@ class MockModels:
 
     def handle(self, method, path, body):
         route = path.split("?")[0]
+        if route.startswith(APP + "presets"):
+            return self._presets(method, route[len(APP + "presets"):], body)
         if not route.startswith(APP + "models"):
             return None
         rest = route[len(APP + "models"):]
@@ -339,7 +344,7 @@ class MockModels:
                 busy = set(self._find(self.active)["files"]) if self._find(self.active) else set()
                 others = set()
                 for p in self.presets:
-                    if p["id"] != mid:
+                    if p["id"] != mid and p.get("base") != mid:
                         others.update(p["files"])
                 deleted, kept = [], []
                 for f in e["files"]:
@@ -351,13 +356,48 @@ class MockModels:
                         del self.files[f]
                         deleted.append(self.DIR + f)
                 if e["kind"] == "preset":
-                    self.presets = [p for p in self.presets if p["id"] != mid]
+                    # its saved presets go with it
+                    self.presets = [p for p in self.presets if p["id"] != mid and p.get("base") != mid]
                 self._sync_catalog(mid, [d[len(self.DIR):] for d in deleted])
                 out = self._json()
                 out["deleted"] = deleted
                 out["kept"] = kept
                 return 200, out
         return 404, {"error": "not found"}
+
+    # Saved presets: POST /presets {"name", "base", "defaults"} and DELETE /presets/<id> (only these).
+    def _presets(self, method, rest, body):
+        with self.lock:
+            if method == "POST" and rest == "":
+                try:
+                    j = json.loads(body or b"{}")
+                except ValueError:
+                    j = {}
+                base = self._find(str(j.get("base") or self.loaded))
+                if base is None or not j.get("name"):
+                    return 400, {"error": "the body must be {\"name\": \"...\", \"base\": \"<model id>\", \"defaults\": {...}}"}
+                root = base.get("base") or base["id"]
+                pid = re.sub(r"[^a-z0-9]+", "-", str(j["name"]).lower()).strip("-") or "preset"
+                while self._find(pid) is not None:
+                    pid += "-2"
+                self.presets.append({"id": pid, "name": str(j["name"]), "base": root,
+                                     "defaults": dict(j.get("defaults") or {}), "files": list(base["files"])})
+                out = self._json()
+                out["id"] = pid
+                return 201, out
+            if method == "DELETE" and rest.startswith("/"):
+                pid = urllib.parse.unquote(rest[1:])
+                e = self._find(pid)
+                if e is None:
+                    return 404, {"error": "no preset " + pid}
+                if not e.get("base"):
+                    return 400, {"error": pid + " is a model, not a saved preset"}
+                cur = self._json()
+                if pid in (self.active, cur["loaded"]):
+                    return 409, {"error": e["name"] + " is in use; switch to another preset first"}
+                self.presets = [p for p in self.presets if p["id"] != pid]
+                return 200, self._json()
+        return None
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -431,7 +471,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(503, {"error": "no model is loaded; pick or download one in the web UI, tab Models",
                                  "standby": True})
                 return
-        if self.models is not None and re.match(r"^/ps5sd/v1/app/models(/|\?|$)", self.path):
+        if self.models is not None and re.match(r"^/ps5sd/v1/app/(models|presets)(/|\?|$)", self.path):
             res = self.models.handle(self.command, self.path, body)
         elif self.mock is not None and re.match(r"^/ps5sd/v1/app/(catalog|downloads|hf/)", self.path):
             res = self.mock.handle(self.command, self.path, body)
@@ -453,7 +493,7 @@ if __name__ == "__main__":
     ap.add_argument("--mock-downloads", action="store_true",
                     help="answer catalog, downloads and Hugging Face search here (simulated)")
     ap.add_argument("--mock-models", action="store_true",
-                    help="answer the model library (list, switch, delete) here; implied by --mock-downloads")
+                    help="answer the model library (list, switch, delete; saved presets: save, delete) here; implied by --mock-downloads")
     ap.add_argument("--read-only", action="store_true",
                     help="send only GET to the console: no job, cancel, delete or setting reaches it (the mocks still answer)")
     ap.add_argument("--mock-standby", action="store_true",
