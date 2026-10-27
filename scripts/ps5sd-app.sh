@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Drives PS5SD on the console from the PC (macOS or Linux, bash 3.2 is enough; needs curl,
-# nc, and nothing else). Needs ftpsrv (2121), elfldr (9021) and klogsrv (3232) on the console.
+# Drives PS5SD on the console from the PC (macOS, Linux, or Git Bash on Windows; bash 3.2 is enough;
+# needs curl, and nc or bash's /dev/tcp or python3). Needs ftpsrv (2121), elfldr (9021) and klogsrv
+# (3232) on the console.
 #
 #   scripts/fetch-artifact.sh                  get CI's title folder and launch payload first
 #   scripts/ps5sd-app.sh status                ports, /data/homebrew/PPSA99576, /data/PS5SD
@@ -68,7 +69,32 @@ ftp_mkdir() { # <dir>: MKD, failure (it exists) ignored
     curl -g -s --connect-timeout 5 --max-time 20 -o /dev/null -Q "-MKD $1" "$ftp/" || true
 }
 
-port_open() { nc -z -w 3 "$host" "$1" > /dev/null 2>&1; }
+# The first python that runs Python 3 (on Windows "python3" can be the Store's stub); empty when none does.
+find_python() {
+    local p
+    for p in python3 python; do
+        if command -v "$p" > /dev/null 2>&1 && "$p" -c 'import sys; sys.exit(sys.version_info[0] != 3)' > /dev/null 2>&1; then
+            printf '%s' "$p"
+            return
+        fi
+    done
+}
+
+# <port> answers within 3 s. nc where there is one (macOS, Linux), else bash's /dev/tcp (Git Bash on
+# Windows has no nc), else python.
+port_open() {
+    local py
+    if command -v nc > /dev/null 2>&1; then
+        nc -z -w 3 "$host" "$1" > /dev/null 2>&1
+    elif command -v timeout > /dev/null 2>&1; then
+        timeout 3 bash -c 'exec 3<> "/dev/tcp/$0/$1"' "$host" "$1" > /dev/null 2>&1
+    else
+        py=$(find_python)
+        [ -n "$py" ] || die "need nc, timeout or python3 to reach the console"
+        "$py" -I -c 'import socket, sys; socket.create_connection((sys.argv[1], int(sys.argv[2])), timeout=3).close()' \
+            "$host" "$1" > /dev/null 2>&1
+    fi
+}
 
 ensure_data_dirs() {
     if ! ftp_list "$data" > /dev/null 2>&1; then
@@ -231,7 +257,12 @@ cycle() {
 log() {
     if [ "${1:-}" = -f ]; then
         say "klogsrv $host:$klog_port (Ctrl-C to stop)"
-        exec nc "$host" "$klog_port"
+        if command -v nc > /dev/null 2>&1; then
+            exec nc "$host" "$klog_port"
+        fi
+        # bash's own TCP (Git Bash has no nc)
+        exec 3<> "/dev/tcp/$host/$klog_port" || die "klogsrv ($host:$klog_port) is not reachable"
+        exec cat <&3
     fi
     [ -n "$(ftp_size "$data/app.log")" ] || die "no $data/app.log yet"
     fcurl --max-time 60 "$(ftp_url "$data/app.log")"
