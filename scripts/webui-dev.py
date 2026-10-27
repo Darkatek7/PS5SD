@@ -10,8 +10,10 @@ for the build), so an edit shows after a reload.
 search) in this process, with simulated progress, so the Models tab can be tried before the
 console has them. It also turns on --mock-models: the model library (list, switch, delete;
 saved presets: save, delete; a preset's text: read, write) is then an in-memory fake too and the console is not
-asked about models at all, so a delete or a switch cannot touch it. It also serves docs/MODELS.md and docs/API.md
-from this checkout for the Help tab. --mock-models alone fakes only the library. Everything else is still forwarded. Without the flag the real console answers
+asked about models at all, so a delete or a switch cannot touch it. The LoRAs (list, delete; a few
+fixed files, some in subfolders, with a family) and sd-server's sampler and scheduler lists are fakes
+too, so the Generate tab and the preset editor work without a console. It also serves docs/MODELS.md
+and docs/API.md from this checkout for the Help tab. --mock-models alone fakes only these, not the downloads. Everything else is still forwarded. Without the flag the real console answers
 (an old app answers 404 and the page hides the download parts). Words in a URL steer the mock:
 "fail" makes the download fail at 30 percent, "big" makes it 8 GB, "slow" makes it slow.
 In a search, "err" gives an error and "none" gives no results.
@@ -474,11 +476,58 @@ class MockModels:
         return None
 
 
+class MockLoras:
+    """In-memory stand-in for GET /loras and DELETE /loras/<path>, and sd-server's sampler and scheduler lists."""
+
+    SAMPLERS = ["euler", "euler_a", "heun", "dpm2", "dpm++2s_a", "dpm++2m", "dpm++2mv2", "ipndm", "lcm"]
+    SCHEDULERS = ["discrete", "karras", "exponential", "ays", "sgm_uniform", "simple"]
+    # path: (bytes, family); "" is a LoRA whose family the server cannot tell
+    FILES = {
+        "add-detail-xl.safetensors": (228 * MB, "SDXL"),
+        "sdxl-lightning-8step.safetensors": (394 * MB, "SDXL"),
+        "styles/ink-sketch.safetensors": (171 * MB, "SDXL"),
+        "styles/watercolor_v2.gguf": (85 * MB, "SDXL"),
+        "styles/anime/flat-colors.safetensors": (57 * MB, "SDXL"),
+        "flux/realism-lora.safetensors": (22 * MB, "FLUX.1"),
+        "sd15/epi_noiseoffset2.safetensors": (81 * MB, "SD 1.5"),
+        "mystery.safetensors": (12 * MB, ""),
+    }
+
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.files = dict(self.FILES)
+
+    def _json(self):
+        return {"loras": [{"name": path.rsplit("/", 1)[-1].rsplit(".", 1)[0], "path": path, "bytes": b, "family": fam}
+                          for path, (b, fam) in sorted(self.files.items())]}
+
+    def handle(self, method, path, body):
+        route = path.split("?")[0]
+        if method == "GET" and route == "/sdapi/v1/samplers":
+            return 200, [{"name": n, "aliases": [n], "options": {}} for n in self.SAMPLERS]
+        if method == "GET" and route == "/sdapi/v1/schedulers":
+            return 200, [{"name": n, "label": n} for n in self.SCHEDULERS]
+        if not route.startswith(APP + "loras"):
+            return None
+        rest = route[len(APP + "loras"):]
+        with self.lock:
+            if method == "GET" and rest == "":
+                return 200, self._json()
+            if method == "DELETE" and rest.startswith("/"):
+                lora = urllib.parse.unquote(rest[1:])
+                if lora not in self.files:
+                    return 404, {"error": "no LoRA " + lora}
+                del self.files[lora]
+                return 200, self._json()
+        return None
+
+
 class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
     target = None
     mock = None
     models = None
+    loras = None
     read_only = False
 
     def log_message(self, fmt, *args):
@@ -556,6 +605,8 @@ class Handler(BaseHTTPRequestHandler):
             return
         if self.models is not None and re.match(r"^/ps5sd/v1/app/(models|presets)(/|\?|$)", self.path):
             res = self.models.handle(self.command, self.path, body)
+        elif self.loras is not None and re.match(r"^(/ps5sd/v1/app/loras|/sdapi/v1/(samplers|schedulers))(/|\?|$)", self.path):
+            res = self.loras.handle(self.command, self.path, body)
         elif self.mock is not None and re.match(r"^/ps5sd/v1/app/(catalog|downloads|hf/)", self.path):
             res = self.mock.handle(self.command, self.path, body)
         if res is not None:
@@ -576,8 +627,9 @@ if __name__ == "__main__":
     ap.add_argument("--mock-downloads", action="store_true",
                     help="answer catalog, downloads and Hugging Face search here (simulated)")
     ap.add_argument("--mock-models", action="store_true",
-                    help="answer the model library (list, switch, delete; saved presets: save, delete; preset text) and the docs"
-                         " here; implied by --mock-downloads")
+                    help="answer the model library (list, switch, delete; saved presets: save, delete; preset text),"
+                         " the LoRAs (list, delete), the sampler and scheduler lists and the docs here;"
+                         " implied by --mock-downloads")
     ap.add_argument("--read-only", action="store_true",
                     help="send only GET to the console: no job, cancel, delete or setting reaches it (the mocks still answer)")
     ap.add_argument("--mock-standby", action="store_true",
@@ -590,6 +642,7 @@ if __name__ == "__main__":
         Handler.mock = MockDownloads()
     if a.mock_downloads or a.mock_models:
         Handler.models = MockModels(Handler.mock)
+        Handler.loras = MockLoras()
     if a.mock_standby:
         Handler.models.standby = True
         Handler.models.active = Handler.models.loaded = ""
