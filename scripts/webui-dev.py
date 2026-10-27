@@ -10,7 +10,8 @@ for the build), so an edit shows after a reload.
 search) in this process, with simulated progress, so the Models tab can be tried before the
 console has them. It also turns on --mock-models: the model library (list, switch, delete;
 saved presets: save, delete; a preset's text: read, write) is then an in-memory fake too and the console is not
-asked about models at all, so a delete or a switch cannot touch it. It also serves docs/MODELS.md and docs/API.md
+asked about models at all, so a delete or a switch cannot touch it. When the console does not answer, the samplers,
+schedulers and LoRAs are a few fake ones, so the preset editor has something to suggest. It also serves docs/MODELS.md and docs/API.md
 from this checkout for the Help tab. --mock-models alone fakes only the library. Everything else is still forwarded. Without the flag the real console answers
 (an old app answers 404 and the page hides the download parts). Words in a URL steer the mock:
 "fail" makes the download fail at 30 percent, "big" makes it 8 GB, "slow" makes it slow.
@@ -481,6 +482,19 @@ class Handler(BaseHTTPRequestHandler):
     models = None
     read_only = False
 
+    # With a mock and no console: a few samplers and LoRAs, so the preset editor can suggest them.
+    FALLBACK = {
+        "/sdapi/v1/samplers": [{"name": n, "aliases": [n], "options": {}}
+                               for n in ("euler", "euler_a", "heun", "dpm2", "dpm++2m", "dpm++2s_a", "lcm")],
+        "/sdapi/v1/schedulers": [{"name": n, "label": n} for n in ("discrete", "karras", "exponential", "sgm_uniform")],
+        APP + "loras": {"loras": [
+            {"name": "detail_tweaker", "path": "detail_tweaker.safetensors", "bytes": 144 * MB, "family": "sdxl"},
+            {"name": "pixel_art", "path": "styles/pixel_art.safetensors", "bytes": 218 * MB, "family": "sdxl"},
+            {"name": "watercolor", "path": "styles/watercolor_v2.safetensors", "bytes": 171 * MB, "family": "sdxl"},
+            {"name": "lcm-lora-sdxl", "path": "speed/lcm-lora-sdxl.safetensors", "bytes": 394 * MB, "family": "sdxl"},
+        ]},
+    }
+
     def log_message(self, fmt, *args):
         pass
 
@@ -503,6 +517,10 @@ class Handler(BaseHTTPRequestHandler):
             r = conn.getresponse()
             data = r.read()
         except Exception as e:  # server down: behave like a dropped connection
+            fake = self.FALLBACK.get(self.path.split("?")[0]) if self.models is not None else None
+            if fake is not None and self.command == "GET":
+                self._json(200, fake)
+                return
             msg = ("proxy error: %s" % e).encode()
             self.send_response(502)
             self.send_header("Content-Length", str(len(msg)))
