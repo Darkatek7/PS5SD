@@ -8,8 +8,8 @@ for the build), so an edit shows after a reload.
 
 --mock-downloads answers the download routes of the app (catalog, downloads, Hugging Face
 search) in this process, with simulated progress, so the Models tab can be tried before the
-console has them. It also turns on --mock-models: the model library (list, switch, delete)
-is then an in-memory fake too and the console is not asked about models at all, so a delete or
+console has them. It also turns on --mock-models: the model library (list, switch, delete;
+saved presets: save, delete) is then an in-memory fake too and the console is not asked about models at all, so a delete or
 a switch cannot touch it. --mock-models alone fakes only the library. Everything else is still forwarded. Without the flag the real console answers
 (an old app answers 404 and the page hides the download parts). Words in a URL steer the mock:
 "fail" makes the download fail at 30 percent, "big" makes it 8 GB, "slow" makes it slow.
