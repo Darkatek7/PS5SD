@@ -119,13 +119,14 @@
     // in a dialog: next to the field (the dialog is over the page), under the caret's line, or over it if
     // there is no room below
     if (box.parentNode !== f.parentNode) f.parentNode.insertBefore(box, f.nextSibling);
-    var line = caretLine(f);
-    line.top = Math.max(0, Math.min(line.top, f.offsetHeight - line.height));
-    box.style.top = (f.offsetTop + line.top + line.height + 2) + 'px';
     show('tagbox', true);
-    if (box.getBoundingClientRect().bottom > window.innerHeight) {
-      var up = f.offsetTop + line.top - box.offsetHeight - 2;
-      if (f.getBoundingClientRect().top + line.top - box.offsetHeight - 2 >= 0) box.style.top = up + 'px';
+    // from the screen, not offsetTop: that leaves out how far the dialog's box is scrolled
+    var line = caretLine(f), op = box.offsetParent, fr = f.getBoundingClientRect();
+    line.top = Math.max(0, Math.min(line.top, f.offsetHeight - line.height));
+    var y = fr.top - op.getBoundingClientRect().top - op.clientTop + op.scrollTop + line.top;
+    box.style.top = (y + line.height + 2) + 'px';
+    if (box.getBoundingClientRect().bottom > window.innerHeight && fr.top + line.top - box.offsetHeight - 2 >= 0) {
+      box.style.top = (y - box.offsetHeight - 2) + 'px';
     }
   }
 
