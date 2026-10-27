@@ -134,6 +134,13 @@
     for (var i = 0; i < hs.length; i++) {
       if ((hs[i].textContent || '').indexOf(docAt) === 0) {
         if (hs[i].scrollIntoView) hs[i].scrollIntoView(true);
+        // the header (and the tab bar, where it sits on top) stays at the top and would cover the heading
+        var h = hs[i].getBoundingClientRect(), bars = [document.querySelector('.top'), document.querySelector('.tabs')], below = h.top;
+        for (var b = 0; b < bars.length; b++) {
+          var r = bars[b] && bars[b].getBoundingClientRect();
+          if (r && r.top <= below + 1 && r.bottom > below && r.left < h.right && r.right > h.left) below = r.bottom;
+        }
+        if (below > h.top && window.scrollBy) window.scrollBy(0, h.top - below - 12);
         break;
       }
     }
