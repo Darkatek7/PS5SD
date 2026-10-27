@@ -355,14 +355,18 @@
     return row;
   }
 
-  // The ⋯ of a preset: Edit text, Delete (the star makes it the default).
-  function itemMenu(v, g, d) {
+  // The ⋯ of a preset: Edit text, Delete (the star makes it the default). inList: the Presets list,
+  // where a model is not deleted (that is under Installed): its Delete is off, with the note why.
+  function itemMenu(v, g, d, inList) {
     var items = [], why = '';
     if (v.kind === 'preset') items.push({ label: 'Edit text', fn: function () { editPreset(v); } });
     if (v.kind === 'preset' && v.base) {
       var busy = d.loaded === v.id || d.active === v.id;
       if (busy) why = 'Switch to another preset to delete this one.';
       items.push({ label: 'Delete', danger: true, disabled: busy || !!st.sw, fn: function () { askDeletePreset(v); } });
+    } else if (inList) {
+      why = 'Delete the model under Models → Installed.';
+      items.push({ label: 'Delete', danger: true, disabled: true, fn: function () {} });
     } else {
       why = deleteBlock(v, d);
       items.push({ label: 'Delete', danger: true, disabled: !!why || !!st.sw, fn: function () { askDelete(v); } });
@@ -430,7 +434,7 @@
       b.disabled = s === 'loading' || !!miss || !!st.sw;
       acts.appendChild(b);
     }
-    acts.appendChild(itemMenu(v, g, d));
+    acts.appendChild(itemMenu(v, g, d, true));
     row.appendChild(acts);
     return row;
   }
