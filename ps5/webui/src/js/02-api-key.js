@@ -24,7 +24,7 @@
         show('login', false);
         if (!auth.started) start(); else window.location.reload();
       } else if (code === 429) {
-        text($('login-err'), (data && data.error) || 'Too many tries. Wait a moment.');
+        text($('login-err'), errMessage(data) || 'Too many tries. Wait a moment.');
       } else if (code === 401) {
         text($('login-err'), 'That is not the key. It is on the TV, under the address.');
       } else {

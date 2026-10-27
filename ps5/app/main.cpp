@@ -1009,7 +1009,7 @@ int ask_switch(const std::string & id, std::string & out) {
     ModelEntry  entry;
     std::string error;
     if (!g_library.find(id, entry, error)) {
-        out = error_json(error);
+        out = error_json(error, "model_not_found");
         return 404;
     }
     // Only a part of a model (a diffusion model without its text encoder, a
@@ -1017,11 +1017,16 @@ int ask_switch(const std::string & id, std::string & out) {
     const std::string part = part_reason(entry);
     if (!part.empty()) {
         std::printf("ps5sd: switch to %s refused: %s\n", entry.id.c_str(), part.c_str());
-        out = error_json(part);
+        out = error_json(part, "model_part");
         return 422;
     }
-    if (g_switching || g_quit_requested) {
-        out = error_json("the server is switching the model or stopping");
+    if (g_quit_requested) {
+        out = error_json("the app is stopping", "stopping");
+        return 409;
+    }
+    if (g_switching) {
+        out = error_json("the server is switching the model; wait until GET /ps5sd/v1/app/models says it is done",
+                         "switching");
         return 409;
     }
     set_load_error("", "");  // a new try: the last failure is old news
@@ -1271,7 +1276,7 @@ extern "C" int sd_app_upload(const char * path, uint64_t length, sd_app_reader r
     std::string out;
     int         status;
     if (g_quit_requested) {
-        out    = error_json("the app is stopping");
+        out    = error_json("the app is stopping", "stopping");
         status = 503;
     } else {
         const UploadReader reader = [&](const std::function<bool(const char *, size_t)> & sink) {
@@ -1348,7 +1353,7 @@ extern "C" int sd_app_request(const char * method, const char * path, const char
             out    = "{}";
             status = 200;
         } else if (id.empty()) {
-            out    = error_json("no model " + checkpoint + "; GET /sdapi/v1/sd-models lists them");
+            out    = error_json("no model " + checkpoint + "; GET /sdapi/v1/sd-models lists them", "model_not_found");
             status = 404;
         } else {
             status = ask_switch(id, out);
@@ -1478,7 +1483,7 @@ extern "C" int sd_app_request(const char * method, const char * path, const char
                 status = 200;
             }
         } else if ((!active.empty() && id == active[0]) || id == loaded_id()) {
-            out    = error_json(id + " is in use; switch to another model or preset first");
+            out    = error_json(id + " is in use; switch to another model or preset first", "in_use");
             status = 409;
         } else if (!g_library.remove_variant(id, error)) {
             out    = error_json(error);
@@ -1672,13 +1677,13 @@ extern "C" int sd_app_request(const char * method, const char * path, const char
         }
         std::string error;
         if (g_switching || g_quit_requested) {
-            out    = error_json("the server is switching the model or stopping");
+            out    = error_json("the server is switching the model or stopping", g_quit_requested ? "stopping" : "switching");
             status = 409;
         } else if ((!active.empty() && id == active[0]) || id == loaded) {
-            out    = error_json(id + " is the model in use; switch to another one first");
+            out    = error_json(id + " is the model in use; switch to another one first", "in_use");
             status = 409;
         } else if (in_use_base == id) {
-            out    = error_json("a preset of " + id + " is in use; switch to another model first");
+            out    = error_json("a preset of " + id + " is in use; switch to another model first", "in_use");
             status = 409;
         } else if (!g_library.remove(id, keep, deleted, kept, error)) {
             out    = error_json(error);

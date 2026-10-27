@@ -53,12 +53,26 @@
     }, function () { toast('The browser did not give the clipboard.', 5000); });
   }
 
+  // The error of an answer: {"error": {"code", "message"}}. An older console sends {"error": "text"}, sometimes
+  // with "message" next to it. errMessage is the text for people, errCode the code ('' on an older console).
+  function errMessage(data) {
+    if (!data || typeof data !== 'object') return '';
+    var e = data.error;
+    if (e && typeof e === 'object') return typeof e.message === 'string' ? e.message : '';
+    if (typeof e === 'string' && e) return e;
+    return typeof data.message === 'string' ? data.message : '';
+  }
+  function errCode(data) {
+    var e = data && typeof data === 'object' ? data.error : null;
+    return e && typeof e === 'object' && typeof e.code === 'string' ? e.code : '';
+  }
+
   // Every call to the server. X-PS5SD-Request lets a POST with the login cookie through (a page of
   // another site cannot add it). A 401 that asks for the API key shows the login; until it is done,
   // nothing else goes out, so the old cookie of a changed key does not count as wrong keys.
   function req(method, url, body, cb, timeout) {
     if (auth.locked && url.indexOf('/ps5sd/v1/auth') !== 0) {
-      setTimeout(function () { cb(401, { error: 'API key needed', auth_required: true }); }, 0);
+      setTimeout(function () { cb(401, { error: { code: 'unauthorized', message: 'API key needed' } }); }, 0);
       return;
     }
     var x = new XMLHttpRequest();
@@ -66,7 +80,7 @@
     function finish(code, data) {
       if (done) return;
       done = true;
-      if (code === 401 && data && data.auth_required && url.indexOf('/ps5sd/v1/auth') !== 0) showLogin();
+      if (code === 401 && (errCode(data) === 'unauthorized' || (data && data.auth_required)) && url.indexOf('/ps5sd/v1/auth') !== 0) showLogin();
       cb(code, data);
     }
     x.open(method, url, true);

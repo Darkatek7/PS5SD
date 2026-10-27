@@ -44,7 +44,7 @@
         drawFanButtons();
         drawFan(con.data ? con.data.fan_control : null);
       } else {
-        toast('Could not change the fan mode' + (data && data.error ? ': ' + data.error : '.'), 6000);
+        toast('Could not change the fan mode' + (errMessage(data) ? ': ' + errMessage(data) : '.'), 6000);
         loadFan();
       }
     });

@@ -84,7 +84,9 @@ int main() {
     ps5sd::set_load_error("", "");
     check(nlohmann::json::parse(ps5sd::models_json(lib, "", "", false))["load_error"].is_null(), "load error cleared");
 
-    check(nlohmann::json::parse(ps5sd::error_json("no \"x\""))["error"] == "no \"x\"", "error json");
+    check(nlohmann::json::parse(ps5sd::error_json("no \"x\""))["error"]["message"] == "no \"x\"", "error json");
+    check(!nlohmann::json::parse(ps5sd::error_json("x"))["error"].contains("code"), "error json without a code");
+    check(nlohmann::json::parse(ps5sd::error_json("x", "switching"))["error"]["code"] == "switching", "error json with a code");
     check(!ps5sd::error_json("bad \xff byte").empty(), "error json with a byte that is not UTF-8");
 
     check(ps5sd::id_from_json(R"({"id":"sdxl"})") == "sdxl", "id from json");

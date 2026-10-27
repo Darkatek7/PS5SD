@@ -37,7 +37,7 @@
   }
 
   function errText(code, data, fallback) {
-    var m = data && (data.message || data.error);
+    var m = errMessage(data);
     if (m) return String(m);
     if (code === 0 || code === 502 || code === 503) return 'Cannot reach the server.';
     return fallback + ' (' + code + ').';

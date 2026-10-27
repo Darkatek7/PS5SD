@@ -100,7 +100,7 @@
         toast(data.image_metadata ? 'New images carry their settings again.' : 'New images carry no settings in the file; the console keeps them for the gallery.', 6000);
       } else {
         box.checked = want;
-        toast('Could not change it' + (data && data.error ? ': ' + data.error : '.'), 6000);
+        toast('Could not change it' + (errMessage(data) ? ': ' + errMessage(data) : '.'), 6000);
       }
     });
   }
@@ -116,7 +116,7 @@
         toast(data.tv_images ? 'The TV shows images and prompts again.' : 'The TV shows no images and no prompts now.');
       } else {
         box.checked = !want;
-        toast('Could not change it' + (data && data.error ? ': ' + data.error : '.'), 6000);
+        toast('Could not change it' + (errMessage(data) ? ': ' + errMessage(data) : '.'), 6000);
       }
     });
   }
@@ -132,7 +132,7 @@
         toast(data.tv_api_key ? 'The TV shows the API key.' : 'The TV does not show the API key now.');
       } else {
         box.checked = !want;
-        toast('Could not change it' + (data && data.error ? ': ' + data.error : '.'), 6000);
+        toast('Could not change it' + (errMessage(data) ? ': ' + errMessage(data) : '.'), 6000);
       }
     });
   }

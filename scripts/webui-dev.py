@@ -522,6 +522,11 @@ class MockLoras:
         return None
 
 
+ERROR_CODES = {400: "invalid_request", 401: "unauthorized", 403: "forbidden", 404: "not_found", 409: "conflict",
+               413: "payload_too_large", 429: "rate_limited", 500: "server_error", 502: "bad_gateway",
+               503: "unavailable", 507: "storage_full"}
+
+
 class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
     target = None
@@ -550,6 +555,9 @@ class Handler(BaseHTTPRequestHandler):
                        if k.lower() not in ("host", "connection", "accept-encoding")}
             conn.request(self.command, self.path, body=body, headers=headers)
             r = conn.getresponse()
+            if (r.getheader("Content-Type") or "").startswith("text/event-stream"):
+                self._stream(r)
+                return
             data = r.read()
         except Exception as e:  # server down: behave like a dropped connection
             msg = ("proxy error: %s" % e).encode()
@@ -567,7 +575,29 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
+    def _stream(self, r):
+        # GET /ps5sd/v1/events: passed on as it comes, until either side closes it
+        self.send_response(r.status)
+        self.send_header("Content-Type", r.getheader("Content-Type"))
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("Connection", "close")
+        self.end_headers()
+        self.close_connection = True
+        try:
+            while True:
+                chunk = r.read1(65536)
+                if not chunk:
+                    break
+                self.wfile.write(chunk)
+                self.wfile.flush()
+        except OSError:
+            pass
+
     def _json(self, code, obj):
+        # Every error of the API is {"error": {"code", "message"}}; the mocks write {"error": "text"}.
+        if code >= 400 and isinstance(obj, dict) and isinstance(obj.get("error"), str):
+            kind = "standby" if obj.get("standby") else ERROR_CODES.get(code, "http_%d" % code)
+            obj = {"error": {"code": kind, "message": obj["error"]}}
         data = json.dumps(obj).encode()
         self.send_response(code)
         self.send_header("Content-Type", "application/json")

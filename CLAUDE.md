@@ -42,6 +42,20 @@ The toolchain runs on x86-64 Arch Linux only (in Docker, WSL2 or CI).
   launch payload in `build/tools/`. The PC then needs no toolchain.
 - **Local.** `scripts/setup-deps.sh` once (slow: RADV, the payload SDK), then `scripts/build-app.sh`. Docker:
   see `docs/BUILDING.md`. `build/local-sync.sh` copies the Windows tree into a Docker build volume.
+- **Docker on this PC.** Docker Desktop runs here, so the title builds locally; do not leave a change to
+  `ps5/app` or the patches as "only CI can build it". Once: `docker build -t ps5sd-build docker/`. Then (the
+  volume keeps `.deps`, so `setup-deps.sh` is slow only the first time):
+
+  ```sh
+  MSYS_NO_PATHCONV=1 docker run --rm -v "C:/Users/heel/Documents/repos/PS5SD":/src:ro -v ps5sd-work:/work \
+    ps5sd-build bash -c "bash /src/build/local-sync.sh && scripts/setup-deps.sh && scripts/build-app.sh"
+  ```
+
+  The same works for sd-server on the CPU: build `third_party/stable-diffusion.cpp` with the series applied
+  (`-DSD_BUILD_EXAMPLES=ON -DSD_SERVER_BUILD_FRONTEND=OFF`) in a Linux container with a published port, start
+  it with a model from `models/`, and point `scripts/webui-dev.py --target` and the browser at it. So the
+  server's routes and the web UI are tested in a browser before the console. In Git Bash, set
+  `MSYS_NO_PATHCONV=1` for `docker exec` and `docker run`, or `/build` becomes a Windows path.
 - **Display.** `PS5SD_DISPLAY=auto|1|0`. A release needs a display build (`package-release.sh` checks for
   `assets/fonts`).
 

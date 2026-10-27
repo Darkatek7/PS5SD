@@ -191,6 +191,15 @@ instead of trapping, so `main.cpp` reports an out-of-memory load or generation a
   fills an empty `Model:` with the diffusion model's name.
   `patches/sdcpp/0075` keeps a PNG's parameters in `.thumbs/<name>.txt` when the request turned
   `embed_image_metadata` off, and the gallery reads them from there when the PNG has none.
+  `patches/sdcpp/0076` gives every error answer one shape, `{"error": {"code", "message"}}`
+  (`api_error.cpp`): cpp-httplib's error handler rewrites any answer of 400 and more on its way out, so a
+  route that answers `{"error": "text"}`, an empty body or plain text needs no change; the code is the
+  status's unless the route names one (`main.cpp`'s `error_json(message, code)` for the application's
+  routes). `ps5/app/tests/test_api_error.cpp` tests it when `SD_DIR` is patched.
+  `patches/sdcpp/0077` serves `GET /ps5sd/v1/events` (`events.cpp`), the jobs and the steps as
+  server-sent events. `sd_progress_cb`, the job worker and the job routes wake the streams; each stream
+  holds one of cpp-httplib's threads, so there are at most four, and `sd_server_terminate()` ends them
+  before the server stops.
   The request's own settings (steps, CFG, size) win over the server's defaults, which are sd.cpp's, not
   the one-shot's SD-Turbo ones. `main.cpp` defines the activity hooks of `server_hooks.h` (in its own
   object: from an archive, lld could take the weak no-ops instead), which feed the status and the
@@ -372,7 +381,7 @@ restart).
   `Content-Disposition`. Other hosts are refused.
 
 The routes, under `/ps5sd/v1/app/` (`sd_app_request` hands them to `downloader_route`; JSON in and
-out, errors as `{"error": ...}`, nothing thrown across the hook):
+out, errors as `{"error": {"message", "code"}}` (`error_json`), nothing thrown across the hook):
 
 | Route | Body | Answer |
 |---|---|---|

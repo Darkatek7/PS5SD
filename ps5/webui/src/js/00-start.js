@@ -58,6 +58,10 @@
     shownDims: null,     // the size of the last finished image (a live preview is drawn at the size of the final one)
     waiting: 0,          // jobs queued on the server, after the one running
     queueBusy: false,    // a GET /ps5sd/v1/jobs is under way
+    pollTimer: 0,        // the next look at the job (pollLater)
+    polling: false,      // a GET /sdcpp/v1/jobs/<id> is under way
+    pollAgain: false,    // the event stream said the job moved while that GET was under way
+    polledAt: 0,         // when the last one went out
     queued: {},          // the request of each job this page queued, by job id (for when it is followed)
     gone: {},            // jobs this page stopped waiting for: the queue does not take them up again
     followPrompt: '',    // the prompt of a job this page follows but did not start

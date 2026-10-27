@@ -1117,8 +1117,12 @@ std::string edited_image_name(const std::string & dir, long long t) {
     }
 }
 
-std::string error_json(const std::string & message) {
-    return nlohmann::json{ { "error", message } }.dump(-1, ' ', false, nlohmann::json::error_handler_t::replace);
+std::string error_json(const std::string & message, const std::string & code) {
+    nlohmann::json error = { { "message", message } };
+    if (!code.empty()) {
+        error["code"] = code;
+    }
+    return nlohmann::json{ { "error", error } }.dump(-1, ' ', false, nlohmann::json::error_handler_t::replace);
 }
 
 std::string id_from_json(const std::string & body) {

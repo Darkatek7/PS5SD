@@ -231,7 +231,7 @@
       status(made ? 'Cancelled after ' + made + ' of ' + run.total + '. The images so far are in the gallery.' : 'Cancelled.');
       if (!run.userCancel) signal(false, 'The run was cancelled.');
     } else {
-      msg = data.error && data.error.message ? data.error.message : 'Generation failed.';
+      msg = errMessage(data) || 'Generation failed.';
       status(made ? msg + ' ' + made + (made > 1 ? ' images are' : ' image is') + ' in the gallery.' : msg, true);
       signal(false, msg);
     }
@@ -321,7 +321,7 @@
         return;
       }
       toast(code === 0 ? 'Cannot reach the server.' :
-        'The server refused the request' + (data && data.error ? ': ' + (data.message || data.error) : ' (' + code + ').'), 6000);
+        'The server refused the request' + (errMessage(data) ? ': ' + errMessage(data) : ' (' + code + ').'), 6000);
     });
   }
 
@@ -332,21 +332,25 @@
     st.queueBusy = true;
     req('GET', '/ps5sd/v1/jobs', null, function (code, data) {
       st.queueBusy = false;
-      if (code !== 200 || !data || !data.jobs) return;
-      var list = data.jobs, pick = null, i, j;
-      for (i = 0; i < list.length; i++) {
-        j = list[i];
-        if (j && j.id !== st.job && !st.gone[j.id] && !pick) pick = j;
-      }
-      if (!st.busy && pick) follow(pick.id, { t0: new Date().getTime(), seed: null, prompt: pick.prompt, repeat: pick.repeat });
-      var waiting = 0;
-      for (i = 0; i < list.length; i++) {
-        j = list[i];
-        if (j && j.id !== st.job && j.status === 'queued') waiting++;
-      }
-      st.waiting = waiting;
-      drawWaiting();
+      if (code === 200 && data && data.jobs) takeJobs(data.jobs);
     });
+  }
+
+  // The queue as the server lists it (GET /ps5sd/v1/jobs, or the event stream's jobs).
+  function takeJobs(list) {
+    var pick = null, i, j;
+    for (i = 0; i < list.length; i++) {
+      j = list[i];
+      if (j && j.id !== st.job && !st.gone[j.id] && !pick) pick = j;
+    }
+    if (!st.busy && pick) follow(pick.id, { t0: new Date().getTime(), seed: null, prompt: pick.prompt, repeat: pick.repeat });
+    var waiting = 0;
+    for (i = 0; i < list.length; i++) {
+      j = list[i];
+      if (j && j.id !== st.job && j.status === 'queued') waiting++;
+    }
+    st.waiting = waiting;
+    drawWaiting();
   }
 
   function drawWaiting() {
@@ -365,9 +369,14 @@
     });
   }
 
-  // The queue is read every 2 s, while the Create tab is open or a run goes on.
+  // The queue is read every 2 s, while the Create tab is open or a run goes on; with the event stream the page
+  // takes the stream's last list instead, and asks nothing.
   function queueWatch() {
-    if (st.view === 'create' || st.busy) refreshQueue();
+    startEvents();
+    if (st.view === 'create' || st.busy) {
+      if (eventsOn() && ev.jobs) takeJobs(ev.jobs);
+      else refreshQueue();
+    }
     setTimeout(queueWatch, 2000);
   }
 

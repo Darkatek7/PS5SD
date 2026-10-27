@@ -22,6 +22,49 @@ server reads only up to 8 KB, so a larger body (a base64 image, say) needs the h
 
 The examples use `<console>` for the PS5's address.
 
+## Errors
+
+Since 0.9.15, every answer of 400 and more has one shape, on every route (A1111, OpenAI, sd-server's own and
+PS5SD's):
+
+```json
+{"error": {"code": "out_of_memory", "message": "Not enough memory on the console for this run. ..."}}
+```
+
+- `message` is for people: what happened and what to do.
+- `code` is for programs: test it, not the message. A failed job has the same `error` (see
+  [sd-server's own API](#sd-servers-own-api)).
+- An answer may have more fields next to `error`.
+
+| Code | Status | Meaning |
+|---|---|---|
+| `invalid_request` | 400 | the body is not JSON, a field is missing or of the wrong type, a value is not allowed |
+| `unauthorized` | 401 | the API key is needed, or it is wrong |
+| `forbidden` | 403 | a request with the login cookie lacks the header `X-PS5SD-Request` |
+| `not_found` | 404 | no such route, file, job, download or preset |
+| `model_not_found` | 404 | no such model (`models/active`, `sd_model_checkpoint`) |
+| `conflict` | 409 | the thing is there already, or is busy (a download, an upload, a file name) |
+| `switching` | 409 | a model switch is running |
+| `stopping` | 409, 503 | the title is closing |
+| `in_use` | 409 | the model or preset is loaded; switch to another one first |
+| `expired` | 410 | the job ended so long ago that its result is gone |
+| `payload_too_large` | 413 | the body is over 64 MB |
+| `model_part` | 422 | the file is only a part of a model (see `part` below) |
+| `rate_limited` | 429 | too many wrong API keys; `Retry-After` says how long to wait |
+| `queue_full` | 429 | the job queue is full |
+| `too_many_streams` | 429 | four event streams are open already (see [Events](#events-progress-without-polling)) |
+| `generation_failed` | 500 | the run failed; the message has the server's last error |
+| `out_of_memory` | 500 | the console ran out of memory for this run |
+| `cancelled` | 500 | the run was stopped (a synchronous route after `POST /sdapi/v1/interrupt`) |
+| `server_error` | 500 | anything else that went wrong in the server |
+| `bad_gateway` | 502 | Hugging Face or Civitai did not answer as expected |
+| `standby` | 503 | no model is loaded (see [Standby](#standby-no-model)) |
+| `storage_full` | 507 | the console's storage is full |
+
+A status without a code of its own gives `http_<status>`. Before 0.9.15 most routes answered
+`{"error": "text"}`, with `"auth_required": true` or `"standby": true` next to it; those flags are now the codes
+`unauthorized` and `standby`.
+
 ## The API key
 
 With an API key, every request needs it. The key is 32 random bytes the console makes, written as 52
@@ -48,9 +91,9 @@ curl -H "Authorization: Bearer <key>" http://<console>:7860/sdapi/v1/sd-models
 curl -u any:<key> http://<console>:7860/sdapi/v1/sd-models
 ```
 
-- Without the key: `401 {"error": "...", "auth_required": true}`.
+- Without the key: `401` with the code `unauthorized`.
 - Five wrong keys in a row from one client lock it out for 1 s, then 2, 4, ... up to 60 s: `429` with
-  `Retry-After`. Each wrong key is in the log (`app.log` and the TV's log). Behind a proxy the client is
+  the code `rate_limited` and `Retry-After`. Each wrong key is in the log (`app.log` and the TV's log). Behind a proxy the client is
   the address in `CF-Connecting-IP` or `X-Forwarded-For`.
 - Open without the key: `GET /` (the web UI, which then asks for the key), `GET /ps5sd/v1/health`
   (`{"status": "ok"}`, for a proxy or a monitor) and the routes below.
@@ -160,7 +203,7 @@ In standby it serves:
 - `/ps5sd/v1/app/*`: the library, the downloader and switching;
 - `POST /sdapi/v1/options`.
 
-Every other route answers `503 {"error": "...", "standby": true}`. In standby,
+Every other route answers `503` with the code `standby`. In standby,
 `GET /ps5sd/v1/app/models` reports `"standby": true`. A switch (`POST /ps5sd/v1/app/models/active`)
 loads a model and ends standby.
 
@@ -378,6 +421,49 @@ The files are read on the first request and again when they change.
 A stopped generation returns no image. A synchronous request (`txt2img`, `/v1/images/generations`)
 answers with an error.
 
+## Events: progress without polling
+
+`GET /ps5sd/v1/events` is a stream of [server-sent events](https://html.spec.whatwg.org/multipage/server-sent-events.html)
+(`text/event-stream`), since 0.9.15: the jobs and their progress as they change, instead of polling
+`GET /ps5sd/v1/jobs` and `GET /sdcpp/v1/jobs/<id>`. A browser reads it with `EventSource`; the cookie of
+the web UI's login counts, so the page needs no header.
+
+| Event | Data | When |
+|---|---|---|
+| `jobs` | `{"jobs": [...]}`: the queued and generating jobs, as `GET /ps5sd/v1/jobs` lists them, with `repeat` (`total`, `done`) for a job with `repeat` | when the stream opens, and whenever the list changes |
+| `progress` | `{"job", "kind", "step", "steps", "seconds_per_step", "eta_seconds"}` | a step is done; at most four a second |
+| `job` | `{"id", "kind", "status", "completed", "error", "saved"}` | a job ended: `status` is `completed`, `failed` or `cancelled`, `error` as a failed job has it (else `null`), `saved` the gallery files of a job with `repeat` |
+| `: ping` | a comment, no data | every 15 s without another event, so a proxy keeps the stream open |
+
+- `progress` counts the steps of what runs now, and sd.cpp counts every phase from 1: loading the weights
+  (the first run after a model is loaded), the sampling, the decoding of the tiles, an upscale. `eta_seconds`
+  is the time left of that phase. `job` is the job's id, `null` for a synchronous request (`txt2img`,
+  `/v1/images/generations`).
+- A job's images or video are not in the stream: get them with `GET /sdcpp/v1/jobs/<id>` after its `job`
+  event.
+- `?job=<id>` sends only what concerns that job and ends the stream after its `job` event, at once when the
+  job has ended already; `404` when there is no such job.
+- A change shows at most a second late.
+- At most four streams are open at once; a fifth gets `429` with the code `too_many_streams`. Close a stream
+  you no longer read.
+- The stream ends when the server stops: when the title closes, and when it switches the model. Open it
+  again once `GET /ps5sd/v1/app/models` has the new model `loaded`.
+
+```sh
+curl -N http://<console>:7860/ps5sd/v1/events
+```
+
+```text
+event: jobs
+data: {"jobs":[{"id":"job_6ae113d7_00000000","kind":"img_gen","status":"generating","prompt":"a red apple",...}]}
+
+event: progress
+data: {"job":"job_6ae113d7_00000000","kind":"img_gen","step":2,"steps":3,"seconds_per_step":4.769,"eta_seconds":4.769}
+
+event: job
+data: {"id":"job_6ae113d7_00000000","kind":"img_gen","status":"completed","completed":1793135601,"error":null}
+```
+
 ## The AUTOMATIC1111 API
 
 | Route | |
@@ -424,16 +510,17 @@ The `model` field of a generation request does not switch the model; the loaded 
 | Route | |
 |---|---|
 | `GET /sdcpp/v1/capabilities` | the defaults and what the server supports |
-| `POST /sdcpp/v1/img_gen` | queue an image job: `202 {"id", "status", ...}`; `429` when the queue is full |
+| `POST /sdcpp/v1/img_gen` | queue an image job: `202 {"id", "status", ...}`; `429` `queue_full` when the queue is full |
 | `POST /sdcpp/v1/vid_gen` | queue a video job (video models only) |
 | `GET /sdcpp/v1/jobs/<id>` | the job: `status` is `queued`, `generating`, `completed`, `failed` or `cancelled`; the images, or the video, are in `result` |
 | `POST /sdcpp/v1/jobs/<id>/cancel` | cancel it; see "Jobs" above |
 | `POST /sdcpp/v1/upscale` | upscale an image with an upscaler model; see "Hires fix and upscaling" |
 
-A failed job says why in `error.message`: `Not enough memory on the console for this run. ...` when the GPU
-ran out of memory (a smaller size, fewer images or frames, a lower hires scale or a smaller model fits),
-otherwise `Generation failed: ` and the server's last error. The A1111 and OpenAI routes answer with the
-same message (`Cancelled` after `POST /sdapi/v1/interrupt`); a cancelled job stays `cancelled`.
+A failed job says why in `error`: `{"code": "out_of_memory", "message": "Not enough memory on the console for
+this run. ..."}` when the console ran out of memory (a smaller size, fewer images or frames, a lower hires scale
+or a smaller model fits), otherwise the code `generation_failed` and `Generation failed: ` with the server's
+last error. The A1111 and OpenAI routes answer `500` with the same `error` (the code `cancelled` and the
+message `Cancelled` after `POST /sdapi/v1/interrupt`); a cancelled job stays `cancelled`.
 
 Several images in one job: `"batch_count": n` on `img_gen` (`"batch_size"` on `/sdapi/v1/txt2img`,
 `"n"` on `/v1/images/generations`), up to `limits.max_batch_count` of the capabilities (8). The images

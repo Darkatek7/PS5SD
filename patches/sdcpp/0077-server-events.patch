@@ -1,0 +1,496 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: ps5sd <ps5sd@localhost>
+Date: Tue, 27 Oct 2026 12:30:00 +0100
+Subject: [PATCH] server: the jobs and their progress as server-sent events
+
+A client saw a job's progress only by polling GET /sdcpp/v1/jobs/<id> or
+GET /ps5sd/v1/jobs, and the step count not at all: it went to the
+application's activity hooks (the TV) only.
+
+GET /ps5sd/v1/events is a text/event-stream (events.cpp): a "jobs" event with
+the queued and generating jobs when the stream opens and whenever they
+change, a "progress" event per step (at most four a second: step, steps,
+seconds per step, the time left of that phase, the job), a "job" event when
+a job ends, and a ": ping" comment every 15 s, so a proxy (Cloudflare gives
+up after 100 s) keeps it open. ?job=<id> follows one job and ends after its
+"job" event. sd_progress_cb, the job worker and the job routes wake the
+streams; a change shows at most a second late in any case.
+
+Each stream holds one of cpp-httplib's threads, so at most four are open at
+once (429 too_many_streams); a stream whose client went away frees its
+thread within a second. sd_server_terminate() ends them, so a model
+switch does not wait for a client: measured with the library build, sd_server
+returned 1 ms after terminate with a stream open.
+
+diff --git a/examples/server/CMakeLists.txt b/examples/server/CMakeLists.txt
+index 2eeaf03..ef7b7c7 100644
+--- a/examples/server/CMakeLists.txt
++++ b/examples/server/CMakeLists.txt
+@@ -75,6 +75,7 @@ set(SD_SERVER_SOURCES
+     async_jobs.cpp
+     auth.cpp
+     api_error.cpp
++    events.cpp
+     server_hooks.cpp
+     gallery.cpp
+     routes_index.cpp
+diff --git a/examples/server/async_jobs.cpp b/examples/server/async_jobs.cpp
+index d91826b..21f4ae1 100644
+--- a/examples/server/async_jobs.cpp
++++ b/examples/server/async_jobs.cpp
+@@ -11,6 +11,7 @@
+ #include "common/log.h"
+ #include "common/media_io.h"
+ #include "common/resource_owners.hpp"
++#include "events.h"
+ #include "gallery.h"
+ #include "server_activity.h"
+ 
+@@ -517,6 +518,7 @@ void async_job_worker(ServerRuntime& runtime) {
+             job->status     = AsyncJobStatus::Generating;
+             job->started_at = unix_timestamp_now();
+         }
++        sd_events_notify();
+ 
+         std::vector<std::string> output_images;
+         std::string output_media_b64;
+@@ -600,5 +602,6 @@ void async_job_worker(ServerRuntime& runtime) {
+ 
+             purge_expired_jobs(manager);
+         }
++        sd_events_notify();
+     }
+ }
+diff --git a/examples/server/events.cpp b/examples/server/events.cpp
+new file mode 100644
+index 0000000..d89c194
+--- /dev/null
++++ b/examples/server/events.cpp
+@@ -0,0 +1,288 @@
++#include "events.h"
++
++#include <algorithm>
++#include <chrono>
++#include <cmath>
++#include <condition_variable>
++#include <cstdint>
++#include <memory>
++#include <mutex>
++#include <set>
++#include <string>
++
++#include "httplib.h"
++
++#include "api_error.h"
++#include "async_jobs.h"
++#include "runtime.h"
++
++using json = nlohmann::json;
++
++namespace {
++
++constexpr int k_max_streams = 4;
++constexpr auto k_wake       = std::chrono::seconds(1);
++constexpr auto k_ping       = std::chrono::seconds(15);
++// at most four progress events a second
++constexpr auto k_progress_gap = std::chrono::milliseconds(250);
++
++std::mutex g_mutex;
++std::condition_variable g_cv;
++uint64_t g_change = 0;  // counts notifies and steps
++bool g_stop       = false;
++int g_streams     = 0;
++
++struct Progress {
++    uint64_t seq = 0;  // 0: no step since the start
++    int step     = 0;
++    int steps    = 0;
++    float secs   = 0;
++};
++Progress g_progress;
++
++std::string dump(const json& j) {
++    return j.dump(-1, ' ', false, json::error_handler_t::replace);
++}
++
++bool active(const AsyncGenerationJob& job) {
++    return job.status == AsyncJobStatus::Queued || job.status == AsyncJobStatus::Generating;
++}
++
++// One job for the jobs event, as GET /ps5sd/v1/jobs lists it. manager.mutex is held.
++json job_summary(const AsyncJobManager& manager, const AsyncGenerationJob& job) {
++    json j = {
++        {"id", job.id},
++        {"kind", async_job_kind_name(job.kind)},
++        {"status", async_job_status_name(job.status)},
++        {"created", job.created_at},
++        {"started", job.started_at == 0 ? json(nullptr) : json(job.started_at)},
++        {"queue_position", 0},
++        {"prompt", job.kind == AsyncJobKind::VidGen ? job.vid_gen.gen_params.prompt : job.img_gen.gen_params.prompt},
++        {"cancel_requested", job.cancel_requested},
++    };
++    if (job.status == AsyncJobStatus::Queued) {
++        const auto it = std::find(manager.queue.begin(), manager.queue.end(), job.id);
++        if (it != manager.queue.end()) {
++            j["queue_position"] = (it - manager.queue.begin()) + 1;
++        }
++    }
++    if (job.kind == AsyncJobKind::ImgGen && job.repeat_total > 1) {
++        j["repeat"] = {{"total", job.repeat_total}, {"done", job.repeat_done}};
++    }
++    return j;
++}
++
++// The job event of a job that ended. manager.mutex is held.
++json job_end(const AsyncGenerationJob& job) {
++    json error = nullptr;
++    if (job.status == AsyncJobStatus::Failed || job.status == AsyncJobStatus::Cancelled) {
++        error = {
++            {"code", job.error_code.empty()
++                         ? (job.status == AsyncJobStatus::Cancelled ? "cancelled" : "generation_failed")
++                         : job.error_code},
++            {"message", job.error_message},
++        };
++    }
++    json j = {
++        {"id", job.id},
++        {"kind", async_job_kind_name(job.kind)},
++        {"status", async_job_status_name(job.status)},
++        {"completed", job.completed_at == 0 ? json(nullptr) : json(job.completed_at)},
++        {"error", error},
++    };
++    if (job.kind == AsyncJobKind::ImgGen && job.repeat_total > 1) {
++        j["saved"] = job.repeat_saved;
++    }
++    return j;
++}
++
++// seconds to the millisecond
++double rounded(double secs) {
++    return std::round(secs * 1000.0) / 1000.0;
++}
++
++std::string event(const char* name, const json& data) {
++    return std::string("event: ") + name + "\ndata: " + dump(data) + "\n\n";
++}
++
++// What one stream has sent so far.
++struct Stream {
++    std::string only;               // ?job=<id>, or every job
++    std::string jobs_sent;          // the last jobs event's data
++    std::set<std::string> running;  // the active jobs it saw
++    uint64_t change        = 0;
++    uint64_t progress_seq  = 0;
++    bool first             = true;
++    bool done              = false;  // the ?job= job's event is out
++    std::chrono::steady_clock::time_point progress_at;
++    std::chrono::steady_clock::time_point ping_at = std::chrono::steady_clock::now();
++};
++
++// Everything new since the stream's last call, as event text; "" for nothing.
++std::string next_events(Stream& s, AsyncJobManager& manager, const Progress& progress) {
++    std::string out;
++    std::lock_guard<std::mutex> lock(manager.mutex);
++
++    json jobs = json::array();
++    std::set<std::string> running;
++    std::string generating;
++    std::string generating_kind;
++    for (const auto& kv : manager.jobs) {
++        const AsyncGenerationJob& job = *kv.second;
++        if (!active(job)) {
++            continue;
++        }
++        if (job.status == AsyncJobStatus::Generating) {
++            generating      = job.id;
++            generating_kind = async_job_kind_name(job.kind);
++        }
++        if (!s.only.empty() && job.id != s.only) {
++            continue;
++        }
++        running.insert(job.id);
++        jobs.push_back(job_summary(manager, job));
++    }
++    std::sort(jobs.begin(), jobs.end(), [](const json& a, const json& b) { return a["created"] < b["created"]; });
++
++    // the jobs that ended since the last call, then the list
++    std::set<std::string> ended;
++    for (const std::string& id : s.running) {
++        if (running.count(id) == 0) {
++            ended.insert(id);
++        }
++    }
++    if (s.first && !s.only.empty() && running.empty()) {
++        ended.insert(s.only);  // it ended before the stream opened
++    }
++    for (const std::string& id : ended) {
++        const auto it = manager.jobs.find(id);
++        if (it != manager.jobs.end() && !active(*it->second)) {
++            out += event("job", job_end(*it->second));
++        }
++        if (id == s.only) {
++            s.done = true;
++        }
++    }
++    s.running = running;
++
++    const json list      = {{"jobs", jobs}};
++    const std::string js = dump(list);
++    if (!s.done && (s.first || js != s.jobs_sent)) {
++        out += event("jobs", list);
++        s.jobs_sent = js;
++    }
++    s.first = false;
++
++    const auto now = std::chrono::steady_clock::now();
++    if (!s.done && progress.seq != 0 && progress.seq != s.progress_seq && now - s.progress_at >= k_progress_gap &&
++        (s.only.empty() || s.only == generating)) {
++        s.progress_seq = progress.seq;
++        s.progress_at  = now;
++        const int left = std::max(0, progress.steps - progress.step);
++        out += event("progress", {
++                                     {"job", generating.empty() ? json(nullptr) : json(generating)},
++                                     {"kind", generating.empty() ? json(nullptr) : json(generating_kind)},
++                                     {"step", progress.step},
++                                     {"steps", progress.steps},
++                                     {"seconds_per_step", rounded(progress.secs)},
++                                     {"eta_seconds", progress.secs > 0 ? json(rounded(left * progress.secs)) : json(nullptr)},
++                                 });
++    }
++    return out;
++}
++
++}  // namespace
++
++void sd_events_progress(int step, int steps, float secs) {
++    {
++        std::lock_guard<std::mutex> lock(g_mutex);
++        g_progress.seq++;
++        g_progress.step  = step;
++        g_progress.steps = steps;
++        g_progress.secs  = secs;
++        g_change++;
++    }
++    g_cv.notify_all();
++}
++
++void sd_events_notify() {
++    {
++        std::lock_guard<std::mutex> lock(g_mutex);
++        g_change++;
++    }
++    g_cv.notify_all();
++}
++
++void sd_events_stop(bool stop) {
++    {
++        std::lock_guard<std::mutex> lock(g_mutex);
++        g_stop = stop;
++    }
++    g_cv.notify_all();
++}
++
++void register_event_endpoints(httplib::Server& svr, ServerRuntime& rt) {
++    AsyncJobManager* manager = rt.async_job_manager;
++    svr.Get("/ps5sd/v1/events", [manager](const httplib::Request& req, httplib::Response& res) {
++        auto stream  = std::make_shared<Stream>();
++        stream->only = req.has_param("job") ? req.get_param_value("job") : "";
++        if (!stream->only.empty()) {
++            std::lock_guard<std::mutex> lock(manager->mutex);
++            if (manager->jobs.count(stream->only) == 0) {
++                send_api_error(res, 404, "not_found", "no job " + stream->only);
++                return;
++            }
++        }
++        {
++            std::lock_guard<std::mutex> lock(g_mutex);
++            if (g_streams >= k_max_streams) {
++                send_api_error(res, 429, "too_many_streams",
++                               "at most " + std::to_string(k_max_streams) + " event streams are open at once");
++                return;
++            }
++            g_streams++;
++        }
++        res.set_header("Cache-Control", "no-cache");
++        res.set_header("X-Accel-Buffering", "no");  // nginx: do not hold the events back
++        res.set_chunked_content_provider(
++            "text/event-stream",
++            [manager, stream](size_t, httplib::DataSink& sink) {
++                Progress progress;
++                {
++                    std::unique_lock<std::mutex> lock(g_mutex);
++                    if (!stream->first) {
++                        g_cv.wait_for(lock, k_wake, [&] { return g_stop || g_change != stream->change; });
++                    }
++                    if (g_stop) {
++                        sink.done();
++                        return true;
++                    }
++                    stream->change = g_change;
++                    progress       = g_progress;
++                }
++                // a client that went away (a closed tab) frees its stream within a second, not at the next ping
++                if (!sink.is_writable()) {
++                    return false;
++                }
++                std::string out = next_events(*stream, *manager, progress);
++                const auto now  = std::chrono::steady_clock::now();
++                if (out.empty() && now - stream->ping_at >= k_ping) {
++                    out = ": ping\n\n";
++                }
++                if (!out.empty()) {
++                    stream->ping_at = now;
++                    if (!sink.write(out.data(), out.size())) {
++                        return false;  // the client went away
++                    }
++                }
++                if (stream->done) {
++                    sink.done();
++                }
++                return true;
++            },
++            [](bool) {
++                std::lock_guard<std::mutex> lock(g_mutex);
++                g_streams--;
++            });
++    });
++}
+diff --git a/examples/server/events.h b/examples/server/events.h
+new file mode 100644
+index 0000000..bb8be0d
+--- /dev/null
++++ b/examples/server/events.h
+@@ -0,0 +1,39 @@
++// PS5SD: GET /ps5sd/v1/events, the jobs and their progress as server-sent
++// events (text/event-stream), instead of polling GET /ps5sd/v1/jobs and
++// GET /sdcpp/v1/jobs/<id>:
++//
++//   event: jobs      {"jobs": [...]}: the queued and generating jobs, as
++//                    GET /ps5sd/v1/jobs lists them; first when the stream
++//                    opens, then whenever that list changes
++//   event: progress  {"job", "kind", "step", "steps", "seconds_per_step",
++//                    "eta_seconds"}: a step of what runs now is done, at most
++//                    four a second. sd.cpp counts every phase from 1: loading
++//                    the weights (on the first run after a start), the
++//                    sampling, the decoding of the tiles, an upscale. "job" is
++//                    the async job's id, null for a synchronous request
++//                    (txt2img, ...)
++//   event: job       {"id", "kind", "status", "completed", "error", "saved"}:
++//                    a job ended (completed, failed or cancelled); its images
++//                    or video are in GET /sdcpp/v1/jobs/<id>
++//   : ping           a comment every 15 s, so a proxy keeps the stream open
++//
++// ?job=<id> sends only what concerns that job, and ends the stream after its
++// job event (at once when it has ended already; 404 when there is no such
++// job). A change shows at most a second late. At most four streams are open
++// at once (each holds one of the server's threads); a fifth is answered 429
++// too_many_streams. The streams end when the server stops (a model switch).
++#pragma once
++
++namespace httplib {
++class Server;
++}
++struct ServerRuntime;
++
++void register_event_endpoints(httplib::Server& svr, ServerRuntime& rt);
++
++// A step is done (sd_progress_cb).
++void sd_events_progress(int step, int steps, float secs);
++// The jobs changed: one was queued, started or ended.
++void sd_events_notify();
++// true: the server stops, every stream ends; false: a new server starts.
++void sd_events_stop(bool stop);
+diff --git a/examples/server/main.cpp b/examples/server/main.cpp
+index aeb00d5..7094678 100644
+--- a/examples/server/main.cpp
++++ b/examples/server/main.cpp
+@@ -14,6 +14,7 @@
+ #include "api_error.h"
+ #include "async_jobs.h"
+ #include "auth.h"
++#include "events.h"
+ #include "common/common.h"
+ #include "common/resource_owners.hpp"
+ #include "routes.h"
+@@ -84,6 +85,7 @@ static int parse_args(int argc,
+ // keeps a one-line progress on stderr.
+ static void sd_progress_cb(int step, int steps, float secs, void*) {
+     sd_activity_progress(step, steps, secs);
++    sd_events_progress(step, steps, secs);
+     if (step > 0) {
+         fprintf(stderr, "\rstep %d/%d (%.2fs/it)\033[K%s", step, steps, secs, step == steps ? "\n" : "");
+         fflush(stderr);
+@@ -193,6 +195,7 @@ static int sd_server_standby(int argc, const char** argv) {
+     install_error_shape(svr);
+     register_index_endpoints(svr, svr_params, embedded_index_html());
+     register_ps5sd_endpoints(svr, runtime);
++    register_event_endpoints(svr, runtime);
+     const auto no_model = [](const httplib::Request&, httplib::Response& res) {
+         send_api_error(res, 503, "standby", "no model is loaded; pick or download one in the web UI, tab Models");
+     };
+@@ -208,11 +211,13 @@ static int sd_server_standby(int argc, const char** argv) {
+         LOG_ERROR("could not listen on %s:%d\n", svr_params.listen_ip.c_str(), svr_params.listen_port);
+     }
+     g_sd_server_stop = false;
++    sd_events_stop(false);
+     return served ? 0 : 1;
+ }
+ 
+ extern "C" void sd_server_terminate(void) {
+     g_sd_server_stop = true;
++    sd_events_stop(true);
+     httplib::Server* svr = g_sd_server_svr.load();
+     if (svr != nullptr) {
+         svr->stop();
+@@ -260,6 +265,7 @@ extern "C" int sd_server(int argc, char** argv_in) {
+         LOG_ERROR("new_sd_ctx_t failed");
+         sd_set_log_callback(nullptr, nullptr);
+         g_sd_server_stop = false;
++        sd_events_stop(false);
+         return 1;
+     }
+ 
+@@ -296,6 +302,7 @@ extern "C" int sd_server(int argc, char** argv_in) {
+     register_sdapi_endpoints(svr, runtime);
+     register_sdcpp_api_endpoints(svr, runtime);
+     register_ps5sd_endpoints(svr, runtime);
++    register_event_endpoints(svr, runtime);
+ 
+     LOG_INFO("listening on: http://%s:%d\n", svr_params.listen_ip.c_str(), svr_params.listen_port);
+     g_sd_server_svr = &svr;
+@@ -314,6 +321,7 @@ extern "C" int sd_server(int argc, char** argv_in) {
+     sd_set_progress_callback(nullptr, nullptr);
+     sd_set_log_callback(nullptr, nullptr);
+     g_sd_server_stop = false;
++    sd_events_stop(false);
+     return served ? 0 : 1;
+ }
+ 
+diff --git a/examples/server/routes_sdcpp.cpp b/examples/server/routes_sdcpp.cpp
+index 3acfa58..5e7441e 100644
+--- a/examples/server/routes_sdcpp.cpp
++++ b/examples/server/routes_sdcpp.cpp
+@@ -6,6 +6,7 @@
+ #include <limits>
+ 
+ #include "async_jobs.h"
++#include "events.h"
+ #include "common/common.h"
+ #include "common/media_io.h"
+ #include "common/resource_owners.hpp"
+@@ -735,6 +736,7 @@ void register_sdcpp_api_endpoints(httplib::Server& svr, ServerRuntime& rt) {
+             }
+ 
+             manager.cv.notify_one();
++            sd_events_notify();
+ 
+             json out;
+             out["id"]       = job->id;
+@@ -792,6 +794,7 @@ void register_sdcpp_api_endpoints(httplib::Server& svr, ServerRuntime& rt) {
+             }
+ 
+             manager.cv.notify_one();
++            sd_events_notify();
+ 
+             json out;
+             out["id"]       = job->id;

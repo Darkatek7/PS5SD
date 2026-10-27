@@ -1,0 +1,588 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: ps5sd <ps5sd@localhost>
+Date: Tue, 27 Oct 2026 12:00:00 +0100
+Subject: [PATCH] server: one shape for every error answer
+
+The routes answered errors in at least four shapes: {"error": "text"} (most
+of them and the application's routes), {"error": "server_error", "message":
+...} out of a catch, an empty body from cpp-httplib (a route that does not
+exist), and {"error": {"code", "message"}} in a failed job. A client had to
+know them all, and a program could not tell an out-of-memory run from a full
+queue but by the words.
+
+Every answer of 400 and more is now {"error": {"code", "message"}}, as a
+failed job has it and as the OpenAI API answers. install_error_shape()
+(api_error.cpp) puts it into that shape on its way out, in cpp-httplib's
+error handler, so the routes that still answer a text, an empty body or
+plain text come out the same: the text becomes the message, the status the
+code (404 not_found, 409 conflict, ...); a top-level "code" from the
+application names it. The standby answer, the API key's answers, a full
+queue and a failed generation name their own: standby, unauthorized,
+rate_limited, queue_full, out_of_memory, generation_failed, cancelled. A
+failed job's code says out_of_memory now too (sd_server_failure_code). A
+body that is not JSON is 400 invalid_request instead of 500, and an
+exception out of a route is 500 server_error with what was thrown.
+
+diff --git a/examples/server/CMakeLists.txt b/examples/server/CMakeLists.txt
+index 00c24f3..2eeaf03 100644
+--- a/examples/server/CMakeLists.txt
++++ b/examples/server/CMakeLists.txt
+@@ -74,6 +74,7 @@ set(SD_SERVER_SOURCES
+     runtime.cpp
+     async_jobs.cpp
+     auth.cpp
++    api_error.cpp
+     server_hooks.cpp
+     gallery.cpp
+     routes_index.cpp
+diff --git a/examples/server/api_error.cpp b/examples/server/api_error.cpp
+new file mode 100644
+index 0000000..f0520b4
+--- /dev/null
++++ b/examples/server/api_error.cpp
+@@ -0,0 +1,155 @@
++#include "api_error.h"
++
++#include <exception>
++#include <string>
++
++#include "httplib.h"
++
++using json = nlohmann::json;
++
++namespace {
++
++std::string dump(const json& j) {
++    // a message may quote a file name that is not UTF-8
++    return j.dump(-1, ' ', false, json::error_handler_t::replace);
++}
++
++bool starts_with(const std::string& s, const char* prefix) {
++    return s.rfind(prefix, 0) == 0;
++}
++
++std::string trimmed(const std::string& s) {
++    const size_t a = s.find_first_not_of(" \t\r\n");
++    if (a == std::string::npos) {
++        return {};
++    }
++    const size_t b = s.find_last_not_of(" \t\r\n");
++    return s.substr(a, b - a + 1);
++}
++
++}  // namespace
++
++std::string api_error_code_for_status(int status) {
++    switch (status) {
++        case 400: return "invalid_request";
++        case 401: return "unauthorized";
++        case 403: return "forbidden";
++        case 404: return "not_found";
++        case 405: return "method_not_allowed";
++        case 409: return "conflict";
++        case 410: return "expired";
++        case 413: return "payload_too_large";
++        case 422: return "unprocessable";
++        case 429: return "rate_limited";
++        case 500: return "server_error";
++        case 501: return "not_implemented";
++        case 502: return "bad_gateway";
++        case 503: return "unavailable";
++        case 504: return "timeout";
++        case 507: return "storage_full";
++        default: return "http_" + std::to_string(status);
++    }
++}
++
++json api_error(const std::string& code, const std::string& message) {
++    return {{"error", {{"code", code}, {"message", message}}}};
++}
++
++void send_api_error(httplib::Response& res, int status, const std::string& code, const std::string& message) {
++    res.status = status;
++    res.set_content(dump(api_error(code, message)), "application/json");
++}
++
++void send_exception_error(httplib::Response& res, const std::exception& e) {
++    if (dynamic_cast<const json::exception*>(&e) != nullptr) {
++        send_api_error(res, 400, "invalid_request", std::string("invalid JSON: ") + e.what());
++    } else {
++        send_api_error(res, 500, "server_error", e.what());
++    }
++}
++
++bool api_error_normalize(int status, const std::string& content_type, const std::string& fallback, std::string& body) {
++    json j;
++    if (starts_with(content_type, "application/json")) {
++        j = json::parse(body, nullptr, false);
++    }
++    if (!j.is_object()) {
++        // empty, plain text, or not JSON: its text, if short, is the message
++        std::string message = trimmed(body);
++        if (message.empty() || message.size() > 1000 || !starts_with(content_type, "text/plain")) {
++            message = fallback;
++        }
++        body = dump(api_error(api_error_code_for_status(status), message));
++        return true;
++    }
++
++    auto it = j.find("error");
++    if (it != j.end() && it->is_object()) {
++        bool changed = false;
++        if (!it->contains("code") || !(*it)["code"].is_string()) {
++            (*it)["code"] = api_error_code_for_status(status);
++            changed       = true;
++        }
++        if (!it->contains("message") || !(*it)["message"].is_string()) {
++            (*it)["message"] = fallback;
++            changed          = true;
++        }
++        if (changed) {
++            body = dump(j);
++        }
++        return changed;
++    }
++
++    std::string code = api_error_code_for_status(status);
++    if (j.contains("code") && j["code"].is_string()) {
++        code = j["code"].get<std::string>();
++    } else if (j.contains("standby") && j["standby"].is_boolean() && j["standby"].get<bool>()) {
++        code = "standby";
++    }
++    std::string message = it != j.end() && it->is_string() ? it->get<std::string>() : std::string();
++    if (j.contains("message") && j["message"].is_string()) {
++        const std::string more = j["message"].get<std::string>();
++        message                = message.empty() ? more : message + ": " + more;
++    }
++    if (message.empty()) {
++        message = fallback;
++    }
++    j.erase("code");
++    j.erase("message");
++    j.erase("standby");
++    j.erase("auth_required");
++    j["error"] = {{"code", code}, {"message", message}};
++    body       = dump(j);
++    return true;
++}
++
++void install_error_shape(httplib::Server& svr) {
++    svr.set_error_handler([](const httplib::Request& req, httplib::Response& res) {
++        if (res.content_provider_) {
++            return httplib::Server::HandlerResponse::Unhandled;  // a stream: nothing to rewrite
++        }
++        std::string fallback = httplib::status_message(res.status);
++        if (res.status == 404 && res.body.empty()) {
++            fallback = "no route " + req.method + " " + req.path;
++        }
++        const std::string type = res.get_header_value("Content-Type");
++        if (!api_error_normalize(res.status, type, fallback, res.body)) {
++            return httplib::Server::HandlerResponse::Unhandled;
++        }
++        res.headers.erase("Content-Type");
++        res.set_header("Content-Type", "application/json");
++        return httplib::Server::HandlerResponse::Handled;
++    });
++    svr.set_exception_handler([](const httplib::Request&, httplib::Response& res, std::exception_ptr ep) {
++        std::string what = "unknown exception";
++        try {
++            if (ep) {
++                std::rethrow_exception(ep);
++            }
++        } catch (const std::exception& e) {
++            what = e.what();
++        } catch (...) {
++        }
++        send_api_error(res, 500, "server_error", what);
++    });
++}
+diff --git a/examples/server/api_error.h b/examples/server/api_error.h
+new file mode 100644
+index 0000000..3125b42
+--- /dev/null
++++ b/examples/server/api_error.h
+@@ -0,0 +1,55 @@
++// PS5SD: one shape for every error answer, on every route:
++//
++//   {"error": {"code": "<code>", "message": "<what happened, for people>"}}
++//
++// as a failed job has it in its "error" and as the OpenAI API answers. code is
++// a short word a program can test (out_of_memory, queue_full, standby, ...);
++// without a better one it is the status's (api_error_code_for_status).
++//
++// install_error_shape() puts every answer of 400 and more into that shape on
++// its way out (cpp-httplib's error handler), so the routes that answer
++// {"error": "text"}, an empty body or plain text (a route that does not exist)
++// come out the same:
++//   - a text "error" becomes the message; a "message" next to it is added
++//     after a colon (sd-server's {"error": "invalid json", "message": ...});
++//   - a top-level "code" names the code; "standby": true is the code standby;
++//     both flags, and "auth_required", are taken out;
++//   - every other top-level field stays.
++// An "error" that is an object already keeps its code and message; a missing
++// one is filled in.
++#pragma once
++
++#include <exception>
++#include <string>
++
++#include <json.hpp>
++
++namespace httplib {
++class Server;
++struct Response;
++}  // namespace httplib
++
++// The code of a status: 400 invalid_request, 401 unauthorized, 403 forbidden,
++// 404 not_found, 405 method_not_allowed, 409 conflict, 410 expired,
++// 413 payload_too_large, 422 unprocessable, 429 rate_limited, 500 server_error,
++// 501 not_implemented, 502 bad_gateway, 503 unavailable, 504 timeout,
++// 507 storage_full; any other is "http_<status>".
++std::string api_error_code_for_status(int status);
++
++nlohmann::json api_error(const std::string& code, const std::string& message);
++
++// Sets the status and the body {"error": {"code", "message"}}.
++void send_api_error(httplib::Response& res, int status, const std::string& code, const std::string& message);
++
++// Puts body into the shape above. content_type is the answer's; fallback is the
++// message when the body has none. True when body changed.
++bool api_error_normalize(int status, const std::string& content_type, const std::string& fallback, std::string& body);
++
++// A route's catch: a JSON error (a body that is not JSON, a field of the wrong
++// type) is 400 invalid_request, anything else 500 server_error; the message is
++// what was thrown.
++void send_exception_error(httplib::Response& res, const std::exception& e);
++
++// The error handler that normalizes every answer of 400 and more, and an
++// exception handler that answers 500 server_error with what was thrown.
++void install_error_shape(httplib::Server& svr);
+diff --git a/examples/server/async_jobs.cpp b/examples/server/async_jobs.cpp
+index e60cdd6..d91826b 100644
+--- a/examples/server/async_jobs.cpp
++++ b/examples/server/async_jobs.cpp
+@@ -524,6 +524,7 @@ void async_job_worker(ServerRuntime& runtime) {
+         int output_frame_count = 0;
+         int output_fps         = 0;
+         std::string error_message;
++        std::string error_code;
+         bool ok = false;
+ 
+         // PS5SD: an exception out of a generation ended this thread and with it the
+@@ -548,6 +549,7 @@ void async_job_worker(ServerRuntime& runtime) {
+             clear_preview_callback();
+             LOG_ERROR("job %s: out of CPU memory (std::bad_alloc)", job->id.c_str());
+             ok            = false;
++            error_code    = "out_of_memory";
+             error_message = "Not enough CPU memory on the console for this run. Close and open PS5SD to free it.";
+         } catch (const std::exception& error) {
+             clear_preview_callback();
+@@ -555,6 +557,9 @@ void async_job_worker(ServerRuntime& runtime) {
+             ok            = false;
+             error_message = std::string("Generation failed: ") + error.what();
+         }
++        if (!ok && error_code.empty()) {
++            error_code = sd_server_failure_code();
++        }
+ 
+         {
+             std::lock_guard<std::mutex> lock(manager.mutex);
+@@ -584,7 +589,7 @@ void async_job_worker(ServerRuntime& runtime) {
+                 job->result_fps         = 0;
+             } else {
+                 job->status        = AsyncJobStatus::Failed;
+-                job->error_code    = "generation_failed";
++                job->error_code    = error_code;
+                 job->error_message = error_message.empty() ? "unknown generation error" : error_message;
+                 job->result_images_b64.clear();
+                 job->result_media_b64.clear();
+diff --git a/examples/server/auth.cpp b/examples/server/auth.cpp
+index d869847..e6b0b96 100644
+--- a/examples/server/auth.cpp
++++ b/examples/server/auth.cpp
+@@ -1,5 +1,6 @@
+ // PS5SD: CORS, the request size limit and the API key (auth.h).
+ #include "auth.h"
++#include "api_error.h"
+ 
+ #include <algorithm>
+ #include <chrono>
+@@ -215,12 +216,12 @@ void json_reply(httplib::Response& res, int status, const nlohmann::json& body)
+ 
+ void unauthorized(httplib::Response& res, const char* message) {
+     res.set_header("WWW-Authenticate", "Bearer realm=\"PS5SD\"");
+-    json_reply(res, 401, {{"error", message}, {"auth_required", true}});
++    json_reply(res, 401, api_error("unauthorized", message));
+ }
+ 
+ void too_many(httplib::Response& res, int seconds) {
+     res.set_header("Retry-After", std::to_string(seconds));
+-    json_reply(res, 429, {{"error", "too many wrong API keys; wait " + std::to_string(seconds) + " s"}, {"auth_required", true}});
++    json_reply(res, 429, api_error("rate_limited", "too many wrong API keys; wait " + std::to_string(seconds) + " s"));
+ }
+ 
+ // Checks a presented key; counts and logs a wrong one. 0 when it is right,
+@@ -295,7 +296,7 @@ httplib::Server::HandlerResponse guard(const httplib::Request& req, httplib::Res
+     const bool upload       = req.method == "PUT" && starts_with(req.path, "/ps5sd/v1/app/uploads/");
+     const uint64_t max_body = open ? k_max_open_body : (upload ? UINT64_MAX : k_max_body);
+     if (length > max_body) {
+-        json_reply(res, 413, {{"error", "the request body is too large (at most " + std::to_string(max_body) + " bytes)"}});
++        json_reply(res, 413, api_error("payload_too_large", "the request body is too large (at most " + std::to_string(max_body) + " bytes)"));
+         return HR::Handled;
+     }
+ 
+@@ -312,7 +313,7 @@ httplib::Server::HandlerResponse guard(const httplib::Request& req, httplib::Res
+         return HR::Handled;
+     }
+     if (given.via_cookie && req.method != "GET" && req.method != "HEAD" && !req.has_header("X-PS5SD-Request")) {
+-        json_reply(res, 403, {{"error", "a request with the login cookie needs the header X-PS5SD-Request"}});
++        json_reply(res, 403, api_error("forbidden", "a request with the login cookie needs the header X-PS5SD-Request"));
+         return HR::Handled;
+     }
+     return HR::Unhandled;
+@@ -360,7 +361,7 @@ void install_request_guard(httplib::Server& svr) {
+         }
+         const nlohmann::json body = nlohmann::json::parse(req.body, nullptr, false);
+         if (!body.is_object() || !body.contains("key") || !body["key"].is_string()) {
+-            json_reply(res, 400, {{"error", "the body must be {\"key\": \"<API key>\"}"}});
++            json_reply(res, 400, api_error("invalid_request", "the body must be {\"key\": \"<API key>\"}"));
+             return;
+         }
+         const std::string raw = body["key"].get<std::string>();
+diff --git a/examples/server/main.cpp b/examples/server/main.cpp
+index 1519810..aeb00d5 100644
+--- a/examples/server/main.cpp
++++ b/examples/server/main.cpp
+@@ -11,6 +11,7 @@
+ 
+ #include "httplib.h"
+ 
++#include "api_error.h"
+ #include "async_jobs.h"
+ #include "auth.h"
+ #include "common/common.h"
+@@ -189,12 +190,11 @@ static int sd_server_standby(int argc, const char** argv) {
+     httplib::Server svr;
+     svr.set_socket_options(listener_socket_options);
+     install_request_guard(svr);
++    install_error_shape(svr);
+     register_index_endpoints(svr, svr_params, embedded_index_html());
+     register_ps5sd_endpoints(svr, runtime);
+     const auto no_model = [](const httplib::Request&, httplib::Response& res) {
+-        res.status = 503;
+-        res.set_content(R"({"error":"no model is loaded; pick or download one in the web UI, tab Models","standby":true})",
+-                        "application/json");
++        send_api_error(res, 503, "standby", "no model is loaded; pick or download one in the web UI, tab Models");
+     };
+     svr.Get(".*", no_model);
+     svr.Post(".*", no_model);
+@@ -290,6 +290,7 @@ extern "C" int sd_server(int argc, char** argv_in) {
+     httplib::Server svr;
+     svr.set_socket_options(listener_socket_options);
+     install_request_guard(svr);
++    install_error_shape(svr);
+     register_index_endpoints(svr, svr_params, embedded_index_html());
+     register_openai_api_endpoints(svr, runtime);
+     register_sdapi_endpoints(svr, runtime);
+diff --git a/examples/server/routes_openai.cpp b/examples/server/routes_openai.cpp
+index ff4aec6..7030640 100644
+--- a/examples/server/routes_openai.cpp
++++ b/examples/server/routes_openai.cpp
+@@ -5,6 +5,7 @@
+ #include <regex>
+ 
+ #include "common/common.h"
++#include "api_error.h"
+ #include "gallery.h"
+ #include "common/media_io.h"
+ #include "common/resource_owners.hpp"
+@@ -292,8 +293,7 @@ void register_openai_api_endpoints(httplib::Server& svr, ServerRuntime& rt) {
+ 
+             SDImageVec results;
+             if (!execute_sync_img_gen_request(*runtime, "openai_generations", request, results, error_message)) {
+-                res.status = 500;
+-                res.set_content(json({{"error", error_message}}).dump(), "application/json");
++                send_api_error(res, 500, sd_server_failure_code(), error_message);
+                 return;
+             }
+ 
+@@ -338,11 +338,7 @@ void register_openai_api_endpoints(httplib::Server& svr, ServerRuntime& rt) {
+             res.status = 200;
+ 
+         } catch (const std::exception& e) {
+-            res.status = 500;
+-            json err;
+-            err["error"]   = "server_error";
+-            err["message"] = e.what();
+-            res.set_content(err.dump(), "application/json");
++            send_exception_error(res, e);
+         }
+     });
+ 
+@@ -366,8 +362,7 @@ void register_openai_api_endpoints(httplib::Server& svr, ServerRuntime& rt) {
+ 
+             SDImageVec results;
+             if (!execute_sync_img_gen_request(*runtime, "openai_edits", request, results, error_message)) {
+-                res.status = 500;
+-                res.set_content(json({{"error", error_message}}).dump(), "application/json");
++                send_api_error(res, 500, sd_server_failure_code(), error_message);
+                 return;
+             }
+ 
+@@ -403,11 +398,7 @@ void register_openai_api_endpoints(httplib::Server& svr, ServerRuntime& rt) {
+             res.status = 200;
+ 
+         } catch (const std::exception& e) {
+-            res.status = 500;
+-            json err;
+-            err["error"]   = "server_error";
+-            err["message"] = e.what();
+-            res.set_content(err.dump(), "application/json");
++            send_exception_error(res, e);
+         }
+     });
+ }
+diff --git a/examples/server/routes_sdapi.cpp b/examples/server/routes_sdapi.cpp
+index 2f35a42..4903ead 100644
+--- a/examples/server/routes_sdapi.cpp
++++ b/examples/server/routes_sdapi.cpp
+@@ -10,6 +10,7 @@
+ #include "common/common.h"
+ #include "common/media_io.h"
+ #include "common/resource_owners.hpp"
++#include "api_error.h"
+ #include "gallery.h"
+ #include "server_activity.h"
+ 
+@@ -434,9 +435,8 @@ void register_sdapi_endpoints(httplib::Server& svr, ServerRuntime& rt) {
+             activity.finish(!results.empty(), saved_paths(saved));
+ 
+             if (results.empty()) {
+-                res.status = 500;
+-                res.set_content(json({{"error", sd_server_failure_reason("generate_image returned no results")}}).dump(),
+-                                "application/json");
++                send_api_error(res, 500, sd_server_failure_code(),
++                               sd_server_failure_reason("generate_image returned no results"));
+                 return;
+             }
+ 
+@@ -484,11 +484,7 @@ void register_sdapi_endpoints(httplib::Server& svr, ServerRuntime& rt) {
+             res.status = 200;
+ 
+         } catch (const std::exception& e) {
+-            res.status = 500;
+-            json err;
+-            err["error"]   = "server_error";
+-            err["message"] = e.what();
+-            res.set_content(err.dump(), "application/json");
++            send_exception_error(res, e);
+         }
+     };
+ 
+diff --git a/examples/server/routes_sdcpp.cpp b/examples/server/routes_sdcpp.cpp
+index d93755f..3acfa58 100644
+--- a/examples/server/routes_sdcpp.cpp
++++ b/examples/server/routes_sdcpp.cpp
+@@ -9,6 +9,7 @@
+ #include "common/common.h"
+ #include "common/media_io.h"
+ #include "common/resource_owners.hpp"
++#include "api_error.h"
+ #include "gallery.h"
+ #include "server_activity.h"
+ #include "server_hooks.h"
+@@ -666,12 +667,8 @@ void register_sdcpp_api_endpoints(httplib::Server& svr, ServerRuntime& rt) {
+             out["images"] = std::move(images);
+             res.set_content(out.dump(), "application/json");
+             res.status = 200;
+-        } catch (const json::exception& e) {
+-            res.status = 400;
+-            res.set_content(json({{"error", "invalid request"}, {"message", e.what()}}).dump(), "application/json");
+         } catch (const std::exception& e) {
+-            res.status = 500;
+-            res.set_content(json({{"error", std::string("server_error: ") + e.what()}}).dump(), "application/json");
++            send_exception_error(res, e);
+         }
+     });
+ 
+@@ -729,8 +726,7 @@ void register_sdcpp_api_endpoints(httplib::Server& svr, ServerRuntime& rt) {
+                 std::lock_guard<std::mutex> lock(manager.mutex);
+                 purge_expired_jobs(manager);
+                 if (count_pending_jobs(manager) >= manager.max_pending_jobs) {
+-                    res.status = 429;
+-                    res.set_content(R"({"error":"job queue is full"})", "application/json");
++                    send_api_error(res, 429, "queue_full", "job queue is full");
+                     return;
+                 }
+                 job->id               = make_async_job_id(manager);
+@@ -749,12 +745,8 @@ void register_sdcpp_api_endpoints(httplib::Server& svr, ServerRuntime& rt) {
+ 
+             res.status = 202;
+             res.set_content(out.dump(), "application/json");
+-        } catch (const json::parse_error& e) {
+-            res.status = 400;
+-            res.set_content(json({{"error", "invalid json"}, {"message", e.what()}}).dump(), "application/json");
+         } catch (const std::exception& e) {
+-            res.status = 500;
+-            res.set_content(json({{"error", "server_error"}, {"message", e.what()}}).dump(), "application/json");
++            send_exception_error(res, e);
+         }
+     });
+ 
+@@ -791,8 +783,7 @@ void register_sdcpp_api_endpoints(httplib::Server& svr, ServerRuntime& rt) {
+                 std::lock_guard<std::mutex> lock(manager.mutex);
+                 purge_expired_jobs(manager);
+                 if (count_pending_jobs(manager) >= manager.max_pending_jobs) {
+-                    res.status = 429;
+-                    res.set_content(R"({"error":"job queue is full"})", "application/json");
++                    send_api_error(res, 429, "queue_full", "job queue is full");
+                     return;
+                 }
+                 job->id               = make_async_job_id(manager);
+@@ -811,12 +802,8 @@ void register_sdcpp_api_endpoints(httplib::Server& svr, ServerRuntime& rt) {
+ 
+             res.status = 202;
+             res.set_content(out.dump(), "application/json");
+-        } catch (const json::parse_error& e) {
+-            res.status = 400;
+-            res.set_content(json({{"error", "invalid json"}, {"message", e.what()}}).dump(), "application/json");
+         } catch (const std::exception& e) {
+-            res.status = 500;
+-            res.set_content(json({{"error", "server_error"}, {"message", e.what()}}).dump(), "application/json");
++            send_exception_error(res, e);
+         }
+     });
+ 
+diff --git a/examples/server/server_activity.h b/examples/server/server_activity.h
+index 0b727b5..fb1b1c4 100644
+--- a/examples/server/server_activity.h
++++ b/examples/server/server_activity.h
+@@ -18,6 +18,9 @@ void sd_server_failure_log_cancelled();
+ // when the log says the console ran out of memory, else the last ERROR line,
+ // else fallback.
+ std::string sd_server_failure_reason(const std::string& fallback);
++// The code that goes with the reason (api_error.h): "cancelled", "out_of_memory"
++// or "generation_failed".
++std::string sd_server_failure_code();
+ // The log since begin() says the console ran out of memory (and no client
+ // stopped the run): such a run is worth one more try.
+ bool sd_server_failure_is_memory();
+diff --git a/examples/server/server_hooks.cpp b/examples/server/server_hooks.cpp
+index a0b192f..d0c6abb 100644
+--- a/examples/server/server_hooks.cpp
++++ b/examples/server/server_hooks.cpp
+@@ -148,6 +148,14 @@ bool sd_server_failure_is_memory() {
+     return !g_failure_cancelled && memory_line_locked();
+ }
+ 
++std::string sd_server_failure_code() {
++    std::lock_guard<std::mutex> lock(g_failure_mutex);
++    if (g_failure_cancelled) {
++        return "cancelled";
++    }
++    return memory_line_locked() ? "out_of_memory" : "generation_failed";
++}
++
+ std::string sd_server_failure_reason(const std::string& fallback) {
+     std::lock_guard<std::mutex> lock(g_failure_mutex);
+     if (g_failure_cancelled) {

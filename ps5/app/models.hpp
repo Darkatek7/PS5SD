@@ -239,8 +239,10 @@ std::string png_with_text(const std::string & png, const std::string & keyword, 
 // sd_YYYYMMDD_HHMMSS_edit.png, then _edit2, _edit3, ...
 std::string edited_image_name(const std::string & dir, long long t);
 
-// {"error": message}.
-std::string error_json(const std::string & message);
+// {"error": {"code": code, "message": message}}, the shape of every error
+// answer (docs/API.md, Errors). Without a code the server puts in the one of
+// the answer's status (patches/sdcpp/0076).
+std::string error_json(const std::string & message, const std::string & code = "");
 
 // The "id" of a POST body {"id": "..."}; empty when there is none.
 std::string id_from_json(const std::string & body);

@@ -156,30 +156,49 @@
       } else {
         setOnline(code !== 0);
         fail(code === 0 ? 'Cannot reach the server.' :
-          'The server refused the request' + (data && data.error ? ': ' + (data.message || data.error) : ' (' + code + ').'));
+          'The server refused the request' + (errMessage(data) ? ': ' + errMessage(data) : ' (' + code + ').'));
       }
     });
+  }
+
+  // The next look at the job: in ms, else once a second, or with the event stream every 5 s besides the
+  // looks the stream asks for (pollSoon).
+  function pollLater(ms) {
+    clearTimeout(st.pollTimer);
+    st.pollTimer = setTimeout(pollJob, ms !== undefined ? ms : (eventsOn() ? 5000 : 1000));
+  }
+
+  // The event stream says the job moved (a step, its end): a look now, but not more than one in 0.7 s.
+  function pollSoon() {
+    if (!st.job) return;
+    if (st.polling) { st.pollAgain = true; return; }
+    pollLater(Math.max(0, 700 - (new Date().getTime() - st.polledAt)));
   }
 
   function pollJob() {
     var token = st.token;
     var job = st.job;
+    clearTimeout(st.pollTimer);
     if (!job) return;
+    st.polling = true;
+    st.pollAgain = false;
+    st.polledAt = new Date().getTime();
     req('GET', '/sdcpp/v1/jobs/' + job, null, function (code, data) {
       if (token !== st.token) return;
+      st.polling = false;
       if (code === 0) {
         st.fails++;
         st.online = false;
         setPill();
         if (st.fails > 300) { fail('Lost the connection to the server.'); return; }
         status('Connection lost, retrying…');
-        setTimeout(pollJob, 1000);
+        pollLater(1000);
         return;
       }
       st.fails = 0;
       if (!st.online) { st.online = true; setPill(); }
       if (code === 404 || code === 410) { fail('The server no longer has this job.'); return; }
-      if (!data) { setTimeout(pollJob, 1000); return; }
+      if (!data) { pollLater(1000); return; }
       // a run of several images on the server: its count, and the images it has saved
       if (data.repeat && data.repeat.total > 1) syncRun(data.repeat);
       var served = !!(st.run && st.run.server);
@@ -200,7 +219,7 @@
       }
       if (data.status === 'failed' || data.status === 'cancelled') {
         if (served) { finishServerRun(data, data.status); return; }
-        fail(data.error && data.error.message ? data.error.message : (data.status === 'cancelled' ? 'Cancelled.' : 'Generation failed.'));
+        fail(errMessage(data) || (data.status === 'cancelled' ? 'Cancelled.' : 'Generation failed.'));
         return;
       }
       if (data.status === 'queued') {
@@ -222,7 +241,8 @@
           showRunNewest();
         }
       }
-      setTimeout(pollJob, 1000);
+      if (st.pollAgain) pollSoon();
+      else pollLater();
     });
   }
 
@@ -273,7 +293,7 @@
       } else {
         setOnline(code !== 0);
         fail(code === 0 ? 'Lost the connection to the server.' :
-          'Generation failed' + (data && (data.message || data.error) ? ': ' + (data.message || data.error) : ' (' + code + ').'));
+          'Generation failed' + (errMessage(data) ? ': ' + errMessage(data) : ' (' + code + ').'));
       }
     });
     setTimeout(function () { pollProgress(token, task); }, 1000);

@@ -88,7 +88,7 @@
     } else if (code === 0) {
       toast('The upload of ' + name + ' stopped.', 6000);
     } else {
-      toast((data && data.error) || ('The upload of ' + name + ' failed (' + code + ').'), 8000);
+      toast(errMessage(data) || ('The upload of ' + name + ' failed (' + code + ').'), 8000);
     }
     upNext();
   }
