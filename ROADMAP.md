@@ -10,6 +10,8 @@ can rely on.
 
 ## Done
 
+- **0.9.14**: no model Delete among the presets, a Fields box and help link in Edit text, suggestions while
+  typing a preset (issue 10).
 - **0.9.13**: a star per preset, Update preset, a Presets list with Apply settings, no header bar on a PC,
   images without their settings in the file (issues 10 and 12).
 - **0.9.12**: presets under their model with a default for each, Edit text for every preset, the time
@@ -334,6 +336,15 @@ selected for one delete or download.
 - [x] **More room**: no header bar on a PC (the status is at the sidebar's foot); on a phone it scrolls away.
 - [x] **Leave the settings out of the file** (issue 12): the PNG carries nothing, the console keeps them
   for the gallery (patch 0075).
+
+## 0.9.14: presets, safer and easier to write ([issue 10](https://github.com/Darkatek7/PS5SD/issues/10)), done
+
+- [x] **No model Delete in the Presets list**: its ⋯ deletes saved presets only; a model is deleted under
+  Installed, where the main preset's row no longer offers it either (the header does).
+- [x] **Fields** under Edit text: each # line with an example and a + that adds it; More in the help opens
+  MODELS.md at Presets.
+- [x] **Suggestions while typing** a preset: # lines, the keys of # defaults, samplers after sampler=,
+  LoRA files after loras=.
 
 ## Later in 0.9.x
 
