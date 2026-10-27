@@ -137,6 +137,70 @@
     return { text: line + '\n' + v, pos: line.length };
   }
 
+  var PE_HEADS = ['name', 'base', 'prompt', 'negative', 'defaults'];
+  var PE_DEFAULTS = ['steps', 'cfg', 'width', 'height', 'sampler', 'scheduler', 'clip_skip', 'loras'];
+
+  // The suggestions for the line the caret c is on in the preset text v (see tagInput, 09d): after "#" at a
+  // line's start the # lines the text does not have yet; in "# defaults:" its keys (the ones the line does not
+  // have), after "sampler=" the samplers, after "loras=" or a comma in it the LoRA files, put in as "path:1"
+  // with the 1 selected. samplers: names; loras: [{path}] or null.
+  function peHits(v, c, samplers, loras) {
+    var ls = v.lastIndexOf('\n', c - 1) + 1, line = v.substring(ls, c), hits = [], i, w;
+    var m = /^\s*#(\s*)(\w*)$/.exec(line);
+    if (m) {
+      w = m[2].toLowerCase();
+      for (i = 0; i < PE_HEADS.length; i++) {
+        var key = PE_HEADS[i];
+        if (key.indexOf(w) !== 0 || new RegExp('^[ \\t]*#[ \\t]*' + key + '[ \\t]*:', 'im').test(v)) continue;
+        var ins = (m[1] ? '' : ' ') + key + ': ';
+        hits.push({ label: '# ' + key + ':', insert: ins, again: key === 'defaults' });
+      }
+      return { from: c - m[2].length, to: c, hits: hits };
+    }
+    var d = /^\s*#\s*defaults\s*:(.*)$/i.exec(line);
+    if (!d) return null;
+    var rest = d[1];
+    if ((m = /(?:^|\s)sampler=(\S*)$/.exec(rest))) {
+      w = m[1];
+      for (i = 0; i < samplers.length; i++) {
+        if (samplers[i].indexOf(w) === 0) hits.push({ label: samplers[i], insert: samplers[i] });
+      }
+      return { from: c - w.length, to: c, hits: hits };
+    }
+    if ((m = /(?:^|\s)loras=((?:[^\s,]*,)*)([^\s,]*)$/.exec(rest))) {
+      w = m[2];
+      if (w.indexOf(':') >= 0 || !loras) return null;
+      var lw = w.toLowerCase(), have = ',' + m[1], later = [];
+      for (i = 0; i < loras.length; i++) {
+        var p = loras[i] && loras[i].path;
+        if (!p || have.indexOf(',' + p + ':') >= 0) continue;
+        var at = p.toLowerCase().indexOf(lw);
+        if (at < 0) continue;
+        var h = { label: p, insert: p + ':1', sel: [p.length + 1, p.length + 2] };
+        // the ones that start with the word first, then the ones with it inside (a LoRA in a folder)
+        if (at === 0) hits.push(h); else later.push(h);
+      }
+      return { from: c - w.length, to: c, hits: hits.concat(later) };
+    }
+    if ((m = /(?:^|\s)(\w*)$/.exec(rest))) {
+      w = m[1].toLowerCase();
+      var sp = rest === '' ? ' ' : '';
+      for (i = 0; i < PE_DEFAULTS.length; i++) {
+        var k = PE_DEFAULTS[i];
+        if (k.indexOf(w) !== 0 || new RegExp('(^|\\s)' + k + '=').test(rest)) continue;
+        hits.push({ label: k + '=', insert: sp + k + '=', again: k === 'sampler' || k === 'loras' });
+      }
+      return { from: c - m[1].length, to: c, hits: hits };
+    }
+    return null;
+  }
+
+  function peSource(f, done) {
+    var c = f.selectionEnd;
+    if (typeof c !== 'number' || c !== f.selectionStart) { done(null); return; }
+    done(peHits(f.value, c, samplerNames, loraList));
+  }
+
   function peField(key) {
     var f = $('pe-text'), r = peInsert(f.value, key);
     f.value = r.text;

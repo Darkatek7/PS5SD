@@ -1,4 +1,7 @@
   // ---------- server info ----------
+  // the sampler names of the server (GET /sdapi/v1/samplers), for the preset editor's suggestions
+  var samplerNames = [];
+
   function loadInfo() {
     if (st.infoBusy) return;
     st.infoBusy = true;
@@ -29,6 +32,7 @@
           } else {
             applyVideoMode(null);
           }
+          if (c1 === 200) samplerNames = names(samplers);
           fill($('sampler'), names(samplers));
           fill($('scheduler'), names(schedulers));
           loadLoras(null);
