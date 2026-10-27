@@ -350,21 +350,27 @@
       b.disabled = !usable;
       acts.appendChild(b);
     }
-    acts.appendChild(itemMenu(v, g, d));
+    // the main preset's Delete is the model's, on the row above: its own ⋯ leaves it out
+    var menu = itemMenu(v, g, d, v === g.main && !v.base ? 'main' : '');
+    if (menu) acts.appendChild(menu);
     row.appendChild(acts);
     return row;
   }
 
-  // The ⋯ of a preset: Edit text, Delete (the star makes it the default). inList: the Presets list,
+  // The ⋯ of a preset: Edit text, Delete (the star makes it the default). where 'list': the Presets list,
   // where a model is not deleted (that is under Installed): its Delete is off, with the note why.
-  function itemMenu(v, g, d, inList) {
+  // where 'main': a model's main preset under its header, whose ⋯ has the model's Delete: no Delete here.
+  // null when nothing is left (the main item is the bare file).
+  function itemMenu(v, g, d, where) {
     var items = [], why = '';
     if (v.kind === 'preset') items.push({ label: 'Edit text', fn: function () { editPreset(v); } });
     if (v.kind === 'preset' && v.base) {
       var busy = d.loaded === v.id || d.active === v.id;
       if (busy) why = 'Switch to another preset to delete this one.';
       items.push({ label: 'Delete', danger: true, disabled: busy || !!st.sw, fn: function () { askDeletePreset(v); } });
-    } else if (inList) {
+    } else if (where === 'main') {
+      if (!items.length) return null;
+    } else if (where === 'list') {
       why = 'Delete the model under Models → Installed.';
       items.push({ label: 'Delete', danger: true, disabled: true, fn: function () {} });
     } else {
@@ -434,7 +440,7 @@
       b.disabled = s === 'loading' || !!miss || !!st.sw;
       acts.appendChild(b);
     }
-    acts.appendChild(itemMenu(v, g, d, true));
+    acts.appendChild(itemMenu(v, g, d, 'list'));
     row.appendChild(acts);
     return row;
   }
