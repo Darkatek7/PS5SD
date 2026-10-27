@@ -12,7 +12,8 @@ the queued and generating jobs when the stream opens and whenever they
 change, a "progress" event per step (at most four a second: step, steps,
 seconds per step, the time left of that phase, the job), a "job" event when
 a job ends, and a ": ping" comment every 15 s, so a proxy (Cloudflare gives
-up after 100 s) keeps it open. ?job=<id> follows one job and ends after its
+up after 100 s) keeps it open. A stream that opens while nothing runs gets no
+progress of the run before. ?job=<id> follows one job and ends after its
 "job" event. sd_progress_cb, the job worker and the job routes wake the
 streams; a change shows at most a second late in any case.
 
@@ -63,10 +64,10 @@ index d91826b..21f4ae1 100644
  }
 diff --git a/examples/server/events.cpp b/examples/server/events.cpp
 new file mode 100644
-index 0000000..d89c194
+index 0000000..51e5eca
 --- /dev/null
 +++ b/examples/server/events.cpp
-@@ -0,0 +1,288 @@
+@@ -0,0 +1,291 @@
 +#include "events.h"
 +
 +#include <algorithm>
@@ -239,6 +240,9 @@ index 0000000..d89c194
 +    if (!s.done && (s.first || js != s.jobs_sent)) {
 +        out += event("jobs", list);
 +        s.jobs_sent = js;
++    }
++    if (s.first && generating.empty()) {
++        s.progress_seq = progress.seq;  // the steps of a run that is over: nothing for a new stream
 +    }
 +    s.first = false;
 +

@@ -913,3 +913,24 @@ keeps it quiet. So `ps5/fan` (ps5sd-fan.elf) lowers the target one degree every 
 When PS5SD closes, the console sets its own fan pattern again, and with it 91 °C; the payload ends 15 s
 after PS5SD's last word. A model switch that restarts PS5SD does the same, and the new instance starts the
 payload again.
+
+## Errors and the event stream (2026-10-27)
+
+Local Docker build of 5faaa7e with patches/sdcpp/0076 and 0077 (0.9.15 in the making), with a display, Z-Image
+Turbo and SDXL Base, all through `curl` from the PC.
+
+- Every error answer of the routes tried had the shape `{"error": {"code", "message"}}`: an unknown route,
+  model, preset, job and gallery file (404), a body that is not JSON (400, not 500 as before), a wrong
+  setting, link or upload name (400), the loaded model deleted (409 `in_use`), a second switch while one
+  runs (409 `switching`).
+- `GET /ps5sd/v1/events?job=<id>` of a Z-Image Turbo image at 768x768: loading the weights showed as two
+  phases of 386 and 452 steps, then the 8 sampling steps at 4.3 s each, the 4 tiles of the decode, then the
+  `job` event, and the stream ended. 55 s from the request to `completed`, the first run after a start.
+- A job cancelled while it generated: a `jobs` event with `cancel_requested: true`, then its `job` event
+  with the code `cancelled`; the stream ended.
+- A model switch with a stream open: the stream ended 0.9 to 1.1 s after `POST models/active`, and the
+  switch was not held up by it: Z-Image Turbo to SDXL Base in 10 s, back in 4 s (Z-Image loads its weights
+  on its first run). A new stream opened at once after the switch.
+- After a wake from rest mode over the network (Remote Play), the launch payload failed with
+  `launchApp(PPSA99576)` 0x8094000a until a user was signed in on the console. A few minutes after such a
+  wake without input, the console went back into rest mode.
