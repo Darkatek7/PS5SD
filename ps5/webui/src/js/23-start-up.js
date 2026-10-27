@@ -158,6 +158,12 @@
     $('ps-name').onkeydown = function (e) { e = e || window.event; if (e.keyCode === 13) { savePreset(); return false; } return true; };
     $('pe-cancel').onclick = closeEdit;
     $('pe-save').onclick = saveEdit;
+    $('pe-help').onclick = peHelp;
+    $('pe-fields').onclick = function (e) {
+      e = e || window.event;
+      var t = e.target || e.srcElement, key = t && t.getAttribute && t.getAttribute('data-key');
+      if (key) peField(key);
+    };
     $('tab-create').onclick = function () { setView('create'); };
     $('tab-models').onclick = function () { setView('models'); };
     $('tab-gallery').onclick = function () { setView('gallery'); };

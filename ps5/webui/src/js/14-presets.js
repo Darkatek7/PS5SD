@@ -114,7 +114,54 @@
     }, 15000);
   }
 
-  var peFor = null;
+  var peFor = null, peOrig = '', peHelpArmed = null;
+
+  // What + of the Fields box does to the text v: {text, pos} with the cursor at pos. A preset that has the
+  // line "# key:" already (anywhere: parse_preset in models.cpp reads every # line) stays as it is, and the
+  // cursor goes to the line's end. Otherwise "# key: " goes after the last # line of the header block (the
+  // empty and # lines at the top), where update_defaults puts a new "# defaults:" too.
+  function peInsert(v, key) {
+    var m = new RegExp('^[ \\t]*#[ \\t]*' + key + '[ \\t]*:.*$', 'im').exec(v);
+    if (m) return { text: v, pos: m.index + m[0].length };
+    var at = 0, i = 0;
+    while (i < v.length) {
+      var end = v.indexOf('\n', i);
+      if (end < 0) end = v.length;
+      var t = v.substring(i, end).replace(/^\s+|\s+$/g, '');
+      if (t && t.charAt(0) !== '#') break;
+      if (t) at = end;
+      i = end + 1;
+    }
+    var line = '# ' + key + ': ';
+    if (at > 0) return { text: v.substring(0, at) + '\n' + line + v.substring(at), pos: at + 1 + line.length };
+    return { text: line + '\n' + v, pos: line.length };
+  }
+
+  function peField(key) {
+    var f = $('pe-text'), r = peInsert(f.value, key);
+    f.value = r.text;
+    f.focus();
+    try { f.setSelectionRange(r.pos, r.pos); } catch (e) {}
+  }
+
+  function disarmPeHelp() {
+    if (peHelpArmed) clearTimeout(peHelpArmed);
+    peHelpArmed = null;
+    text($('pe-help'), 'More in the help');
+  }
+
+  // "More in the help" closes the editor (the help needs the whole page) and opens MODELS.md at its presets
+  // section; with unsaved changes the first press asks, as Update preset does.
+  function peHelp() {
+    if ($('pe-text').value !== peOrig && !peHelpArmed) {
+      text($('pe-help'), 'Unsaved changes \u2013 press again');
+      peHelpArmed = setTimeout(disarmPeHelp, 5000);
+      return;
+    }
+    closeEdit();
+    setView('help');
+    showDoc('models', 'Presets');
+  }
 
   function editPreset(m) {
     req('GET', APP + '/presets/' + encodeURIComponent(m.id), null, function (code, data) {
@@ -122,7 +169,8 @@
       peFor = m;
       dlgFrom = document.activeElement;
       text($('pe-title'), 'Edit ' + (m.name || m.id));
-      $('pe-text').value = data.text;
+      $('pe-text').value = peOrig = data.text;
+      disarmPeHelp();
       text($('pe-err'), '');
       $('pe-save').disabled = false;
       show('pe', true, 'flex');
@@ -133,6 +181,7 @@
   function closeEdit() {
     show('pe', false);
     peFor = null;
+    disarmPeHelp();
     if (dlgFrom) { try { dlgFrom.focus(); } catch (e) {} }
   }
 

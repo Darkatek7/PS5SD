@@ -126,16 +126,39 @@
     return html;
   }
 
+  // A doc into #doc; with docAt set, scrolled to its first heading that starts with docAt.
+  var docAt = '';
+  function drawDoc(name) {
+    $('doc').innerHTML = mdRender(docText[name]);
+    var hs = docAt ? $('doc').querySelectorAll('h2, h3') : [];
+    for (var i = 0; i < hs.length; i++) {
+      if ((hs[i].textContent || '').indexOf(docAt) === 0) {
+        if (hs[i].scrollIntoView) hs[i].scrollIntoView(true);
+        // the header (and the tab bar, where it sits on top) stays at the top and would cover the heading
+        var h = hs[i].getBoundingClientRect(), bars = [document.querySelector('.top'), document.querySelector('.tabs')], below = h.top;
+        for (var b = 0; b < bars.length; b++) {
+          var r = bars[b] && bars[b].getBoundingClientRect();
+          if (r && r.top <= below + 1 && r.bottom > below && r.left < h.right && r.right > h.left) below = r.bottom;
+        }
+        if (below > h.top && window.scrollBy) window.scrollBy(0, h.top - below - 12);
+        break;
+      }
+    }
+    docAt = '';
+  }
+
   // The views of the Help tab: 'page' is the static text of this page (#doc-notes, no request).
-  function showDoc(name) {
+  // at: the start of a heading to scroll to, once the doc is there.
+  function showDoc(name, at) {
     docName = name;
+    docAt = at || '';
     var views = ['page', 'models', 'api'];
     for (var v = 0; v < views.length; v++) $('doc-' + views[v]).className = views[v] === name ? 'on' : '';
     show('doc-notes', name === 'page');
     show('doc', name !== 'page');
     if (name === 'page') return;
     if (docText[name] !== undefined) {
-      $('doc').innerHTML = mdRender(docText[name]);
+      drawDoc(name);
       return;
     }
     text($('doc'), 'Loading');
@@ -145,7 +168,7 @@
       if (x.readyState !== 4) return;
       if (x.status === 200) {
         docText[name] = x.responseText;
-        if (docName === name) $('doc').innerHTML = mdRender(x.responseText);
+        if (docName === name) drawDoc(name);
       } else if (docName === name) {
         text($('doc'), 'This version of the PS5SD app does not carry its docs. They are on GitHub (link above).');
       }

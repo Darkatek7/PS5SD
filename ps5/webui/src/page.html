@@ -686,6 +686,21 @@
     <div class="dlg-title" id="pe-title">Edit preset</div>
     <p class="hint">One option a line, as in docs/MODELS.md. <code># name:</code> is the name, <code># defaults:</code> the settings.</p>
     <textarea id="pe-text" rows="14" spellcheck="false" autocapitalize="off"></textarea>
+    <details class="pe-fields" id="pe-fields">
+      <summary>Fields</summary>
+      <p class="hint">The <code>#</code> lines at the top. <b>+</b> adds one there, or goes to the end of the one the preset has.</p>
+      <div class="pe-field"><button type="button" data-key="name" aria-label="Add # name:">+</button>
+        <div><code># name:</code> the name in the web UI<div class="ex"># name: Pony portrait</div></div></div>
+      <div class="pe-field"><button type="button" data-key="base" aria-label="Add # base:">+</button>
+        <div><code># base:</code> the id of the model this preset belongs to; it then shows as a saved preset under that model<div class="ex"># base: ilustmix_v111.safetensors</div></div></div>
+      <div class="pe-field"><button type="button" data-key="prompt" aria-label="Add # prompt:">+</button>
+        <div><code># prompt:</code> text put before every prompt<div class="ex"># prompt: score_9, score_8_up, score_7_up</div></div></div>
+      <div class="pe-field"><button type="button" data-key="negative" aria-label="Add # negative:">+</button>
+        <div><code># negative:</code> text put before every negative prompt<div class="ex"># negative: score_4, score_5, score_6</div></div></div>
+      <div class="pe-field"><button type="button" data-key="defaults" aria-label="Add # defaults:">+</button>
+        <div><code># defaults:</code> the settings of <b>Use</b>, <code>key=value</code> with spaces between: <code>steps cfg width height sampler scheduler clip_skip loras</code> (<code>loras=path:strength,…</code>), and <code>hires_…</code> (written by Save as preset)<div class="ex"># defaults: steps=25 cfg=7 width=832 height=1216 sampler=euler_a loras=detail.safetensors:0.8</div></div></div>
+      <button type="button" class="linkbtn" id="pe-help">More in the help</button>
+    </details>
     <p class="mmeta bad" id="pe-err"></p>
     <div class="dlg-btns">
       <button type="button" id="pe-cancel">Cancel</button>

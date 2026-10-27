@@ -9,8 +9,9 @@ for the build), so an edit shows after a reload.
 --mock-downloads answers the download routes of the app (catalog, downloads, Hugging Face
 search) in this process, with simulated progress, so the Models tab can be tried before the
 console has them. It also turns on --mock-models: the model library (list, switch, delete;
-saved presets: save, delete) is then an in-memory fake too and the console is not asked about models at all, so a delete or
-a switch cannot touch it. --mock-models alone fakes only the library. Everything else is still forwarded. Without the flag the real console answers
+saved presets: save, delete; a preset's text: read, write) is then an in-memory fake too and the console is not
+asked about models at all, so a delete or a switch cannot touch it. It also serves docs/MODELS.md and docs/API.md
+from this checkout for the Help tab. --mock-models alone fakes only the library. Everything else is still forwarded. Without the flag the real console answers
 (an old app answers 404 and the page hides the download parts). Words in a URL steer the mock:
 "fail" makes the download fail at 30 percent, "big" makes it 8 GB, "slow" makes it slow.
 In a search, "err" gives an error and "none" gives no results.
@@ -32,6 +33,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 HERE = os.path.dirname(os.path.abspath(__file__))
 SRC = os.path.join(HERE, "..", "ps5", "webui", "src")
 VERSION_HPP = os.path.join(HERE, "..", "ps5", "app", "version.hpp")
+DOCS = os.path.join(HERE, "..", "docs")
 
 
 def bundle():
@@ -365,9 +367,81 @@ class MockModels:
                 return 200, out
         return 404, {"error": "not found"}
 
-    # Saved presets: POST /presets {"name", "base", "defaults"} and DELETE /presets/<id> (only these).
+    # Options whose next line is a model file, as is_model_path_option in ps5/app/models.cpp.
+    MODEL_OPTIONS = ("-m", "--model", "--diffusion-model", "--high-noise-diffusion-model", "--vae", "--taesd", "--tae",
+                     "--clip_l", "--clip_g", "--clip_vision", "--t5xxl", "--llm", "--llm_vision", "--control-net",
+                     "--upscale-model", "--photo-maker", "--audio-vae", "--tokenizer")
+
+    def _text(self, p):
+        """The preset's file: its own text once written, else one made up from its fields."""
+        if "text" in p:
+            return p["text"]
+        out = "# name: " + p["name"] + "\n"
+        if p.get("base"):
+            out += "# base: " + p["base"] + "\n"
+        if p["defaults"]:
+            out += "# defaults: " + " ".join(k + "=" + v for k, v in p["defaults"].items()) + "\n"
+        for i, f in enumerate(p["files"]):
+            out += ("-m" if i == 0 else "--vae" if "vae" in f or f.endswith("ae.safetensors") else "--llm") + "\n" + f + "\n"
+        return out + "--vae-tiling\n"
+
+    def _parse(self, p, text):
+        """The fields of a preset's text as parse_preset reads them; False when it names no model file."""
+        name, base, defaults, files, prev = p["id"], "", {}, [], ""
+        for line in text.split("\n"):
+            line = line.strip()
+            if not line:
+                continue
+            if line.startswith("#"):
+                key, colon, value = line[1:].partition(":")
+                if not colon:
+                    continue
+                key, value = key.strip().lower(), value.strip()
+                if key == "name" and value:
+                    name = value
+                elif key == "base":
+                    base = value
+                elif key == "defaults":
+                    defaults = dict(w.split("=", 1) for w in value.split() if "=" in w)
+                continue
+            if prev in self.MODEL_OPTIONS:
+                files.append(line[len(self.DIR):] if line.startswith(self.DIR) else line)
+            prev = line
+        if not files:
+            return False
+        p.update(name=name, base=base, defaults=defaults, files=files, text=text)
+        return True
+
+    # Saved presets: POST /presets {"name", "base", "defaults"} and DELETE /presets/<id>; a preset's text:
+    # GET /presets/<id> and POST /presets/<id> {"text"} or {"defaults"} (only these).
     def _presets(self, method, rest, body):
         with self.lock:
+            if rest.startswith("/") and method in ("GET", "POST"):
+                pid = urllib.parse.unquote(rest[1:])
+                p = next((p for p in self.presets if p["id"] == pid), None)
+                if p is None:
+                    return 404, {"error": "no preset " + pid}
+                if method == "GET":
+                    return 200, {"id": pid, "text": self._text(p)}
+                try:
+                    j = json.loads(body or b"{}")
+                except ValueError:
+                    j = {}
+                if isinstance(j.get("defaults"), dict) and "text" not in j:
+                    # Update preset: only the "# defaults:" line changes
+                    p["defaults"] = {str(k): str(v) for k, v in j["defaults"].items()}
+                    if "text" in p:
+                        rest = [l for l in p.pop("text").split("\n") if not re.match(r"\s*#\s*defaults\s*:", l, re.I)]
+                        p["text"] = self._text(dict(p, files=[])).split("--vae-tiling")[0] + "\n".join(
+                            l for l in rest if not re.match(r"\s*#\s*(name|base)\s*:", l, re.I))
+                    return 200, self._json()
+                if not isinstance(j.get("text"), str):
+                    return 400, {"error": "the body must be {\"text\": \"...\"} or {\"defaults\": {...}}"}
+                if len(j["text"].encode()) > 64 * 1024:
+                    return 400, {"error": "a preset is at most 64 KB"}
+                if not self._parse(p, j["text"]):
+                    return 400, {"error": "the preset names no model (-m, --diffusion-model, ...)"}
+                return 200, self._json()
             if method == "POST" and rest == "":
                 try:
                     j = json.loads(body or b"{}")
@@ -471,6 +545,15 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(503, {"error": "no model is loaded; pick or download one in the web UI, tab Models",
                                  "standby": True})
                 return
+        doc = re.match(r"^/ps5sd/v1/app/docs/(MODELS|API)\.md$", self.path)
+        if self.models is not None and self.command == "GET" and doc:
+            data = open(os.path.join(DOCS, doc.group(1) + ".md"), "rb").read()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/markdown; charset=utf-8")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+            return
         if self.models is not None and re.match(r"^/ps5sd/v1/app/(models|presets)(/|\?|$)", self.path):
             res = self.models.handle(self.command, self.path, body)
         elif self.mock is not None and re.match(r"^/ps5sd/v1/app/(catalog|downloads|hf/)", self.path):
@@ -493,7 +576,8 @@ if __name__ == "__main__":
     ap.add_argument("--mock-downloads", action="store_true",
                     help="answer catalog, downloads and Hugging Face search here (simulated)")
     ap.add_argument("--mock-models", action="store_true",
-                    help="answer the model library (list, switch, delete; saved presets: save, delete) here; implied by --mock-downloads")
+                    help="answer the model library (list, switch, delete; saved presets: save, delete; preset text) and the docs"
+                         " here; implied by --mock-downloads")
     ap.add_argument("--read-only", action="store_true",
                     help="send only GET to the console: no job, cancel, delete or setting reaches it (the mocks still answer)")
     ap.add_argument("--mock-standby", action="store_true",
