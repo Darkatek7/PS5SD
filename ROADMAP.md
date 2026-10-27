@@ -10,6 +10,8 @@ can rely on.
 
 ## Done
 
+- **0.9.15**: one shape for every error answer, with a code; the jobs and their steps as server-sent events
+  (`GET /ps5sd/v1/events`), which the web UI uses.
 - **0.9.14**: no model Delete among the presets, a Fields box and help link in Edit text, suggestions while
   typing a preset (issue 10).
 - **0.9.13**: a star per preset, Update preset, a Presets list with Apply settings, no header bar on a PC,
@@ -346,6 +348,17 @@ selected for one delete or download.
 - [x] **Suggestions while typing** a preset: # lines, the keys of # defaults, samplers after sampler=,
   LoRA files after loras=.
 
+## 0.9.15: one error shape and progress as events, done
+
+The first part of 1.0's "The API is fixed".
+
+- [x] **One error shape**: every answer of 400 and more is `{"error": {"code", "message"}}`, as a failed job
+  has it; codes such as `out_of_memory`, `queue_full`, `standby`, `switching` (docs/API.md, Errors).
+- [x] **Progress as server-sent events**: `GET /ps5sd/v1/events` with the queue, every step and each job's
+  end; at most four streams, a ping every 15 s.
+- [x] **The web UI on the stream**: it asks for its job when the stream says it moved and takes the queue
+  from it; without the stream it polls as before.
+
 ## Later in 0.9.x
 
 **Web UI**
@@ -370,8 +383,8 @@ No large features; 1.0 is the version that keeps its promises. It is out when al
   fix.
 - [ ] **No run fails without a reason**: before a run that will not fit, the web UI says so and what to
   lower; a run that fails anyway says why.
-- [ ] **The API is fixed**: one error shape everywhere; progress as server-sent events besides polling;
-  `POST /sdapi/v1/options` waits until the model has loaded, as A1111 does; the `model` of
+- [ ] **The API is fixed**: one error shape everywhere and progress as server-sent events besides polling
+  (both in 0.9.15); `POST /sdapi/v1/options` waits until the model has loaded, as A1111 does; the `model` of
   `/v1/images/generations` switches the model (or answers `409`); an OpenAPI description at
   `/ps5sd/v1/app/openapi.json`. After 1.0, a change that breaks a client needs a new major version.
 - [ ] **Close during a stalled main loop**: a thread that passes the GPU suspend point every 100 ms, so the
