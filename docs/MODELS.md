@@ -152,6 +152,11 @@ The `# defaults:` keys are `steps`, `cfg`, `width`, `height`, `sampler`, `schedu
 (`path:strength`, several with commas: `loras=detail.safetensors:0.8,styles/ink.gguf:1`). The samplers
 are listed by `GET /sdapi/v1/samplers`, for example `euler`, `euler_a`, `dpm++2m` or `lcm`.
 
+The web UI also keeps the hires fix (see Upscalers) there, and **Save as preset** writes it: `hires_scale`
+(1 or more; it turns the hires fix on), `hires_steps` (0: as many as the first pass), `hires_denoise`
+(for example `0.5`) and `hires_upscaler` (the name, percent-encoded: `Latent%20(nearest-exact)`; `Latent`
+when it is left out). The server does not use them itself.
+
 For a video model, `--video-frames`, `--fps` and `--flow-shift` in its preset are the defaults of a video
 request, as `steps` and the others are for an image.
 
