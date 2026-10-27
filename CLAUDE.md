@@ -105,7 +105,10 @@ Facts that bite (`docs/CONSOLE.md` has the measurements):
 
 1. **Bump the version** (above). Add the release's sentence to the top paragraph of `README.md` and its line
    under "Done" in `ROADMAP.md`. Commit as `PS5SD <ver>` and push `main`.
-2. **Build.** Wait for the `build` run of that commit, then `scripts/fetch-artifact.sh <run-id>`.
+2. **Build.** Do not wait for CI: build the release commit in Docker (Build, "Docker on this PC") with a clean
+   working tree (`git status` empty, since `local-sync.sh` copies the tree as it is), and copy
+   `/work/build/app-ps5/title/PPSA99576` from the volume to `build/app-ps5/title/`. The `build` run of that
+   commit goes on in CI as a check. Without Docker: wait for that run, then `scripts/fetch-artifact.sh <run-id>`.
 3. **Package.** `scripts/package-release.sh` makes `dist/PPSA99576.zip` and `dist/PPSA99576.json` (the
    catalog record with the zip's SHA-256 and the icon URL pinned to the tag). Nothing is uploaded.
 4. **Tag and release.**
