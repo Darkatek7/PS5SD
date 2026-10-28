@@ -10,6 +10,8 @@ can rely on.
 
 ## Done
 
+- **0.9.17**: an OpenAPI description of every route; a Close from the home screen while the main loop hangs
+  closes cleanly.
 - **0.9.16**: a model switch without stopping the server; options waits for the model; the model of an
   OpenAI request; the switch in the event stream.
 - **0.9.15**: one shape for every error answer, with a code; the jobs and their steps as server-sent events
@@ -374,6 +376,16 @@ The second part of 1.0's "The API is fixed".
   `dall-e-3`, run on the loaded one.
 - [x] **The switch in the event stream** (a `model` event), which the web UI follows.
 
+## 0.9.17: OpenAPI and a safe Close, done
+
+- [x] **An OpenAPI description** of every route at `/ps5sd/v1/app/openapi.json` (OpenAPI 3.1, open without
+  the key); CI checks that it lists every route the server and the app register.
+- [x] **A Close during a stalled main loop**: a thread passes the GPU suspend point every 100 ms. Measured on
+  the console: a Close during a main loop stuck in a frame took 7.8 s and ended in a crash report without it,
+  85 to 91 ms and a clean end with it ([CONSOLE.md](docs/CONSOLE.md#a-close-during-a-stalled-main-loop-2026-10-28)).
+- [x] Tested: `options` with a model that does not load (`500 load_failed`), and a switch in the web UI from
+  the page and from outside.
+
 ## Later in 0.9.x
 
 **Web UI**
@@ -398,12 +410,12 @@ No large features; 1.0 is the version that keeps its promises. It is out when al
   fix.
 - [ ] **No run fails without a reason**: before a run that will not fit, the web UI says so and what to
   lower; a run that fails anyway says why.
-- [ ] **The API is fixed**: one error shape everywhere and progress as server-sent events besides polling
+- [x] **The API is fixed**: one error shape everywhere and progress as server-sent events besides polling
   (both in 0.9.15); `POST /sdapi/v1/options` waits until the model has loaded, as A1111 does, and the `model`
   of `/v1/images/generations` switches the model (both in 0.9.16); an OpenAPI description at
-  `/ps5sd/v1/app/openapi.json`. After 1.0, a change that breaks a client needs a new major version.
-- [ ] **Close during a stalled main loop**: a thread that passes the GPU suspend point every 100 ms, so the
-  25 s limit is never hit (see [docs/CONSOLE.md](docs/CONSOLE.md)).
+  `/ps5sd/v1/app/openapi.json` (0.9.17). After 1.0, a change that breaks a client needs a new major version.
+- [x] **Close during a stalled main loop**: a thread that passes the GPU suspend point every 100 ms, so the
+  25 s limit is never hit (0.9.17, see [docs/CONSOLE.md](docs/CONSOLE.md)).
 - [ ] **An update keeps everything**: models, LoRAs, presets, gallery, settings and the API key survive an
   update from every 0.x version, tested from 0.5.0 on.
 - [ ] **The docs match the title**: README, Help tab, MODELS.md and API.md read against 1.0, with the
