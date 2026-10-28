@@ -6,17 +6,25 @@
   var DOC_REPO = 'https://github.com/Darkatek7/PS5SD/blob/main/';
   var docName = 'models';
   var docText = {};
+  var docDrawing = 'models';  // the doc mdRender renders now: its own anchors (#heading) stay in it
 
   function esc(s) {
     return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   }
 
+  // A heading's anchor as GitHub makes it: lower case, punctuation out, spaces to hyphens.
+  function slug(s) {
+    return String(s).toLowerCase().replace(/<[^>]*>/g, '').replace(/[^a-z0-9 _-]/g, '').replace(/ /g, '-');
+  }
+
   function docLink(label, url) {
     var path = url.split('#')[0];
     var hash = url.indexOf('#') >= 0 ? url.slice(url.indexOf('#')) : '';
+    var at = hash ? ' data-at="' + esc(hash) + '"' : '';
+    if (!path && hash) return '<a href="#help" data-doc="' + docDrawing + '"' + at + '>' + label + '</a>';
     for (var k in DOCS) {
       if (DOCS.hasOwnProperty(k) && (path === DOCS[k] || path === 'docs/' + DOCS[k])) {
-        return '<a href="#help" data-doc="' + k + '">' + label + '</a>';
+        return '<a href="#help" data-doc="' + k + '"' + at + '>' + label + '</a>';
       }
     }
     var href = /^https?:\/\//i.test(url) ? url
@@ -82,7 +90,7 @@
       } else if ((m = /^(#{1,4})\s+(.*)$/.exec(line))) {
         flush();
         closeLists(0);
-        html += '<h' + m[1].length + '>' + mdInline(m[2]) + '</h' + m[1].length + '>';
+        html += '<h' + m[1].length + ' id="' + slug(m[2].replace(/`/g, '')) + '">' + mdInline(m[2]) + '</h' + m[1].length + '>';
       } else if (/^\s*\|/.test(line)) {
         flush();
         closeLists(0);
@@ -126,21 +134,27 @@
     return html;
   }
 
-  // A doc into #doc; with docAt set, scrolled to its first heading that starts with docAt.
+  // A doc into #doc; with docAt set, scrolled to a heading: '#anchor' (a link), else the first that
+  // starts with docAt.
   var docAt = '';
+  function scrollToHeading(el) {
+    if (el.scrollIntoView) el.scrollIntoView(true);
+    // the header (and the tab bar, where it sits on top) stays at the top and would cover the heading
+    var h = el.getBoundingClientRect(), bars = [document.querySelector('.top'), document.querySelector('.tabs')], below = h.top;
+    for (var b = 0; b < bars.length; b++) {
+      var r = bars[b] && bars[b].getBoundingClientRect();
+      if (r && r.top <= below + 1 && r.bottom > below && r.left < h.right && r.right > h.left) below = r.bottom;
+    }
+    if (below > h.top && window.scrollBy) window.scrollBy(0, h.top - below - 12);
+  }
+
   function drawDoc(name) {
+    docDrawing = name;
     $('doc').innerHTML = mdRender(docText[name]);
-    var hs = docAt ? $('doc').querySelectorAll('h2, h3') : [];
+    var hs = docAt ? $('doc').querySelectorAll('h1, h2, h3, h4') : [];
     for (var i = 0; i < hs.length; i++) {
-      if ((hs[i].textContent || '').indexOf(docAt) === 0) {
-        if (hs[i].scrollIntoView) hs[i].scrollIntoView(true);
-        // the header (and the tab bar, where it sits on top) stays at the top and would cover the heading
-        var h = hs[i].getBoundingClientRect(), bars = [document.querySelector('.top'), document.querySelector('.tabs')], below = h.top;
-        for (var b = 0; b < bars.length; b++) {
-          var r = bars[b] && bars[b].getBoundingClientRect();
-          if (r && r.top <= below + 1 && r.bottom > below && r.left < h.right && r.right > h.left) below = r.bottom;
-        }
-        if (below > h.top && window.scrollBy) window.scrollBy(0, h.top - below - 12);
+      if (docAt.charAt(0) === '#' ? hs[i].id === docAt.slice(1) : (hs[i].textContent || '').indexOf(docAt) === 0) {
+        scrollToHeading(hs[i]);
         break;
       }
     }
@@ -181,8 +195,9 @@
     var a = e.target || e.srcElement;
     while (a && a !== this && a.tagName !== 'A') a = a.parentNode;
     if (a && a.getAttribute && a.getAttribute('data-doc')) {
-      showDoc(a.getAttribute('data-doc'));
-      window.scrollTo(0, 0);
+      var at = a.getAttribute('data-at') || '';
+      if (!at) window.scrollTo(0, 0);
+      showDoc(a.getAttribute('data-doc'), at);
       if (e.preventDefault) e.preventDefault();
       return false;
     }

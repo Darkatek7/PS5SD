@@ -70,6 +70,16 @@ void test_verdicts() {
     is(query("Wan 5B", 1280, 704, 33), "fits", "Wan 2.2 TI2V 1280x704, 33 frames, measured");
     is(query("Wan 5B", 1280, 704, 49), "tight", "Wan 2.2 TI2V 49 frames at 1280x704, not measured");
     is(query("", 768, 768), "fits", "an unknown family at a usual size");
+    is(query("FLUX.1", 1024, 1024), "fits", "an unmeasured family at 1024");
+    is(query("FLUX.1", 1536, 1536), "tight", "an unmeasured family above 1024");
+    check(check_fit(query("SD 3", 2048, 2048)).message.find("Not measured") != std::string::npos,
+          "an unmeasured family says so");
+    check(check_fit(query("SDXL", 2560, 2560)).message.find("Lower the size.") != std::string::npos,
+          "a tight run says what to lower");
+    {
+        FitQuery v = query("Wan 1.3B", 832, 480, 97);
+        check(check_fit(v).message.find("Lower the size or the frames.") != std::string::npos, "a video: the frames");
+    }
 
     // after other runs
     FitQuery q = query("SDXL", 2048, 2048);

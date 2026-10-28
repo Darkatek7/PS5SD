@@ -467,7 +467,7 @@
         <label class="sublabel" for="opt-up">Upscaler of the Upscale button</label>
         <select id="opt-up"></select>
       </div>
-      <p class="hint">Kept on the console, for every browser.</p>
+      <p class="hint">The TV switch is kept on the console, for every browser. The upscaler is kept in this browser only.</p>
     </section>
     <section class="panel" id="opt-auth-box" style="display:none">
       <div class="ph"><h2>API key</h2><button type="button" class="info" data-help="help-apikey" aria-label="More about the API key">&#9432;</button></div>
@@ -532,8 +532,12 @@
     <h1>Using this page</h1>
     <h2 id="help-seed">Seed</h2>
     <p>-1 picks a random seed. A run of several images (the count next to Generate) takes the seeds one after the other (seed, seed + 1, …); with -1 each image gets a new seed.</p>
+    <h2 id="help-queue">The queue</h2>
+    <p>The count next to Generate queues that many images as one run on the console. While a run is going, Generate adds the form's settings to the queue as one more run, and the page shows <b>+ k waiting</b> for the runs in line. <b>Cancel all</b> removes every waiting run and stops the one that is making now. The queue is kept on the console, so another device or a reloaded page sees it too.</p>
+    <h2 id="help-fit">Will it fit?</h2>
+    <p>Before a run, the hint under Generate says when the size may be too much for the console's memory. It comes from what was measured on the console with the loaded model, including the second pass of the hires fix and the frames of a video. <b>Tight</b> means larger than anything measured, or than every run since the model loaded: it may run out of memory, and a restart of PS5SD gives it the most room. Lower the width and height, the hires scale or the frames to be safe. The hint never blocks a run. A run that does run out of memory fails with a message that says so.</p>
     <h2 id="help-clipskip">CLIP skip</h2>
-    <p>Which layer of the text encoder the prompt is read from, counted from the end. Auto is what stable-diffusion.cpp does by itself: 1 for SD 1.5 and 2 for SDXL models (Pony and Illustrious too). Some SD 1.5 anime models want 2. The setting shows for the models that read the prompt with CLIP (SD 1.5, SD 2.1, SDXL); FLUX, Wan and the others read it with another encoder. Any number from 1 to 12 can be typed; an empty field is Auto, and it says what Auto is for the loaded model. With 1 an SDXL model makes noise, so the server reads a 1 as Auto for every model but SD 1.5. A preset can set it with <code>clip_skip=2</code> in its <code># defaults:</code> line.</p>
+    <p>Which layer of the text encoder the prompt is read from, counted from the end. Auto is what stable-diffusion.cpp does by itself: 1 for SD 1.5 and 2 for SD 2.1 and SDXL models (Pony and Illustrious too). Some SD 1.5 anime models want 2. The setting shows for the models that read the prompt with CLIP (SD 1.5, SD 2.1, SDXL); FLUX, Wan and the others read it with another encoder. Any number from 1 to 12 can be typed; an empty field is Auto, and it says what Auto is for the loaded model. With 1 an SDXL model makes noise, so the server reads a 1 as Auto for every model but SD 1.5. A preset can set it with <code>clip_skip=2</code> in its <code># defaults:</code> line.</p>
     <h2 id="help-starters">Prompt starters</h2>
     <p>Some models want each prompt to begin the same way: Pony models with <code>score_9, score_8_up, score_7_up</code>, and a negative prompt with <code>score_4, score_5</code>. A preset can carry them in a <code># prompt:</code> and a <code># negative:</code> line. While it is loaded, the server puts them before the prompts of every run, from this page and from the API, and the Create tab shows them above the fields. A prompt that starts with them already does not get them twice.</p>
     <h2 id="help-nokeep">Images that are not kept</h2>
@@ -545,7 +549,7 @@
     <p><b>Name</b> gives a file a name and tags. The search finds them, and <code>#night</code> finds the files tagged night; a tag in the viewer does that search. They are kept on the console next to the gallery, not in the file.</p>
     <h2 id="help-video">Video length and time</h2>
     <p>Wan makes 4n+1 frames: 33 are 2 seconds at 16 per second, 81 are 5 seconds.</p>
-    <p>On the console, 33 frames at 832×480 take about 2 minutes 15 seconds with the CausVid LoRA (Models tab, LoRAs) at 4 steps and CFG 1, 81 frames about 8 minutes. Without the LoRA, 33 frames take up to 15 minutes at 20 steps.</p>
+    <p>On the console, 33 frames at 832×480 take about 2 minutes 15 seconds with the CausVid LoRA (Models tab, Get more) at 4 steps and CFG 1, 81 frames about 8 minutes. Without the LoRA, 33 frames take up to 15 minutes at 20 steps.</p>
     <p>Flow shift (Video group) moves the steps between the large shapes and motion (higher) and the details (lower). Auto takes the preset's: 3 for Wan 2.1, 5 for Wan 2.2 TI2V.</p>
     <h2 id="help-vstart">A start image for video</h2>
     <p>Wan 2.2 TI2V 5B (Models tab, Get more) makes a video from a picture: the first frame is the picture, and the prompt says what moves. The size follows the picture's aspect, and the picture is cut to it at the middle. Press Edit on an image of the gallery to start from it.</p>
@@ -553,20 +557,22 @@
     <h2 id="help-saved">Presets</h2>
     <p>A preset is a model with its settings: size, steps, CFG, sampler, scheduler, CLIP skip, LoRAs and hires fix. Under Models each model is listed once, with its presets under it: the ones it came with and the ones you saved.</p>
     <p><b>Use</b> on a model loads its default preset, marked ★; a click on the ☆ of another preset makes that one the default. The default is kept on the console, so it holds in every browser; an API that switches models loads the preset it names. <b>⋯, Edit text</b> opens the preset's file (its settings and the model's files and options). Deleting a saved preset leaves the model; deleting the model deletes its saved presets too.</p>
-    <p>To save one, set up the Create tab and press <b>Save as preset</b> there. <b>Reset</b> and <b>Update preset</b> show when the form is not what the loaded preset says: Reset puts the preset's settings back, Update preset writes the form's settings into that preset (a second press to be sure), and its name, model and prompt starters stay. A preset of the loaded model switches at once; another model restarts the server: 10 to 20 seconds, about a minute for SDXL.</p>
+    <p>To save one, set up the Create tab and press <b>Save as preset</b> there. <b>Reset</b> and <b>Update preset</b> show when the form is not what the loaded preset says: Reset puts the preset's settings back, Update preset writes the form's settings into that preset (a second press to be sure), and its name, model and prompt starters stay. A preset of the loaded model switches at once; another model loads in 10 to 20 seconds, about a minute for SDXL; the page and the API stay up meanwhile.</p>
     <p>Models, <b>Presets</b> lists every preset with its model, with a search. <b>Apply settings</b> puts a preset's settings into Create without switching: for another model of the family that is loaded (two SDXL checkpoints, or the two FLUX.2 Klein 4B files), whose LoRAs and settings fit it too.</p>
     <h2 id="help-loras">LoRAs</h2>
     <p>A LoRA adds a style, a character or a look to a model. It works only with models of the family it was made for (SD 1.5, SDXL, FLUX…). Pick them on the Create tab, under Style: the box in front of one turns it off for a while and keeps its strength. Their order does not matter: sd.cpp adds them up. Under Models they are listed by the family they are made for, those for the model in use first.</p>
     <p>DMD2 (anime) and SDXL-Lightning (photos) make SDXL models fast: CFG 1, 4 to 8 steps, sampler LCM for DMD2 and Euler for Lightning. CausVid does the same for Wan 2.1 1.3B videos: CFG 1, 4 steps. Adding one of them sets these settings; removing it again brings back the ones from before, unless you changed them. With DMD2 an SDXL image takes about 11 s instead of 29. It does not suit every finetune: if the image comes out grey and flat, try CFG 1.5 and 8 steps.</p>
     <h2 id="help-upscalers">Upscalers</h2>
     <p>An upscaler (ESRGAN) makes an image larger and sharper: with the Upscale button, or in the hires fix on the Create tab. More of them under Get more, or a .pth file under Upload.</p>
+    <h2 id="help-hires">Hires fix</h2>
+    <p>A second pass over the finished image: it is made larger (or kept at the same size with a scale of 1, which only refines the details) and sampled again. <b>Scale</b> sets the size of the second pass, <b>Steps</b> its steps (0 takes the first pass's), and <b>Denoising strength</b> how much it may change; 0.3 to 0.6 keeps the picture and adds detail. <b>Upscaler</b> makes the larger picture: Latent is quickest, an ESRGAN model keeps more detail. The second pass takes extra time, more at a larger scale, and the hint under Generate says when the size may not fit. A video and an image with a start image have no hires fix. The Quality group has the steps and CFG of the first pass.</p>
     <h2 id="help-upscale-button">Upscale button</h2>
-    <p>The Upscale button under an image and in the gallery runs this model over the image (4 times as wide and high for most). The result goes into the gallery.</p>
+    <p>The Upscale button under an image and in the gallery runs the upscaler picked in Settings over the image (4 times as wide and high for most). The result goes into the gallery.</p>
     <h2 id="help-link">Add by link</h2>
-    <p>A link to a file on huggingface.co, or a Civitai model version (a link that ends in modelVersionId=...). The file goes into the models folder on the console, or the loras folder for a LoRA; a Civitai LoRA goes there by itself.</p>
+    <p>A link to a file on huggingface.co, or a Civitai model version (a link that ends in modelVersionId=...). The file goes into the models, loras or upscalers folder on the console, as picked in front of the link; a Civitai LoRA goes to loras by itself. A Civitai link of the form <code>civitai.com/api/download/models/&lt;version&gt;</code> works too, and so does a Hugging Face link with <code>/blob/</code> in it. Only https links are taken.</p>
     <h2 id="help-upload">Upload</h2>
-    <p>Any model file on this computer: your own merge or training, or one from another site. It keeps its file name. A model in several files also needs a preset; the <a href="#help" data-doc="models">Getting models</a> page shows how.</p>
-    <p>You can choose several files at once; they go one after the other. Keep this page open until the uploads are done.</p>
+    <p>Any file on this computer: your own merge or training, or one from another site. Pick what it is first: Model, LoRA, Embedding, Preset, Upscaler or Tags. It keeps its file name. A model in several files also needs a preset; the <a href="#help" data-doc="models">Getting models</a> page shows how.</p>
+    <p><b>Choose files</b> takes several files at once; they go one after the other. Keep this page open until the uploads are done.</p>
     <h2 id="help-apikey">API key</h2>
     <p>Apps send it as <code>Authorization: Bearer &lt;key&gt;</code>, A1111 apps as the password of their API login. The <a href="#help" data-doc="api">HTTP API</a> page has the details and how to reach the console from outside your network.</p>
     <h2 id="help-fan">Fan</h2>

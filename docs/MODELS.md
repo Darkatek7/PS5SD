@@ -16,8 +16,9 @@ It reads `.safetensors`, `.gguf`, `.ckpt` and `.sft` files. Everything lives und
 | `/data/PS5SD/models/diffusion_models`, `text_encoders`, `vae`, `controlnet` | the parts of multi-file models (FLUX, Z-Image) and ControlNets (see **ControlNet** below); any subfolder works, these are the catalog's |
 | `/data/PS5SD/presets` | one `<id>.txt` per multi-file model, or per checkpoint that needs its own options |
 | `/data/PS5SD/loras` | LoRAs; see **LoRAs** below |
-| `/data/PS5SD/embeddings` | textual inversions |
+| `/data/PS5SD/embeddings` | textual inversions (embeddings) for sd.cpp, passed as `--embd-dir` |
 | `/data/PS5SD/upscalers` | upscalers (ESRGAN, `.pth`): see **Upscalers** below |
+| `/data/PS5SD/tags` | tag files (`.csv` or `.txt`) for the prompt's tag completion; see [API.md](API.md#tag-completion) |
 
 There are four ways to get a model there:
 
@@ -33,8 +34,9 @@ There are four ways to get a model there:
 ## Upload in the web UI
 
 1. Open `http://<console IP>:7860` and go to **Models**.
-2. Under **Upload from this computer**, pick what the file is (Model, LoRA, Embedding or Preset),
-   press **Choose a file** and pick it. The upload starts at once and shows its progress.
+2. Under **Upload from this computer**, pick what the files are (Model, LoRA, Embedding, Preset, Upscaler
+   or Tags), press **Choose files** and pick them. It takes several files, which go one after the other.
+   The upload starts at once and shows its progress.
 3. Keep the page open until it is done. A model or preset is then in the list; press **Use**.
 
 - The file keeps its name, and an existing file is not replaced. To replace one, delete it first.
@@ -73,7 +75,8 @@ curl -T myModel.safetensors ftp://<console IP>:2121/data/PS5SD/models/
 curl --ftp-create-dirs -T ae.safetensors ftp://<console IP>:2121/data/PS5SD/models/vae/
 ```
 
-**With this repository's script**, which uploads, checks the size and selects the model:
+**With this repository's script**, which uploads the file, checks its size and writes `/data/PS5SD/model.txt`.
+A running title keeps its model until you press **Use** in the web UI or restart the title:
 
 ```sh
 PS5_HOST=<console IP> scripts/ps5sd-app.sh model myModel.safetensors
@@ -232,6 +235,8 @@ curl -T my-finetune.txt ftp://<console IP>:2121/data/PS5SD/presets/
 PS5_HOST=<console IP> scripts/ps5sd-app.sh model my-finetune
 ```
 
+The script only writes `model.txt`; press **Use** in the web UI, or restart the title, to load the model.
+
 ## LoRAs
 
 A LoRA adds a style, a character or a look to a model. It works only with models of the family it was
@@ -326,7 +331,9 @@ text_encoders/umt5-xxl-encoder-Q4_K_M.gguf
 vae/wan_2.1_vae.safetensors
 --vae-tiling
 --vae-tile-size
-128
+256
+--vae-tile-overlap
+0.25
 --flow-shift
 3
 --video-frames
@@ -336,7 +343,7 @@ vae/wan_2.1_vae.safetensors
 ```
 
 The Create tab switches to video mode when the loaded model makes videos. **Frames** and **Frames per
-second** replace **Images per run**. Frames are 4n+1 (5, 9, 13, ... 81); the web UI offers 5 to 81.
+second** replace the count next to **Generate**. Frames are 4n+1 (5, 9, 13, ... 81); the web UI offers 5 to 81.
 33 frames at 16 frames per second is 2 seconds of video, 81 frames 5 seconds. A video has no hires fix, and no
 Upscale or Edit. **Flow shift** in the Video group overrides the preset's `--flow-shift` for a run (empty is
 Auto, the preset's). Wan 2.1 takes no start image; Wan 2.2 TI2V does (below).
@@ -415,6 +422,17 @@ gpustack's GGUF conversions:
 An inpainting checkpoint from elsewhere (a Civitai model whose name ends in "inpainting") works too; sd.cpp
 recognises it by its weights.
 
+## Edit by the prompt (FLUX.2 Klein)
+
+FLUX.2 Klein can change an image by a sentence, without a mask. On the Create tab, put an image under
+**Start from an image**: with a FLUX.2 model loaded (Klein 4B or 9B), the box **Edit by the prompt** shows,
+on by default. The image goes to the model as a reference, and the prompt says what to change ("the same
+house in winter, snow on the roof"); the layout and the rest stay. The reference is cropped to the aspect
+of the form's size and scaled to it. Other models do not offer the box. A run takes longer than an image of
+its own: about a minute at 4 steps with Klein 4B at 1024×1024. Turn the box off to use the image as an
+ordinary start image, with a strength and a mask. [API.md](API.md#edit-by-the-prompt-flux2-klein) has the
+request.
+
 ## ControlNet
 
 A ControlNet makes the new image follow a guide image. The Canny kind takes the edges of the guide, so the
@@ -471,7 +489,7 @@ lines to that model's preset, among its other options:
 controlnet/xinsir-canny-sdxl-v2.safetensors
 ```
 
-Edit the preset on the Models tab (**⋯**, **Edit**), or in `/data/PS5SD/presets`. A checkpoint with no
+Edit the preset on the Models tab (**⋯**, **Edit text**), or in `/data/PS5SD/presets`. A checkpoint with no
 preset of its own needs one first: set up the Create tab, then press **Save as preset**, which copies
 the model's VAE and tiling options. Changed settings count from the next load of the preset, so press
 **Use** on it.
@@ -502,8 +520,9 @@ must fit together, plus the working memory for one image.
 | FLUX.3 Klein Q4_K / Q6_K + Qwen3-VL-4B Q4_K_M | 6.4 / 7.7 GB | yes; Q6_K up to 1024×1024 right after a start, 896×896 after other models; not 1536×1536 |
 | Z-Image Turbo Q4_K + Qwen3-4B Q4_K_M | 6.7 GB | yes |
 | FLUX.2 Klein 4B Q8_0 + Qwen3-4B Q4_K_M | 7.1 GB | yes, 1024×1024 in 4 steps in about 30 s, 3.9 GiB free after it |
-| FLUX.2 Klein 9B Q4_0 + Qwen3-8B Q4_K_M | 11.0 GB | yes, 1024×1024 in 4 steps in about 50 s, 0.9 GiB free in one block after it; larger not measured |
+| FLUX.2 Klein 9B Q4_0 + Qwen3-8B Q4_K_M | 11.0 GB | yes, 1024×1024 in 4 steps with Euler in about 50 s (the catalog preset, 8 steps with dpm2, takes about 3 minutes), 0.9 GiB free in one block after it; larger not measured |
 | Wan 2.1 T2V 1.3B (video) fp16 + umt5-xxl Q4_K_M + VAE | 6.7 GB | yes, up to 81 frames at 832×480 with 256 px VAE tiles (128 px before 0.9.1) |
+| Wan 2.2 TI2V 5B Q8_0 + umt5-xxl Q4_K_M + VAE | 10.5 GB | yes, 33 frames at 832×480 in about 6 minutes, at 1280×704 in about 16 minutes (20 steps); 2.48 GiB free in one block after the 1280×704 run |
 | FLUX.1 dev or schnell in f16 (24 GB) | | no; use a Q4 or Q5 `.gguf` |
 
 If a model does not load, the server goes back to the last one that worked. The reason is in

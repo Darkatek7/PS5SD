@@ -56,6 +56,7 @@ PS5SD's):
 | `forbidden` | 403 | a request with the login cookie lacks the header `X-PS5SD-Request` |
 | `not_found` | 404 | no such route, file, job, download or preset |
 | `model_not_found` | 404 | no such model (`models/active`, `sd_model_checkpoint`) |
+| `method_not_allowed` | 405 | the route exists, but not for this method |
 | `conflict` | 409 | the thing is there already, or is busy (a download, an upload, a file name) |
 | `switching` | 409 | a model switch is running |
 | `stopping` | 409, 503 | the title is closing |
@@ -63,6 +64,7 @@ PS5SD's):
 | `expired` | 410 | the job ended so long ago that its result is gone |
 | `payload_too_large` | 413 | the body is over 64 MB |
 | `model_part` | 422 | the file is only a part of a model (see `part` below) |
+| `unprocessable` | 422 | the request is well formed, but cannot be done (a 422 that is not `model_part`) |
 | `rate_limited` | 429 | too many wrong API keys; `Retry-After` says how long to wait |
 | `queue_full` | 429 | the job queue is full |
 | `too_many_streams` | 429 | four event streams are open already (see [Events](#events-progress-without-polling)) |
@@ -71,12 +73,14 @@ PS5SD's):
 | `out_of_memory` | 500 | the console ran out of memory for this run |
 | `cancelled` | 500 | the run was stopped (a synchronous route after `POST /sdapi/v1/interrupt`) |
 | `server_error` | 500 | anything else that went wrong in the server |
+| `not_implemented` | 501 | the route is not supported |
 | `bad_gateway` | 502 | Hugging Face or Civitai did not answer as expected |
 | `standby` | 503 | no model is loaded (see [Standby](#standby-no-model)) |
+| `unavailable` | 503 | the server cannot answer now (a 503 that is not `standby` or `stopping`) |
 | `timeout` | 504 | the model a request waited for had not loaded after 10 minutes |
 | `storage_full` | 507 | the console's storage is full |
 
-A status without a code of its own gives `http_<status>`. Before 0.9.15 most routes answered
+Any other status gives `http_<status>`. Before 0.9.15 most routes answered
 `{"error": "text"}`, with `"auth_required": true` or `"standby": true` next to it; those flags are now the codes
 `unauthorized` and `standby`.
 
@@ -86,8 +90,9 @@ With an API key, every request needs it. The key is 32 random bytes the console 
 letters and digits (`a-z`, `2-7`). It is kept in `/data/PS5SD/api-key.txt` and shown on the TV, under the
 address, in groups of four.
 
-Turn it on in the web UI: Create, Settings, **API key**, **Turn on**. The same place shows the key, makes
-a new one (the old one stops working at once), turns it off and signs the browser out. A browser signs in
+Turn it on in the web UI: Settings, **API key**, **Turn on**. The same place shows the key (**Show key**),
+makes a new one (**New key**; the old one stops working at once), turns it off (**Turn off**) and signs the
+browser out (**Sign out**). A browser signs in
 with the key once; it keeps a cookie for a year. While the TV shows the key, its QR code carries it too
 (`http://<console>:7860/#key=<key>`): a phone that scans it is signed in, and the page takes the key
 out of its address. Lost the key and cannot see the TV? Delete
@@ -164,7 +169,7 @@ http://<console>:7860` prints a temporary `trycloudflare.com` address.
 Cloudflare's limits, on the free plan:
 
 - A request body is at most 100 MB, so model uploads through the tunnel fail. Upload in your network, or
-  let the console download the model (Models, Add by link).
+  let the console download the model (Models, Get more, Add by link).
 - Cloudflare gives up on a response after 100 s (`524`). The web UI uses jobs (`/sdcpp/v1/img_gen`), which
   answer at once. A client of the synchronous routes (`/sdapi/v1/txt2img`, `/v1/images/generations`)
   fails on images that take longer; use `img_gen` and poll the job instead.
@@ -198,6 +203,13 @@ The server holds one model in memory. A model is a **library entry**:
 
 `/data/PS5SD/model.txt` names the active entry. Switching the model writes that file and loads the new
 entry into the running server. Before it loads, the server finishes the job that is running.
+
+`/data/PS5SD/server-args.txt` holds more sd-server options, one a line (an option and its value on lines of
+their own). The title reads it when it starts. With a library entry, the model options in it (`-m`,
+`--diffusion-model`, `--vae`, `--llm` and the like, with their values) are left out, because the entry names
+the model files. The other options are added after the entry's own, and an option that the title sets by
+itself (`--listen-port`, `--output-dir`, `--backend`, ...) is not set again when the file names it. Without
+`model.txt`, the file must name the model.
 
 - A switch takes as long as loading the model: a few seconds for small models, about a minute for SDXL
   or FLUX.
@@ -266,12 +278,12 @@ apart, and still silent) or `no ELF loader`. Without it those
 
 | Route | |
 |---|---|
-| `GET /ps5sd/v1/app/info` | `{"name": "PS5SD", "version": "0.8.1", "sd_cpp": {"version", "commit"}}` |
-| `GET /ps5sd/v1/app/docs/<name>` | `MODELS.md` or `API.md` as the title carries them (`text/markdown`), for the web UI's Help tab; any other name is a 404 |
+| `GET /ps5sd/v1/app/info` | `{"name": "PS5SD", "version": "0.9.18", "sd_cpp": {"version", "commit"}}` |
+| `GET /ps5sd/v1/app/docs/<name>` | `MODELS.md`, `API.md` or `openapi.json` as the title carries them (`text/markdown`, the last `application/json`), for the web UI's Help tab; any other name is a 404 |
 | `GET /ps5sd/v1/app/models` | the library; see below |
 | `POST /ps5sd/v1/app/models/active` | `{"id": "<id>"}`: switch to that entry; the responses are below |
 | `DELETE /ps5sd/v1/app/models/<id>` | delete an entry; see below |
-| `POST /ps5sd/v1/app/fit` | the body of an `img_gen` or `vid_gen` request (`width`, `height`, `hires`, `video_frames` count): will it fit in the GPU memory of the loaded model? `{"verdict", "message", "family", "width", "height", "frames"}`, with `width` and `height` of the largest pass (the hires target). `verdict` is `fits`, `tight` (larger than measured, or than every run since the model loaded: it may run out of memory, and a restart of PS5SD gives the most room) or `too_big` (measured not to fit); `message` says it for people. Nothing runs, and a run is never refused for it. See [CONSOLE.md](CONSOLE.md#memory-what-fits-and-why-runs-failed-2026-10-22) |
+| `POST /ps5sd/v1/app/fit` | the body of an `img_gen` or `vid_gen` request: will it fit in the GPU memory of the loaded model? The body needs `width` and `height` (`400` without them); `hires` (an object with `enabled` and `scale`) and `video_frames` (the frame count) are optional. The answer is `{"verdict", "message", "family", "width", "height", "frames"}`, with `width` and `height` of the largest pass (the hires target). `verdict` is `fits`, `tight` (larger than measured, or than every run since the model loaded: it may run out of memory, and a restart of PS5SD gives the most room) or `too_big` (measured not to fit); `message` says it for people. Nothing runs, and a run is never refused for it. See [CONSOLE.md](CONSOLE.md#memory-what-fits-and-why-runs-failed-2026-10-22) |
 | `GET /ps5sd/v1/app/loras` | `{"loras": [{"name", "path", "bytes", "family"}]}`: the LoRA files in `/data/PS5SD/loras` and its subfolders; `family` as for a model (below) |
 | `DELETE /ps5sd/v1/app/loras/<path>` | delete one LoRA file; the answer is the list as `GET` gives it |
 
@@ -403,6 +415,8 @@ onto the console. The web UI's Models tab uses it.
   - 400 for a name that is not allowed, or a body that broke off or differs from its
     `Content-Length`
   - 409 when the file is already there or is being uploaded; delete it first or use another name
+  - 413 when a preset is over 64 KB or a tag file over 64 MB
+  - 500 when the file could not be written
   - 507 when the storage is full
 - Measured: a 3 GB file from a PC over wired gigabit in 36.5 s (82 MB/s).
 
@@ -499,7 +513,7 @@ These differ from A1111:
 - `POST /sdapi/v1/options` that switches the model waits until it has loaded, at most 10 minutes
   (`504 timeout`). A model that does not load answers `500 load_failed` with the reason; the server is then
   back on the last model that worked. Before 0.9.16 it answered at once.
-- In standby `txt2img`, `img2img` and the LoRA and upscaler lists answer `503`.
+- In standby the routes that need a model answer `503` with the code `standby` (see [Standby](#standby-no-model)).
 - LoRAs go in a `lora` field, `[{"path": "<path as /sdapi/v1/loras lists it>", "multiplier": 1.0}]`,
   not as `<lora:name:1>` in the prompt: sd-server leaves such tags out. `POST /sdcpp/v1/img_gen` takes
   the same field. A path that is not in `/data/PS5SD/loras` fails the request.

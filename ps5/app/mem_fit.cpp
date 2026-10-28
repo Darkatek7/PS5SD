@@ -49,6 +49,13 @@ const Limit * limit_for(const std::string & family) {
     return nullptr;
 }
 
+// What helps, for a run that may not fit.
+const char * lower_text(const FitQuery & q) {
+    return q.frames > 1 ? "Lower the size or the frames."
+           : q.pass_width != q.width || q.pass_height != q.height ? "Lower the size or the hires scale."
+                                                                  : "Lower the size.";
+}
+
 std::string size_text(const FitQuery & q) {
     char buf[64];
     std::snprintf(buf, sizeof buf, "%dx%d", q.pass_width, q.pass_height);
@@ -93,15 +100,17 @@ FitAnswer check_fit(const FitQuery & q) {
     const int64_t size = px(q.width, q.height);
     const Limit * l    = limit_for(q.family);
     if (l != nullptr && l->too_big > 0 && work >= l->too_big) {
-        const char * lower = q.frames > 1 ? "Lower the size or the frames."
-                             : q.pass_width != q.width || q.pass_height != q.height ? "Lower the size or the hires scale."
-                                                                                    : "Lower the size.";
         return { "too_big", "Too large for the console's memory: " + q.family + " runs up to about " + l->ok_text +
-                                ", measured, and " + size_text(q) + " does not. " + lower };
+                                ", measured, and " + size_text(q) + " does not. " + lower_text(q) };
     }
     if (l != nullptr && work > l->ok) {
         return { "tight", "Larger than anything measured with " + q.family + " on the console (up to " + l->ok_text +
-                              "). It may run out of memory." };
+                              "). It may run out of memory. " + lower_text(q) };
+    }
+    // A family no one measured (FLUX.1, SD 3, Wan 14B, ...): the usual sizes, but not more without a word.
+    if (l == nullptr && work > px(1024, 1024)) {
+        return { "tight", "Not measured on the console with " + (q.family.empty() ? std::string("this model") : q.family) +
+                              " above 1024x1024. It may run out of memory. " + lower_text(q) };
     }
     // Memory that earlier runs freed is not all usable again: a run larger than any before it may not
     // find room, unless it is a size that runs after others too.
@@ -110,7 +119,8 @@ FitAnswer check_fit(const FitQuery & q) {
     if (history && work > safe && size > q.largest_ok) {
         return { "tight", std::string("Larger than every run since ") +
                               (q.other_model_before ? "PS5SD started" : "the model loaded") +
-                              ". It may run out of memory now; right after a restart of PS5SD it has the most room." };
+                              ". It may run out of memory now; right after a restart of PS5SD it has the most room. " +
+                              lower_text(q) };
     }
     return { "fits", "" };
 }
