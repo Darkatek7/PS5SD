@@ -346,9 +346,8 @@ waits on the disk cannot hold up the main loop. The failure did not come back in
 table's last three rows; the first of them still without the quit thread); the old build failed 1
 in 5. Which change removed the cause is not established.
 
-Not done: a title thread that passes `sceAgcSuspendPoint()` every 100 ms, so the 25 s are never
-reached while the main loop is stuck. It was built and run, but only in cases that closed cleanly
-without it; the stalled case was not tried with it.
+Since 0.9.17 a title thread passes `sceAgcSuspendPoint()` every 100 ms, so the 25 s are never reached
+while the main loop is stuck: see "A Close during a stalled main loop (2026-10-28)" below.
 
 ## iLustMix portrait 832x1216: 73 s to 31 s (2026-10-20)
 
@@ -967,3 +966,22 @@ With patches 0079 and 0080 on the same day: `POST /sdapi/v1/options` with `sdxl-
 34.1 s in all (the switch, Z-Image's weights, the image); one with `"model": "dall-e-3"` ran on the loaded
 model. The stream's `model` events of a switch: switching, then nothing loaded, then the new model, 8.3 s
 apart for SDXL and 2.8 s for Z-Image.
+
+## A Close during a stalled main loop (2026-10-28)
+
+Local Docker build of 0.9.16 with a thread that passes `sceAgcSuspendPoint()` every 100 ms
+(`keep_passing_suspend_points` in `main.cpp`), and `PS5SD_TEST_STALL=60` in `env.txt`: 20 s after the start the
+main loop sleeps 60 s. The title was closed with the system's Close App (ps5-mcp's `ps5_close`), Z-Image Turbo
+loaded and idle.
+
+| Case | Suspend | Then |
+|---|---|---|
+| Stall between two frames, no thread (`PS5SD_SUSPEND_THREAD=0`), Close 10 s in | 92 ms | a clean kill |
+| Stall in a frame (drawn, not yet shown), no thread, Close 18 s in | 7786 ms (`No suspendPoint for 20sec`, `EVENT_WRITE does not finish`) | **a coredump** and a forced kill |
+| Stall in a frame, with the thread, Close 14 s in | 85 ms | a clean kill |
+| Stall in a frame, with the thread, Close 20 s in | 91 ms | a clean kill |
+
+So the failure of the "Close" measurements above needs a frame in flight: a main loop that waits between
+frames is suspended at once, one that stops inside a frame is not, until 25 s after its last suspend point.
+The thread's suspend points let the kernel suspend the title within 0.1 s in either case. An image made
+right after (Z-Image Turbo, 768x768) took as long as without the thread (54 s), and no suspend point failed.

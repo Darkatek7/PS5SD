@@ -127,6 +127,8 @@ extern "C" void vkCmdCopyBuffer(VkCommandBuffer cmd, VkBuffer src, VkBuffer dst,
 }
 
 extern "C" {
+// AGC's GPU suspend point (RADV imports it too, so the AGC stubs have it).
+int32_t sceAgcSuspendPoint(void);
 int sceSystemServiceHideSplashScreen(void);
 int sceKernelSendNotificationRequest(uint32_t device, void * request, size_t size, int blocking);
 int sceKernelUsleep(uint32_t microseconds);
@@ -321,6 +323,53 @@ void watch_quit_file() {
             sceKernelUsleep(1000 * 1000);
         }
     }).detach();
+}
+
+// On a Close from the home screen the system suspends the title first, and the
+// kernel waits for it to pass a GPU suspend point; 25 s after the last one it
+// ends the title with 0xa0d0c00f and a coredump (docs/CONSOLE.md, "Close").
+// RADV passes one after each submission and ps5-opengl one at each present,
+// so a main loop that is stuck while the server is idle passes none. This
+// thread passes one every 100 ms, whatever the main loop does.
+// PS5SD_SUSPEND_THREAD=0 in env.txt leaves it out, for measuring.
+void keep_passing_suspend_points() {
+    if (const char * v = std::getenv("PS5SD_SUSPEND_THREAD"); v != nullptr && std::string(v) == "0") {
+        std::printf("ps5sd: no suspend point thread (PS5SD_SUSPEND_THREAD=0)\n");
+        return;
+    }
+    std::thread([] {
+        bool reported = false;
+        for (;;) {
+            const int32_t result = sceAgcSuspendPoint();
+            if (result != 0 && !reported) {
+                reported = true;
+                std::printf("ps5sd: sceAgcSuspendPoint failed: 0x%08x\n", (unsigned) result);
+            }
+            sceKernelUsleep(100 * 1000);
+        }
+    }).detach();
+}
+
+// PS5SD_TEST_STALL=<seconds> in env.txt: the main loop sleeps that long once,
+// 20 s after the start, as one that hangs would, to test a Close from the home
+// screen meanwhile (keep_passing_suspend_points). With a display it sleeps in
+// the middle of a frame, drawn and not yet shown, as in the Close that failed;
+// between two frames a Close suspends the title at once.
+void test_stall_once() {
+    static const int  seconds = [] {
+        const char * v = std::getenv("PS5SD_TEST_STALL");
+        return v != nullptr ? std::atoi(v) : 0;
+    }();
+    static const auto start = std::chrono::steady_clock::now();
+    static bool       done  = false;
+    if (seconds <= 0 || done || std::chrono::steady_clock::now() - start < std::chrono::seconds(20)) {
+        return;
+    }
+    done = true;
+    std::printf("ps5sd: test stall: the main loop sleeps %d s\n", seconds);
+    klog("PS5SD: test stall: the main loop sleeps " + std::to_string(seconds) + " s");
+    sceKernelUsleep(static_cast<uint32_t>(seconds) * 1000u * 1000u);
+    std::printf("ps5sd: test stall over\n");
 }
 
 void quit_if_asked() {
@@ -1965,6 +2014,7 @@ int main(int, char **) {
     }
     start_thread(work);
     watch_quit_file();
+    keep_passing_suspend_points();
 
 #ifndef PS5SD_NO_DISPLAY
     // The screen and the quit request until the system closes the title: a
@@ -1972,6 +2022,7 @@ int main(int, char **) {
     for (uint64_t n = 0;; ++n) {
         if (ui_ok) {
             render();
+            test_stall_once();
         }
         if (!display.swap() || !ui_ok) {
             sceKernelUsleep(16 * 1000);  // no vsync to wait on
@@ -1988,6 +2039,7 @@ int main(int, char **) {
         sceKernelUsleep(500 * 1000);
         watch_address();
         quit_if_asked();
+        test_stall_once();
     }
 #endif
 }
