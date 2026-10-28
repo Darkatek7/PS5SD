@@ -934,3 +934,29 @@ Turbo and SDXL Base, all through `curl` from the PC.
 - After a wake from rest mode over the network (Remote Play), the launch payload failed with
   `launchApp(PPSA99576)` 0x8094000a until a user was signed in on the console. A few minutes after such a
   wake without input, the console went back into rest mode.
+
+## A model switch without stopping the server (2026-10-28)
+
+Local Docker build of 614f078 (patches/sdcpp/0078: `sd_server_load()` loads the next model into the running
+server), against 0.9.15's release build, which stopped sd-server and started it again for each switch. Five
+rounds of: switch to FLUX.2 Klein 9B, one image with `lenovo_flux_klein9b` (1024x1024, 4 steps, seed 11),
+switch to SDXL Base Q8_0, one SDXL image (1024x1024, its preset), then back to Z-Image Turbo. All through
+the API from the PC, with an event stream open and `GET /ps5sd/v1/health` once a second.
+
+| | 0.9.15 (restart) | 0078 (load in place) |
+|---|---|---|
+| Klein 9B + lenovo, from the switch's end to the image | 137.8 to 140.0 s | 138.8 to 139.0 s |
+| SDXL image | 29.4 to 29.5 s | 29.4 to 29.5 s |
+| Switch to Klein 9B (it loads its weights on the first image) | 3.1 to 5.2 s | 3.1 to 3.2 s |
+| Switch to SDXL (`--eager-load`) | 8.7 to 10.2 s | 8.8 to 9.0 s |
+| Health requests that got no answer | 19 of 862 | 0 of 893 |
+| The event stream | ended at the first switch | open through all 11 switches |
+| CPU heap after each Klein image | 0.55, 0.67, 0.72, 0.77, 0.72 GiB | 0.50, 0.59, 0.64, 0.58, 0.64 GiB |
+| CPU heap peak | 0.94 GiB | 0.81 GiB |
+| Pool free after each Klein image (the largest part) | 0.71 to 1.30 GiB | 0.78 GiB |
+| Pool free after loading SDXL | 4.56 to 5.56 GiB | 4.55 to 5.55 GiB |
+
+Every image of both series was made; nothing ran out of memory. Loading in place frees the model the same
+way as the restart did (the old one first, then the new one), and the HTTP server and the job queue that
+now stay take no measurable memory: the pool after each step is the same within the noise, and the CPU heap
+stays lower.

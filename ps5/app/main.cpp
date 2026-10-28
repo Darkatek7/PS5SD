@@ -744,13 +744,12 @@ void start_thread(std::function<void()> & fn);  // below
 // True when it loaded.
 bool load_plan(const ServerPlan & plan, bool standby) {
     g_standby = standby;
-    std::printf("ps5sd: load");
-    for (const auto & a : plan.args) {
-        if (&a != &plan.args.front()) {
-            std::printf(" %s", a.c_str());
-        }
+    // one printf: the server's threads log at the same time
+    std::string line = standby ? "ps5sd: load --standby" : "ps5sd: load";
+    for (size_t i = 1; !standby && i < plan.args.size(); i++) {
+        line += " " + plan.args[i];
     }
-    std::printf("\n");
+    std::printf("%s\n", line.c_str());
     g_status.set_model(plan.name);
     g_status.set_port(g_server_port.load());
     if (standby) {
