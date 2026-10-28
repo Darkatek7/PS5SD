@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "PS5SD",
-    "version": "0.9.18",
+    "version": "1.0.0",
     "description": "PS5SD runs stable-diffusion.cpp's sd-server on the PS5. The server is the console, at http://<console>:7860 (or the port that server-args.txt names). One server serves the web UI and four APIs: the AUTOMATIC1111 API (/sdapi/v1), the OpenAI images API (/v1), sd-server's own API with async jobs (/sdcpp/v1) and PS5SD's routes (/ps5sd/v1): the gallery, the job queue, the model library and the downloader. Every route allows any origin (CORS, without credentials). Until the API key is turned on there is no authentication, so keep the console on your own network. A request body is at most 64 MB; uploads have no limit. Send JSON with Content-Type: application/json. Five wrong keys in a row lock a client out for a while (429, code rate_limited, with Retry-After). A POST, PUT or DELETE that carries the key only as the cookie also needs the header X-PS5SD-Request (any value). Every answer of 400 and more has the shape of the Error schema."
   },
   "servers": [

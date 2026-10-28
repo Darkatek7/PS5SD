@@ -10,6 +10,8 @@ can rely on.
 
 ## Done
 
+- **1.0.0**: an update keeps everything (tested from 0.5.0 on), a soak test, the docs read against the
+  title with new screenshots, a home screen background of its own.
 - **0.9.18**: the open measurements; a guide image with the hires fix no longer ends PS5SD; the fit hint
   says what to lower and knows a guide image.
 - **0.9.17**: an OpenAPI description of every route; a Close from the home screen while the main loop hangs
@@ -401,7 +403,7 @@ The second part of 1.0's "The API is fixed".
 - [x] **The docs** read against the title (README, MODELS.md, API.md, the Help tab); links to a heading work
   in the Help tab.
 
-## 1.0.0: ready
+## 1.0.0: ready, done
 
 No large features; 1.0 is the version that keeps its promises. It is out when all of these hold:
 
@@ -419,9 +421,11 @@ No large features; 1.0 is the version that keeps its promises. It is out when al
 - [x] **An update keeps everything**: models, LoRAs, presets, gallery, settings and the API key survive an
   update from every 0.x version, tested from 0.5.0 on (26 releases, `scripts/update-test.py`,
   [CONSOLE.md](docs/CONSOLE.md#an-update-keeps-everything-2026-10-28)).
-- [ ] **The docs match the title**: README, Help tab, MODELS.md and API.md read against 1.0, with the
-  screenshots of 0.8.0.
-- [ ] **No known crash** and no open bug labelled `bug` older than a release.
+- [x] **The docs match the title**: README, Help tab, MODELS.md and API.md read against 1.0, with new
+  screenshots of the web UI.
+- [x] **No known crash** and no open bug labelled `bug` older than a release: the two ends 0.9.18's
+  measurements found are fixed, and a 38-minute soak test ran without a failure
+  ([CONSOLE.md](docs/CONSOLE.md#a-soak-test-before-10-2026-10-28)).
 
 ## After 1.0
 

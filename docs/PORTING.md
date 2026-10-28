@@ -309,8 +309,15 @@ the same picture as a 512x512 BC7 texture with one mip and a DX10 header. That f
 after a new icon0.png, make it again on Windows with
 `texconv -f BC7_UNORM -m 1 -y -o ps5/app/sce_sys ps5/app/sce_sys/icon0.png`. build-app.sh stops if it is
 older than the PNG. Without it the tile showed no icon at all. The home screen reads both from
-`/user/appmeta/PPSA99576`, which `scripts/ps5sd-app.sh deploy` (or `appmeta`) keeps in step. The home screen background (`sce_sys/source/background.png`) is still a
-generated placeholder.
+`/user/appmeta/PPSA99576`, which `scripts/ps5sd-app.sh deploy` (or `appmeta`) keeps in step.
+
+The home screen background (`sce_sys/source/background.png`) was made on the console too, for 1.0: FLUX.2
+Klein 4B (preset `flux2-klein-4b`, 4 steps, CFG 1, euler), 1920x1088, seed 3, with the prompt "abstract
+wallpaper: flowing ribbons of iridescent light in deep blue, violet and soft pink, sweeping from the right
+side, tiny glowing particles and soft bokeh, dark navy background, calm and cinematic, the left half dark and
+empty, smooth gradients, 4k desktop wallpaper, no text, no letters, no logo". The left half stays dark for
+the tiles and the title's text. 4 rows are cut from the top and the bottom for 1920x1080; build-app.sh has
+PS5_Vulkan's asset tools scale it to 3840x2160 with Lanczos and encode `pic0.dds` and `pic1.dds` (BC7).
 
 ## The model downloader (`downloader.cpp`, `https_client.cpp`, `download_core.cpp`, `catalog.hpp`)
 

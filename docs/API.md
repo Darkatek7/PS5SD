@@ -278,7 +278,7 @@ apart, and still silent) or `no ELF loader`. Without it those
 
 | Route | |
 |---|---|
-| `GET /ps5sd/v1/app/info` | `{"name": "PS5SD", "version": "0.9.18", "sd_cpp": {"version", "commit"}}` |
+| `GET /ps5sd/v1/app/info` | `{"name": "PS5SD", "version": "1.0.0", "sd_cpp": {"version", "commit"}}` |
 | `GET /ps5sd/v1/app/docs/<name>` | `MODELS.md`, `API.md` or `openapi.json` as the title carries them (`text/markdown`, the last `application/json`), for the web UI's Help tab; any other name is a 404 |
 | `GET /ps5sd/v1/app/models` | the library; see below |
 | `POST /ps5sd/v1/app/models/active` | `{"id": "<id>"}`: switch to that entry; the responses are below |

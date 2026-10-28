@@ -4,7 +4,7 @@
 # Builds PS5SD's native app: stable-diffusion.cpp with ggml-vulkan on RADV, as
 # a title folder (eboot.bin, sce_sys/param.json, sce_module/libc.prx) for
 # ShadowMountPlus, in build/app-ps5/title/<TITLE_ID>. The icon and the home
-# screen background come from ps5/app/sce_sys (the background is a placeholder for now).
+# screen background come from ps5/app/sce_sys.
 #
 # Needs PS5_Vulkan next to its forks (.deps/src: PS5_Vulkan, PS5_Mesa,
 # PS5_PayloadSDK), set up by scripts/setup-deps.sh (PS5_Vulkan's
@@ -448,10 +448,9 @@ mkdir -p "$app/sce_sys" "$app/sce_module"
 "$tool" self --sign --in "$out/eboot.elf" --out "$app/eboot.bin" --magic 0x1D3D154F
 cp "$param" "$app/sce_sys/param.json"
 # The home screen backgrounds (3840x2160 BC7 DDS) are made from
-# sce_sys/source/background.png by PS5_Vulkan's asset tools, and only when it
-# changes. The icon was made on the console with FLUX.3 Klein (docs/PORTING.md);
-# TODO: the background is still a generated placeholder (ShadowMountPlus copies
-# both at registration).
+# sce_sys/source/background.png (1920x1080, scaled up with Lanczos) by
+# PS5_Vulkan's asset tools, and only when it changes. Both pictures were made
+# on the console (docs/PORTING.md); ShadowMountPlus copies them at registration.
 assets="$out/assets"
 if [ ! -f "$assets/pic0.dds" ] || [ "$sce_sys/source/background.png" -nt "$assets/pic0.dds" ] ||
     [ "$sce_sys/icon0.png" -nt "$assets/pic0.dds" ]; then
