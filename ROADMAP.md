@@ -10,6 +10,8 @@ can rely on.
 
 ## Done
 
+- **0.9.16**: a model switch without stopping the server; options waits for the model; the model of an
+  OpenAI request; the switch in the event stream.
 - **0.9.15**: one shape for every error answer, with a code; the jobs and their steps as server-sent events
   (`GET /ps5sd/v1/events`), which the web UI uses.
 - **0.9.14**: no model Delete among the presets, a Fields box and help link in Edit text, suggestions while
@@ -359,6 +361,19 @@ The first part of 1.0's "The API is fixed".
 - [x] **The web UI on the stream**: it asks for its job when the stream says it moved and takes the queue
   from it; without the stream it polls as before.
 
+## 0.9.16: a model switch without stopping the server, done
+
+The second part of 1.0's "The API is fixed".
+
+- [x] **The server stays up during a switch** (`patches/sdcpp/0078`): the next model loads into the running
+  server. The web UI, the library, the job list and the event stream keep answering; a request that needs
+  the model waits for it. Measured on the console against 0.9.15: the same times and memory, a lower CPU
+  heap, no request without an answer ([CONSOLE.md](docs/CONSOLE.md#a-model-switch-without-stopping-the-server-2026-10-28)).
+- [x] **`POST /sdapi/v1/options` waits** until the model has loaded, as A1111 does.
+- [x] **The `model` of an OpenAI request** switches to a model of the library; other names, such as
+  `dall-e-3`, run on the loaded one.
+- [x] **The switch in the event stream** (a `model` event), which the web UI follows.
+
 ## Later in 0.9.x
 
 **Web UI**
@@ -384,8 +399,8 @@ No large features; 1.0 is the version that keeps its promises. It is out when al
 - [ ] **No run fails without a reason**: before a run that will not fit, the web UI says so and what to
   lower; a run that fails anyway says why.
 - [ ] **The API is fixed**: one error shape everywhere and progress as server-sent events besides polling
-  (both in 0.9.15); `POST /sdapi/v1/options` waits until the model has loaded, as A1111 does; the `model` of
-  `/v1/images/generations` switches the model (or answers `409`); an OpenAPI description at
+  (both in 0.9.15); `POST /sdapi/v1/options` waits until the model has loaded, as A1111 does, and the `model`
+  of `/v1/images/generations` switches the model (both in 0.9.16); an OpenAPI description at
   `/ps5sd/v1/app/openapi.json`. After 1.0, a change that breaks a client needs a new major version.
 - [ ] **Close during a stalled main loop**: a thread that passes the GPU suspend point every 100 ms, so the
   25 s limit is never hit (see [docs/CONSOLE.md](docs/CONSOLE.md)).
