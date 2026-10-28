@@ -1057,3 +1057,21 @@ first and put back at the end.
 26 releases, 35 minutes, about 1.5 minutes each. Going back is not the same: an older release writes
 `settings.json` in its own form, so the settings it does not know (the fan, the default presets, `image_metadata`)
 are gone after it; 0.5.1 dropped them. An update after such a step back keeps what the old release kept.
+
+## A soak test before 1.0 (2026-10-28)
+
+0.9.18's release build, `scripts/soak-test.py`, stopped after 38 minutes (5 whole rounds and the start of a
+sixth). Each round: Z-Image Turbo 1024x1024; SDXL Base, three 1024x1024 jobs queued at once and one cancelled
+while it ran; FLUX.2 Klein 9B with `lenovo_flux_klein9b` at 4 steps; Wan 2.1 T2V 1.3B, 9 frames at 832x480 and
+8 steps. Each model loaded into the running server (0.9.16), an event stream open all along.
+
+- 36 jobs and 22 switches, all as expected: every switch 200 in 3 to 9 s, every job completed, the 5 that
+  were cancelled on purpose within 4 s. No error and no assertion in `app.log`, and the server never stopped.
+- No slower with time: each round took the same, to the second (Z-Image 89 s, SDXL 28 to 30 s, Klein 9B
+  139 to 141 s, the video 87 s).
+- No growing memory: the CPU heap after a request was 0.45 GiB after the first, then 0.63 to 0.66 GiB from the
+  second round to the last (peak 0.87 GiB); the pool after a Klein 9B image 0.78 GiB in its largest part, each
+  round.
+- The download that was to run alongside did not: the catalog entry's file was on the console already, so
+  the request only wrote its preset. The script now downloads, and deletes, only what the console does not
+  have. Downloads while generating were measured before ("Close" above).

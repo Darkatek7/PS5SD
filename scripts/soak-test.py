@@ -5,7 +5,8 @@
 
 Round after round, until the time is up: a switch to each model of the list, images on it (one with a LoRA
 on FLUX.2 Klein 9B), a short video on Wan 2.1, three jobs queued at once, one job cancelled while it runs.
-Meanwhile a catalog download runs (SDXS-512, 0.7 GB; deleted at the end), an event stream stays open and
+Meanwhile a catalog download runs (SDXS-512, 0.7 GB, only when the console does not have its file; deleted
+at the end only then), an event stream stays open and
 GET /ps5sd/v1/health is asked once a second. At the end: every failure, how the CPU heap and the pool went
 (the app's "memory after a request" lines), and whether the title answered all the time. The model the
 console had is loaded again at the end. Exit status 1 when anything failed that should not have.
@@ -166,22 +167,25 @@ def main():
     start_model = d.get("active") or "z-image-turbo"
     threading.Thread(target=probe, daemon=True).start()
     threading.Thread(target=events, daemon=True).start()
+    # only a download that really runs is a test, and only what it fetched is deleted at the end
     st, d = call("POST", "/ps5sd/v1/app/downloads", {"catalog": "sdxs-512"})
-    log("download sdxs-512: %s" % st)
+    downloading = st == 202
+    log("download sdxs-512: %s%s" % (st, "" if downloading else " (its file is there already: no download, nothing deleted)"))
     t_end = time.time() + a.minutes * 60
     n = 0
     while time.time() < t_end:
         n += 1
         log("== round %d" % n)
         round_(n)
-    st, d = call("GET", "/ps5sd/v1/app/downloads")
-    dl = [x for x in (d or {}).get("downloads", []) if x.get("catalog") == "sdxs-512"]
-    log("download: %s" % ([(x["state"], x["error"]) for x in dl]))
-    if not dl or dl[-1]["state"] != "done":
-        failures.append("the download: %s" % dl)
     switch(start_model)
-    st, _ = call("DELETE", "/ps5sd/v1/app/models/sdxs-512")
-    log("sdxs-512 deleted: %s" % st)
+    if downloading:
+        st, d = call("GET", "/ps5sd/v1/app/downloads")
+        dl = [x for x in (d or {}).get("downloads", []) if x.get("catalog") == "sdxs-512"]
+        log("download: %s" % ([(x["state"], x["error"]) for x in dl]))
+        if not dl or dl[-1]["state"] != "done":
+            failures.append("the download: %s" % dl)
+        st, _ = call("DELETE", "/ps5sd/v1/app/models/sdxs-512")
+        log("sdxs-512 deleted: %s" % st)
     stop = True
     time.sleep(2)
     mem, bad = memory_lines()
