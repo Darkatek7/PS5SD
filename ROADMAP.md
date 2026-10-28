@@ -10,6 +10,8 @@ can rely on.
 
 ## Done
 
+- **0.9.18**: the open measurements; a guide image with the hires fix no longer ends PS5SD; the fit hint
+  says what to lower and knows a guide image.
 - **0.9.17**: an OpenAPI description of every route; a Close from the home screen while the main loop hangs
   closes cleanly.
 - **0.9.16**: a model switch without stopping the server; options waits for the model; the model of an
@@ -386,6 +388,19 @@ The second part of 1.0's "The API is fixed".
 - [x] Tested: `options` with a model that does not load (`500 load_failed`), and a switch in the web UI from
   the page and from outside.
 
+## 0.9.18: the open measurements, done
+
+- [x] **Measured** on the console ([CONSOLE.md](docs/CONSOLE.md#the-open-measurements-and-two-ends-of-ps5sd-found-with-them-2026-10-28)):
+  SDXL with the hires fix up to 3072x3072, an upscale of 1024 to 4096, inpainting with three models, a guide
+  image with the hires fix; the catalog's ControlNet and inpainting entries say their time.
+- [x] **A guide image with the hires fix ended PS5SD**: the guide now has the hires pass's size
+  (`patches/sdcpp/0082`), and an out-of-memory in ggml's own code fails the run instead of the title
+  (`patches/sdcpp/0083`, the app's abort callback).
+- [x] **The fit hint**: "tight" says what to lower, a family nobody measured says so above 1024x1024, and a
+  guide image has limits of its own.
+- [x] **The docs** read against the title (README, MODELS.md, API.md, the Help tab); links to a heading work
+  in the Help tab.
+
 ## Later in 0.9.x
 
 **Web UI**
@@ -405,11 +420,11 @@ The second part of 1.0's "The API is fixed".
 
 No large features; 1.0 is the version that keeps its promises. It is out when all of these hold:
 
-- [ ] **Every open measurement is done** and in [docs/CONSOLE.md](docs/CONSOLE.md): the largest SDXL size
+- [x] **Every open measurement is done** and in [docs/CONSOLE.md](docs/CONSOLE.md): the largest SDXL size
   with the hires fix, an Upscale of 1024 to 4096, inpainting on the console, a guide image with the hires
-  fix.
-- [ ] **No run fails without a reason**: before a run that will not fit, the web UI says so and what to
-  lower; a run that fails anyway says why.
+  fix (0.9.18).
+- [x] **No run fails without a reason**: before a run that will not fit, the web UI says so and what to
+  lower; a run that fails anyway says why (0.9.18).
 - [x] **The API is fixed**: one error shape everywhere and progress as server-sent events besides polling
   (both in 0.9.15); `POST /sdapi/v1/options` waits until the model has loaded, as A1111 does, and the `model`
   of `/v1/images/generations` switches the model (both in 0.9.16); an OpenAPI description at
