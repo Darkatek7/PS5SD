@@ -416,8 +416,9 @@ No large features; 1.0 is the version that keeps its promises. It is out when al
   `/ps5sd/v1/app/openapi.json` (0.9.17). After 1.0, a change that breaks a client needs a new major version.
 - [x] **Close during a stalled main loop**: a thread that passes the GPU suspend point every 100 ms, so the
   25 s limit is never hit (0.9.17, see [docs/CONSOLE.md](docs/CONSOLE.md)).
-- [ ] **An update keeps everything**: models, LoRAs, presets, gallery, settings and the API key survive an
-  update from every 0.x version, tested from 0.5.0 on.
+- [x] **An update keeps everything**: models, LoRAs, presets, gallery, settings and the API key survive an
+  update from every 0.x version, tested from 0.5.0 on (26 releases, `scripts/update-test.py`,
+  [CONSOLE.md](docs/CONSOLE.md#an-update-keeps-everything-2026-10-28)).
 - [ ] **The docs match the title**: README, Help tab, MODELS.md and API.md read against 1.0, with the
   screenshots of 0.8.0.
 - [ ] **No known crash** and no open bug labelled `bug` older than a release.
