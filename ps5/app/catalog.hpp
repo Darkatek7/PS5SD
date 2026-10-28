@@ -288,7 +288,8 @@ inline std::vector<CatalogEntry> entries() {
         {
             "sdxl-canny",
             "SDXL Base 1.0 (Q8_0) + Canny ControlNet",
-            "SDXL with a ControlNet: the edges of a guide image (Canny) set the layout of the new one. 7.9 GB.",
+            "SDXL with a ControlNet: the edges of a guide image (Canny) set the layout of the new one. About 2 min 45 s "
+            "an image at 1024x1024. 7.9 GB.",
             {
                 { "https://huggingface.co/gpustack/stable-diffusion-xl-base-1.0-GGUF/resolve/main/"
                   "stable-diffusion-xl-base-1.0-Q8_0.gguf",
@@ -316,7 +317,8 @@ inline std::vector<CatalogEntry> entries() {
         {
             "sdxl-inpainting",
             "SDXL Inpainting 0.1 (Q8_0)",
-            "For inpainting: blends a painted-over part into SDXL images better than a normal model. 5.2 GB.",
+            "For inpainting: blends a painted-over part into SDXL images better than a normal model. About 2 minutes "
+            "an image at 1024x1024. 5.2 GB.",
             {
                 { "https://huggingface.co/gpustack/stable-diffusion-xl-inpainting-1.0-GGUF/resolve/main/"
                   "stable-diffusion-xl-inpainting-1.0-Q8_0.gguf",
@@ -338,7 +340,7 @@ inline std::vector<CatalogEntry> entries() {
         {
             "sd15-inpainting",
             "SD 1.5 Inpainting (Q8_0)",
-            "For inpainting at 512x512: Stable Diffusion 1.5's inpainting model. 1.9 GB.",
+            "For inpainting at 512x512: Stable Diffusion 1.5's inpainting model. About 12 s an image. 1.9 GB.",
             {
                 { "https://huggingface.co/gpustack/stable-diffusion-v1-5-inpainting-GGUF/resolve/main/"
                   "stable-diffusion-v1-5-inpainting-Q8_0.gguf",

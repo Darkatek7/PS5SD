@@ -58,6 +58,7 @@
 #include <functional>
 #include <initializer_list>
 #include <mutex>
+#include <new>
 #include <sstream>
 #include <string>
 #include <thread>
@@ -468,6 +469,20 @@ void log_memory(const char * when) {
 // what explained the one in docs/CONSOLE.md ("PS5SD ended by a full CPU heap").
 // No locks (the thread that threw may hold g_status's) and as little
 // allocation as can be: the cause may be a full heap.
+// An allocation that fails inside ggml's own C code asserted and ended the title:
+// a guide image with the hires fix at 2048x2048 ran the CPU heap out ("Internal
+// Memory is running out"), and ggml_init's GGML_ASSERT(ctx->mem_buffer != NULL)
+// aborted (docs/CONSOLE.md). As std::bad_alloc it ends the job instead, which
+// the server reports as not enough memory (patches/sdcpp/0071), and the title
+// stays. ggml.c is built with -fexceptions (build-app.sh), so the exception
+// unwinds through ggml_abort. Any other assertion still aborts.
+void on_ggml_abort(const char * message) {
+    if (message != nullptr && std::strstr(message, "mem_buffer != NULL") != nullptr) {
+        std::printf("ps5sd: ggml ran out of memory (%s); the run fails, PS5SD stays\n", message);
+        throw std::bad_alloc();
+    }
+}
+
 [[noreturn]] void on_terminate() {
     static char what[256];
     std::snprintf(what, sizeof what, "%s", "no exception (std::terminate was called)");
@@ -1910,6 +1925,7 @@ int main(int, char **) {
     }
     std::printf("ps5sd: version " PS5SD_VERSION ", stable-diffusion.cpp %s (%s)\n", sd_version(), sd_commit());
     std::set_terminate(on_terminate);
+    ggml_set_abort_callback(on_ggml_abort);
     load_settings();
     load_api_key();
     // The images made with "Don't keep on the console" last until the title starts again.

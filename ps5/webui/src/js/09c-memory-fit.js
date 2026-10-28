@@ -8,6 +8,8 @@
     var body = { width: f.w, height: f.h };
     if (st.video) body.video_frames = frames4k1(num('frames', 33, 5, 81));
     else if (f.hr.on && st.mode !== 'edit') body.hires = { enabled: true, scale: f.hr.scale };
+    // a guide image has limits of its own (the ControlNet's memory); the image itself is not sent
+    if (!st.video && st.mode === 'guide' && !!st.cn && !!st.cnModel) body.control = true;
     return body;
   }
 

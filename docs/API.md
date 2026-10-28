@@ -283,7 +283,7 @@ apart, and still silent) or `no ELF loader`. Without it those
 | `GET /ps5sd/v1/app/models` | the library; see below |
 | `POST /ps5sd/v1/app/models/active` | `{"id": "<id>"}`: switch to that entry; the responses are below |
 | `DELETE /ps5sd/v1/app/models/<id>` | delete an entry; see below |
-| `POST /ps5sd/v1/app/fit` | the body of an `img_gen` or `vid_gen` request: will it fit in the GPU memory of the loaded model? The body needs `width` and `height` (`400` without them); `hires` (an object with `enabled` and `scale`) and `video_frames` (the frame count) are optional. The answer is `{"verdict", "message", "family", "width", "height", "frames"}`, with `width` and `height` of the largest pass (the hires target). `verdict` is `fits`, `tight` (larger than measured, or than every run since the model loaded: it may run out of memory, and a restart of PS5SD gives the most room) or `too_big` (measured not to fit); `message` says it for people. Nothing runs, and a run is never refused for it. See [CONSOLE.md](CONSOLE.md#memory-what-fits-and-why-runs-failed-2026-10-22) |
+| `POST /ps5sd/v1/app/fit` | the body of an `img_gen` or `vid_gen` request: will it fit in the GPU memory of the loaded model? The body needs `width` and `height` (`400` without them); `hires` (an object with `enabled` and `scale`), `control_image` or `"control": true` (a guide image, which has limits of its own) and `video_frames` (the frame count) are optional. The answer is `{"verdict", "message", "family", "width", "height", "frames"}`, with `width` and `height` of the largest pass (the hires target). `verdict` is `fits`, `tight` (larger than measured, or than every run since the model loaded: it may run out of memory, and a restart of PS5SD gives the most room) or `too_big` (measured not to fit); `message` says it for people. Nothing runs, and a run is never refused for it. See [CONSOLE.md](CONSOLE.md#memory-what-fits-and-why-runs-failed-2026-10-22) |
 | `GET /ps5sd/v1/app/loras` | `{"loras": [{"name", "path", "bytes", "family"}]}`: the LoRA files in `/data/PS5SD/loras` and its subfolders; `family` as for a model (below) |
 | `DELETE /ps5sd/v1/app/loras/<path>` | delete one LoRA file; the answer is the list as `GET` gives it |
 
@@ -647,7 +647,10 @@ true when there is one.
 takes A1111's `enable_hr`, `hr_scale`, `hr_upscaler`, `hr_steps`,
 `hr_resize_x`/`hr_resize_y` and `denoising_strength`. A batch makes all first passes, then all second
 passes: while a job runs, `preview.pass` counts them (images 1 to n, then their hires passes n + 1 to 2n).
-The largest size is 4096 on each side; on the console, sizes over 2048 are not measured yet.
+The largest size is 4096 on each side. On the console, SDXL Base at 10 steps from 1024x1024 made 1536x1536 in
+103 s, 2048x2048 in 202 s, 2560x2560 in 7 minutes and 3072x3072 in 23 minutes; 4096x4096 ran out of memory.
+With a guide image (ControlNet) 1536x1536 is the largest that ran (6 minutes); see
+[MODELS.md](MODELS.md#controlnet).
 `"scale": 1` is a second pass at the same size: it refines the details without making the image larger
 (on the console, 832x1216 with iLustMix at 10 steps and a strength of 0.35: 57 s with `Latent` and 63 s
 with `Lanczos`, against 30 s without it).
@@ -655,8 +658,8 @@ with `Lanczos`, against 30 s without it).
 **Upscale an image**: `POST /sdcpp/v1/upscale` with `{"image": "<base64>", "upscaler": "<name>"}` runs the
 model over it (4x for most). PS5SD saves the result to the gallery like a generated image and says under
 which name in `"saved": ["..."]`; `"return_image": false` leaves the image out of the answer (a 4096 px PNG
-is tens of MB). It runs on the GPU between generations, never at the same time. Measured on a Mac's CPU:
-768x768 to 3072x3072 with Real-ESRGAN x4plus anime 6B in 64 s.
+is tens of MB). It runs on the GPU between generations, never at the same time. Measured on the console,
+1024x1024 to 4096x4096: 62 s with RealESRGAN x4plus, 24 s with RealESRGAN x4plus anime 6B.
 
 ```sh
 curl -H "Content-Type: application/json" http://<console>:7860/sdcpp/v1/upscale \
@@ -678,7 +681,8 @@ server reads only up to 8 KB.
 - `strength` is how much changes: below 1 only that share of the steps runs, so a light change is quick.
 - In the mask, white is painted over and black stays; grays blend. Without `mask_image` the whole image
   changes.
-- The start image is cropped to the aspect of `width` x `height` and scaled to it.
+- The start image is cropped to the aspect of `width` x `height` and scaled to it. The mask must have the
+  start image's size: with another size the run fails ("mask and init source dimensions must match").
 - `/sdapi/v1/img2img` takes A1111's `init_images`, `mask`, `denoising_strength` and
   `inpainting_mask_invert` (A1111's hires fix there is for text to image only, and the web UI turns it
   off with a start image).

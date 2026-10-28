@@ -416,8 +416,10 @@ gpustack's GGUF conversions:
 
 | | Size | For |
 |---|---|---|
-| SDXL Inpainting 0.1 (Q8_0) | 5.2 GB with the SDXL VAE | SDXL images, 1024x1024 |
-| SD 1.5 Inpainting (Q8_0) | 1.9 GB | 512x512 |
+| SDXL Inpainting 0.1 (Q8_0) | 5.2 GB with the SDXL VAE | SDXL images, 1024x1024: about 2 minutes at 25 steps |
+| SD 1.5 Inpainting (Q8_0) | 1.9 GB | 512x512: about 12 s at 25 steps |
+
+A normal model inpaints too: SDXL Base at its 10 steps took 53 s for 1024x1024 on the console.
 
 An inpainting checkpoint from elsewhere (a Civitai model whose name ends in "inpainting") works too; sd.cpp
 recognises it by its weights.
@@ -505,7 +507,10 @@ off. Put the model file in `/data/PS5SD/models/controlnet/`, by FTP into that fo
 ([API.md](API.md)). The subfolder matters: a `.safetensors` file directly in `models` shows up in the library
 as a checkpoint. Then add it to a preset as above.
 
-The hires fix with a guide image is not measured yet.
+With the hires fix, measured on the console (0.9.18, SDXL Base with xinsir's Canny ControlNet, 25 steps,
+the second pass at a strength of 0.5): 1024x1024 alone in about 2 min 45 s, to 1536x1536 in about 6 minutes.
+2048x2048 runs the console's CPU memory out: the run fails with "Not enough memory", and PS5SD stays. Before
+0.9.18 a guide image with the hires fix ended PS5SD; keep it at 1536x1536 or below.
 
 ## How big a model can be
 

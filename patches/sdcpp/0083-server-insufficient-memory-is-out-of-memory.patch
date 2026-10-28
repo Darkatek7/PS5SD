@@ -1,0 +1,27 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: ps5sd <ps5sd@localhost>
+Date: Wed, 28 Oct 2026 15:00:00 +0100
+Subject: [PATCH] server: ggml's "insufficient memory" is out of memory
+
+When the CPU heap runs out inside ggml's own C code, ggml logs
+"ggml_aligned_malloc: insufficient memory" before it asserts. PS5SD turns
+that assertion into std::bad_alloc (its abort callback), so the run fails
+instead of the title; but the failure log did not take the line as a memory
+failure, and the run failed as generation_failed with ggml's text. It is one
+of the memory markers now: the run gets its one more try (0072), and fails
+as out_of_memory with the message that says what to lower.
+
+diff --git a/examples/server/server_hooks.cpp b/examples/server/server_hooks.cpp
+index d0c6abb..7724df2 100644
+--- a/examples/server/server_hooks.cpp
++++ b/examples/server/server_hooks.cpp
+@@ -130,6 +130,9 @@ bool memory_line_locked() {
+         "outofdevicememory",
+         "outofhostmemory",
+         "failed to allocate",
++        // ggml_aligned_malloc, when the CPU heap is out (PS5SD: the app's abort callback
++        // then ends the run instead of the process)
++        "insufficient memory",
+     };
+     for (const FailureLine& line : g_failure_lines) {
+         for (const char* marker : k_memory_markers) {

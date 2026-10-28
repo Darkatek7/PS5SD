@@ -1,0 +1,50 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: ps5sd <ps5sd@localhost>
+Date: Wed, 28 Oct 2026 14:30:00 +0100
+Subject: [PATCH] image: the guide image at the size of the hires pass
+
+A run with a guide image (ControlNet) and the hires fix ended the process:
+the hires pass gave the ControlNet the guide at the first pass's size, which
+does not match the larger hires latent, and ggml asserted
+(ggml_can_repeat(b, a), ggml.c), which aborts. On the PS5 that ended the
+title: SDXL with xinsir's Canny ControlNet, 1024x1024 and a hires scale of
+1.5.
+
+The hires pass now gets the guide scaled to its own size (bilinear, clamped
+to 0..1), as the mask of an inpainting run already is. Checked with the same
+ControlNet on the CPU: 256x256 with a scale of 1.5 ran to its end.
+
+diff --git a/src/pipeline/image.cpp b/src/pipeline/image.cpp
+index d3d25c8..1e5faaa 100644
+--- a/src/pipeline/image.cpp
++++ b/src/pipeline/image.cpp
+@@ -959,6 +959,20 @@ namespace sd::pipeline {
+                      hires_sigma_sched.size(),
+                      request.hires.custom_sigmas_count > 0 ? ", custom_sigmas=true" : "");
+ 
++            // PS5SD: the guide image (ControlNet) at the size of the hires pass. The first pass's
++            // does not match the hires latent, and ggml asserts on it (ggml_can_repeat), which
++            // ends the process.
++            sd::Tensor<float> hires_control_image;
++            if (!latents.control_image.empty()) {
++                hires_control_image = sd::ops::interpolate(latents.control_image,
++                                                           {request.hires.target_width,
++                                                            request.hires.target_height,
++                                                            latents.control_image.shape()[2],
++                                                            latents.control_image.shape()[3]},
++                                                           sd::ops::InterpolateMode::Bilinear);
++                hires_control_image = sd::ops::clamp(hires_control_image, 0.0f, 1.0f);
++            }
++
+             std::vector<sd::Tensor<float>> hires_final_latents;
+             int64_t hires_denoise_start = ggml_time_ms();
+             for (int b = 0; b < (int)final_latents.size(); b++) {
+@@ -998,7 +1012,7 @@ namespace sd::pipeline {
+                                                         embeds.cond,
+                                                         embeds.uncond,
+                                                         embeds.img_uncond,
+-                                                        latents.control_image,
++                                                        hires_control_image,
+                                                         request.control_strength,
+                                                         request.guidance,
+                                                         plan.eta,

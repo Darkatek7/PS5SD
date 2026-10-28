@@ -46,6 +46,11 @@ void test_body() {
     check(fit_query_from_body(R"({"width":1024,"height":1024,"hires":{"enabled":false,"scale":2}})", q, error) &&
               q.pass_width == 1024,
           "the hires fix off");
+    check(fit_query_from_body(R"({"width":1024,"height":1024,"control_image":"iVBOR..."})", q, error) && q.control,
+          "a guide image");
+    check(fit_query_from_body(R"({"width":1024,"height":1024})", q, error) && !q.control, "no guide image");
+    check(fit_query_from_body(R"({"width":1024,"height":1024,"control":true})", q, error) && q.control,
+          "a guide image named by the web UI");
     check(fit_query_from_body(R"({"width":832,"height":480,"video_frames":33})", q, error) && q.frames == 33,
           "a vid_gen body");
     check(!fit_query_from_body(R"({"prompt":"x"})", q, error) && !error.empty(), "no size");
@@ -56,7 +61,20 @@ void test_verdicts() {
     // right after a start
     is(query("SDXL", 1024, 1024), "fits", "SDXL 1024");
     is(query("SDXL", 2048, 2048), "fits", "SDXL 2048, measured");
-    is(query("SDXL", 2560, 2560), "tight", "SDXL over the measured size");
+    is(query("SDXL", 2560, 2560), "fits", "SDXL 2560, measured (0.9.18)");
+    is(query("SDXL", 3072, 3072), "fits", "SDXL 3072, measured (0.9.18)");
+    is(query("SDXL", 4096, 4096), "tight", "SDXL over the measured size");
+    {
+        FitQuery g = query("SDXL", 1536, 1536);
+        g.control  = true;
+        is(g, "fits", "SDXL with a guide image, 1536 measured (0.9.18)");
+        g = query("SDXL", 2048, 2048);
+        g.control = true;
+        is(g, "tight", "SDXL with a guide image, 2048 ran out (0.9.18)");
+        check(check_fit(g).message.find("SDXL + ControlNet") != std::string::npos, "the guide image's limit is named");
+        g.family = "FLUX.2 Klein 4B";
+        is(g, "fits", "a guide image with a family without its own limit: the family's");
+    }
     is(query("FLUX.2 Klein 4B", 1536, 1536), "fits", "Klein 4B 1536");
     is(query("FLUX.2 Klein 4B", 2048, 2048), "fits", "Klein 4B 2048, measured (patches/mesa/0010)");
     is(query("FLUX.2 Klein 4B", 2560, 2560), "tight", "Klein 4B over the measured size");
@@ -74,7 +92,7 @@ void test_verdicts() {
     is(query("FLUX.1", 1536, 1536), "tight", "an unmeasured family above 1024");
     check(check_fit(query("SD 3", 2048, 2048)).message.find("Not measured") != std::string::npos,
           "an unmeasured family says so");
-    check(check_fit(query("SDXL", 2560, 2560)).message.find("Lower the size.") != std::string::npos,
+    check(check_fit(query("SDXL", 4096, 4096)).message.find("Lower the size.") != std::string::npos,
           "a tight run says what to lower");
     {
         FitQuery v = query("Wan 1.3B", 832, 480, 97);

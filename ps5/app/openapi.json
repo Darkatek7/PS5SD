@@ -1067,7 +1067,7 @@
               }
             }
           },
-          "description": "The body of an `img_gen` or `vid_gen` request."
+          "description": "The body of an `img_gen` or `vid_gen` request. `\"control\": true` stands for a guide image (ControlNet) without sending it."
         },
         "responses": {
           "200": {

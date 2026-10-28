@@ -987,3 +987,55 @@ So the failure of the "Close" measurements above needs a frame in flight: a main
 frames is suspended at once, one that stops inside a frame is not, until 25 s after its last suspend point.
 The thread's suspend points let the kernel suspend the title within 0.1 s in either case. An image made
 right after (Z-Image Turbo, 768x768) took as long as without the thread (54 s), and no suspend point failed.
+
+## The open measurements, and two ends of PS5SD found with them (2026-10-28)
+
+Local Docker builds of 0.9.17 and the 0.9.18 work, with a display, through the API from the PC. Each run after
+the one before, without a restart in between; the fit hint (`POST /ps5sd/v1/app/fit`) asked before each.
+
+**SDXL Base Q8_0 with the hires fix** (its preset: 10 steps, dpm++2m, `ays`; 1024x1024, then the second pass
+at a strength of 0.5 with the `Latent` upscaler):
+
+| Size | Time | Pool free after, the largest part | CPU heap (peak) |
+|---|---|---|---|
+| 1024x1024, no hires | 30 s | 5.90 GiB | 0.48 GiB (0.64) |
+| to 1536x1536 | 103 s | 5.74 GiB | 0.53 GiB (0.67) |
+| to 2048x2048 | 202 s | 5.74 GiB | 0.55 GiB (0.72) |
+| to 2560x2560 | 7 min 6 s | 5.74 GiB | 0.58 GiB (0.76) |
+| to 3072x3072 | 23 min 6 s | 5.74 GiB | 0.61 GiB (0.98) |
+| to 4096x4096 | failed after 3 min 42 s: not enough memory, also on the second try | 5.74 GiB | 0.66 GiB (0.98) |
+
+So the fit hint takes SDXL up to 3072x3072 (`mem_fit.cpp`); 4096x4096 was not tried right after a start.
+
+**Upscale** of the 1024x1024 image to 4096x4096 (`POST /sdcpp/v1/upscale`): 62.5 s with RealESRGAN x4plus,
+24.4 s with RealESRGAN x4plus anime 6B. The CPU heap rose to 0.75 GiB.
+
+**Inpainting**, a square of 384 px (192 px at 512) in the middle painted over, strength 1:
+
+| Model | Size | Time |
+|---|---|---|
+| SDXL Base, its preset (10 steps) | 1024x1024 | 52.7 s |
+| SDXL Inpainting 0.1 Q8_0, its preset (25 steps, euler_a) | 1024x1024 | 121.2 s |
+| SD 1.5 Inpainting Q8_0, its preset (25 steps) | 512x512 | 12.2 s |
+
+A mask of another size than the start image fails the run ("mask and init source dimensions must match").
+
+**A guide image with the hires fix** (SDXL Base with xinsir's Canny ControlNet, its preset: 25 steps, euler_a;
+the guide the SDXL image above, Canny on the console, strength 0.6):
+
+| Size | 0.9.17 | 0.9.18 |
+|---|---|---|
+| 1024x1024, no hires | 165.6 s; pool free after 2.22 GiB, CPU heap 0.86 GiB (peak 1.38) | 111 to 166 s |
+| to 1536x1536 | **PS5SD ended**: `GGML_ASSERT(ggml_can_repeat(b, a))` | 369 to 371 s; CPU heap 0.88 to 1.05 GiB (peak 1.92 to 1.94) |
+| to 2048x2048, after 1536 | | not enough memory, after one more try (315 s); PS5SD stays |
+
+- The first end: the hires pass gave the ControlNet the guide at the first pass's size, which did not match
+  its larger latent. `patches/sdcpp/0082` scales the guide to the hires size.
+- The second end, at 2048x2048 once that ran: the CPU heap ran out ("Internal Memory is running out", peak
+  2.83 GiB), and ggml's own `ggml_init` asserted (`GGML_ASSERT(ctx->mem_buffer != NULL)`), which aborts. The
+  app's abort callback (`on_ggml_abort` in `main.cpp`) throws `std::bad_alloc` for that assertion, with ggml's
+  C code built with `-fexceptions`, so the job fails instead; `patches/sdcpp/0083` counts ggml's
+  "insufficient memory" as running out, so the run gets its one more try and says what to lower. After it, a
+  guide image run at 1024x1024 ran as before.
+- The fit hint has limits for a guide image of its own ("SDXL + ControlNet": up to 1536x1536); the web UI
+  sends `"control": true` in Guide mode.

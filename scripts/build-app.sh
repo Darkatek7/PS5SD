@@ -188,7 +188,10 @@ make -C "$root/ps5/fan" PS5_PAYLOAD_SDK="$sdk" ELF="$fan_elf" > "$out/fan.build.
 # ---- stable-diffusion.cpp and ggml, as static libraries -----------------------
 flags="-I$headers/include"
 # sd.cpp and ggml throw, catch and use dynamic_cast; the PS5 target turns
-# exceptions and RTTI off by default.
+# exceptions and RTTI off by default. ggml's C code gets unwind tables too
+# (-fexceptions), so the app's abort callback can throw through ggml_abort
+# (main.cpp, on_ggml_abort).
+cflags="$flags -fexceptions"
 cxxflags="$flags -fexceptions -fcxx-exceptions -frtti"
 # Zen 2: AVX2, FMA, F16C and BMI2, no AVX-512. One static image: no backend
 # modules (GGML_BACKEND_DL), no OpenMP (ggml's own thread pool), no libm (the
@@ -205,7 +208,7 @@ cmp -s "$index_h.new" "$index_h" 2> /dev/null && rm -f "$index_h.new" || mv -f "
 cmake -S "$sd" -B "$out/sd" -G Ninja \
     -DCMAKE_TOOLCHAIN_FILE="$app_src/toolchain.cmake" \
     -DCMAKE_BUILD_TYPE=Release \
-    -DCMAKE_C_FLAGS="$flags" -DCMAKE_CXX_FLAGS="$cxxflags" \
+    -DCMAKE_C_FLAGS="$cflags" -DCMAKE_CXX_FLAGS="$cxxflags" \
     -DBUILD_SHARED_LIBS=OFF -DSD_BUILD_SHARED_LIBS=OFF -DSD_BUILD_EXAMPLES=ON \
     -DSD_SERVER_LIBRARY=ON -DSD_SERVER_BUILD_FRONTEND=OFF -DSD_SERVER_EMBED_INDEX="$index_h" \
     -DSD_VULKAN=ON -DSD_WEBP="$webm" -DSD_WEBM="$webm" \

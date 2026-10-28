@@ -24,7 +24,9 @@ struct Limit {
 constexpr int64_t px(int w, int h, int frames = 1) { return (int64_t) w * h * frames; }
 
 const Limit kLimits[] = {
-    { "SDXL", px(2048, 2048), 0, px(2048, 2048), "2048x2048" },
+    // 0.9.18: 1024 with the hires fix up to 3072x3072, one after the other (1386 s); 4096x4096 ran out of
+    // memory after them (not tried right after a start)
+    { "SDXL", px(3072, 3072), 0, px(3072, 3072), "3072x3072" },
     { "SD 2.1", px(1024, 1024), 0, px(1024, 1024), "1024x1024" },
     { "SD 1.5", px(1024, 1024), 0, px(1024, 1024), "1024x1024" },
     // 0.9.0: buffers of several blocks (patches/mesa/0010); 2048 also ran after 1024, 1536 and 1280
@@ -33,6 +35,9 @@ const Limit kLimits[] = {
     { "FLUX.2 Klein 9B", px(1024, 1024), 0, px(1024, 1024), "1024x1024" },
     { "FLUX.3 Klein", px(1024, 1024), px(1536, 1536), px(896, 896), "1024x1024" },
     { "Z-Image", px(1536, 1536), 0, px(1024, 1024), "1536x1536" },
+    // 0.9.18: xinsir's Canny ControlNet (2.4 GB more weights, more CPU heap): 1024 with the hires fix to
+    // 1536x1536 ran after 1024; 2048x2048 ran the CPU heap out after it
+    { "SDXL + ControlNet", px(1536, 1536), 0, px(1536, 1536), "1536x1536" },
     // 0.9.1: 81 frames after 33 and 49, with CausVid
     { "Wan 1.3B", px(832, 480, 81), 0, px(832, 480, 81), "832x480, 81 frames" },
     // 0.9.6: Wan 2.2 TI2V 5B, 1280x704 with 33 frames right after a start (2.48 GiB left in one block);
@@ -81,6 +86,11 @@ bool fit_query_from_body(const std::string & body, FitQuery & q, std::string & e
         return false;
     }
     q.frames      = std::max(1, integer("video_frames", 1));
+    // a guide image: the request's own control_image, or "control": true (the web UI, which sends no image)
+    const auto control = j.find("control_image");
+    const auto flag    = j.find("control");
+    q.control          = (control != j.end() && control->is_string() && !control->get<std::string>().empty()) ||
+                (flag != j.end() && flag->is_boolean() && flag->get<bool>());
     q.pass_width  = q.width;
     q.pass_height = q.height;
     const auto hr = j.find("hires");
@@ -95,7 +105,12 @@ bool fit_query_from_body(const std::string & body, FitQuery & q, std::string & e
     return true;
 }
 
-FitAnswer check_fit(const FitQuery & q) {
+FitAnswer check_fit(const FitQuery & in) {
+    // a guide image: the family's limits with its ControlNet, where they were measured
+    FitQuery q = in;
+    if (q.control && limit_for(q.family + " + ControlNet") != nullptr) {
+        q.family += " + ControlNet";
+    }
     const int64_t work = px(q.pass_width, q.pass_height, q.frames);
     const int64_t size = px(q.width, q.height);
     const Limit * l    = limit_for(q.family);

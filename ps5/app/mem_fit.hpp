@@ -32,6 +32,7 @@ struct FitQuery {
     int         pass_width  = 0;   // the largest pass: the hires fix's target, else the size
     int         pass_height = 0;
     int         frames = 1;        // a video's frames
+    bool        control = false;   // a guide image (ControlNet): its own limits ("<family> + ControlNet")
     int64_t     largest_ok = 0;    // width x height of the largest run that worked since the model loaded
     bool        other_model_before = false;  // another model ran in this start of PS5SD
 };
