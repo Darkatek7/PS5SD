@@ -478,9 +478,10 @@ if [ "$display" = 1 ]; then
         "$kit/assets/fonts/"{Inter,Montserrat,DejaVu}-LICENSE.txt "$app/assets/fonts/"
 fi
 # ftpsrv (GPL-3.0+) with its licence and where its source is.
-# The docs for the web UI's Help tab (GET /ps5sd/v1/app/docs/<name>).
+# The docs for the web UI's Help tab (GET /ps5sd/v1/app/docs/<name>), and the
+# OpenAPI description (GET /ps5sd/v1/app/openapi.json).
 mkdir -p "$app/docs"
-cp "$root/docs/MODELS.md" "$root/docs/API.md" "$app/docs/"
+cp "$root/docs/MODELS.md" "$root/docs/API.md" "$root/ps5/app/openapi.json" "$app/docs/"
 mkdir -p "$app/ftpsrv"
 cp "$ftpsrv_elf" "$app/ftpsrv/ps5sd-ftpsrv.elf"
 cp "$ftpsrv/LICENSE" "$app/ftpsrv/LICENSE.txt"

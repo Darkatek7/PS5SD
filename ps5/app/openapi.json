@@ -1,0 +1,5853 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "PS5SD",
+    "version": "0.9.17",
+    "description": "PS5SD runs stable-diffusion.cpp's sd-server on the PS5. The server is the console, at http://<console>:7860 (or the port that server-args.txt names). One server serves the web UI and four APIs: the AUTOMATIC1111 API (/sdapi/v1), the OpenAI images API (/v1), sd-server's own API with async jobs (/sdcpp/v1) and PS5SD's routes (/ps5sd/v1): the gallery, the job queue, the model library and the downloader. Every route allows any origin (CORS, without credentials). Until the API key is turned on there is no authentication, so keep the console on your own network. A request body is at most 64 MB; uploads have no limit. Send JSON with Content-Type: application/json. Five wrong keys in a row lock a client out for a while (429, code rate_limited, with Retry-After). A POST, PUT or DELETE that carries the key only as the cookie also needs the header X-PS5SD-Request (any value). Every answer of 400 and more has the shape of the Error schema."
+  },
+  "servers": [
+    {
+      "url": "http://{console}:7860",
+      "description": "The PS5 that runs PS5SD.",
+      "variables": {
+        "console": {
+          "default": "192.168.1.10",
+          "description": "The PS5's address."
+        }
+      }
+    }
+  ],
+  "tags": [
+    {
+      "name": "web UI",
+      "description": "The web UI and the routes it uses: versions, docs, readings, settings, tags."
+    },
+    {
+      "name": "auth",
+      "description": "The API key and the login cookie."
+    },
+    {
+      "name": "models",
+      "description": "The model library, switching, presets, LoRAs and upscalers."
+    },
+    {
+      "name": "downloads",
+      "description": "The catalog and the downloader."
+    },
+    {
+      "name": "uploads",
+      "description": "Uploading files onto the console."
+    },
+    {
+      "name": "jobs",
+      "description": "The job queue."
+    },
+    {
+      "name": "events",
+      "description": "Server-sent events for jobs and models."
+    },
+    {
+      "name": "gallery",
+      "description": "The generated images and videos."
+    },
+    {
+      "name": "A1111",
+      "description": "The AUTOMATIC1111 API."
+    },
+    {
+      "name": "OpenAI",
+      "description": "The OpenAI images API."
+    },
+    {
+      "name": "sd-server",
+      "description": "sd-server's own API, with async jobs."
+    }
+  ],
+  "security": [
+    {
+      "bearer": []
+    },
+    {
+      "basic": []
+    },
+    {
+      "apiKeyHeader": []
+    },
+    {
+      "cookie": []
+    },
+    {}
+  ],
+  "paths": {
+    "/": {
+      "get": {
+        "tags": [
+          "web UI"
+        ],
+        "operationId": "getWebUi",
+        "summary": "The web UI",
+        "description": "Serves the web UI. It is open without the API key; the page then asks for the key.",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "The web UI.",
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ps5sd/v1/health": {
+      "get": {
+        "tags": [
+          "web UI"
+        ],
+        "operationId": "getHealth",
+        "summary": "Health check",
+        "description": "For a proxy or a monitor. Open without the API key.",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "The server is up.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "example": "ok"
+                    }
+                  },
+                  "additionalProperties": true
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ps5sd/v1/app/openapi.json": {
+      "get": {
+        "tags": [
+          "web UI"
+        ],
+        "operationId": "getOpenApi",
+        "summary": "This OpenAPI description",
+        "description": "The OpenAPI 3.1 description of this API, as the title carries it. Open without the API key.",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "The OpenAPI description.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ps5sd/v1/app/info": {
+      "get": {
+        "tags": [
+          "web UI"
+        ],
+        "operationId": "getAppInfo",
+        "summary": "Name and versions",
+        "description": "Gives the name of the title, its version and the version of stable-diffusion.cpp it carries.",
+        "responses": {
+          "200": {
+            "description": "The versions.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "example": "PS5SD"
+                    },
+                    "version": {
+                      "type": "string",
+                      "example": "0.9.17"
+                    },
+                    "sd_cpp": {
+                      "type": "object",
+                      "properties": {
+                        "version": {
+                          "type": "string"
+                        },
+                        "commit": {
+                          "type": "string"
+                        }
+                      },
+                      "additionalProperties": true
+                    }
+                  },
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key is needed, or it is wrong (code `unauthorized`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ps5sd/v1/app/docs/{name}": {
+      "get": {
+        "tags": [
+          "web UI"
+        ],
+        "operationId": "getAppDoc",
+        "summary": "A user document",
+        "description": "`API.md` or `MODELS.md` as the title carries them, for the web UI's Help tab. Any other name is a 404.",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "description": "`API.md` or `MODELS.md`.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "API.md",
+                "MODELS.md"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The document.",
+            "content": {
+              "text/markdown": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key is needed, or it is wrong (code `unauthorized`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "There is no such route, file, job, download or preset (code `not_found`; `model_not_found` for a model).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ps5sd/v1/app/console": {
+      "get": {
+        "tags": [
+          "web UI"
+        ],
+        "operationId": "getConsole",
+        "summary": "The console's readings",
+        "description": "Temperature, power, fan and load, now and over the last two minutes and the last hour. `seconds` has a point a second for 120 s, `minutes` the mean of each 30 s for an hour, oldest first. A value that was not read is `null`. The temperature, power, fan and clock come from the ps5-exporter payload and are `null` without it.",
+        "responses": {
+          "200": {
+            "description": "The readings.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleReadings"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key is needed, or it is wrong (code `unauthorized`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ps5sd/v1/app/settings": {
+      "get": {
+        "tags": [
+          "web UI"
+        ],
+        "operationId": "getSettings",
+        "summary": "App settings",
+        "description": "The settings kept in `/data/PS5SD/settings.json`. They hold for every browser and survive a restart.",
+        "responses": {
+          "200": {
+            "description": "The settings.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Settings"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key is needed, or it is wrong (code `unauthorized`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "web UI"
+        ],
+        "operationId": "updateSettings",
+        "summary": "Change app settings",
+        "description": "Changes what the body sets. `default_presets` is merged: a model file with a preset id sets one, `\"\"` or `null` drops one, the others stay.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SettingsUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The settings as `GET` gives them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Settings"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A field has the wrong type (code `invalid_request`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key is needed, or it is wrong (code `unauthorized`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The body is over 64 MB (code `payload_too_large`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ps5sd/v1/app/tags": {
+      "get": {
+        "tags": [
+          "web UI"
+        ],
+        "operationId": "getTags",
+        "summary": "Tag files for completion",
+        "description": "The tag files in `/data/PS5SD/tags` and how many tags they hold. The files are read on the first request and again when they change.",
+        "responses": {
+          "200": {
+            "description": "The tag files.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "files": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      },
+                      "example": [
+                        "danbooru.csv"
+                      ]
+                    },
+                    "tags": {
+                      "type": "integer",
+                      "example": 100231
+                    }
+                  },
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key is needed, or it is wrong (code `unauthorized`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "web UI"
+        ],
+        "operationId": "searchTags",
+        "summary": "Search tags",
+        "description": "Finds the tags whose name or one of whose aliases starts with `q` (at least 2 characters; spaces and underscores count the same, any case), the most used first. `tag` is as the prompt takes it: underscores as spaces, parentheses escaped. `alias` is the alias that matched, `\"\"` when the name did.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "q"
+                ],
+                "properties": {
+                  "q": {
+                    "type": "string",
+                    "minLength": 2,
+                    "example": "long h"
+                  },
+                  "limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 50,
+                    "example": 8,
+                    "description": "At most 50."
+                  }
+                },
+                "additionalProperties": true
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The matching tags.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "tags": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "tag": {
+                            "type": "string",
+                            "example": "long hair"
+                          },
+                          "count": {
+                            "type": "integer",
+                            "example": 4350000
+                          },
+                          "alias": {
+                            "type": "string"
+                          }
+                        },
+                        "additionalProperties": true
+                      }
+                    }
+                  },
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request is not valid (code `invalid_request`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key is needed, or it is wrong (code `unauthorized`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The body is over 64 MB (code `payload_too_large`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ps5sd/v1/auth": {
+      "get": {
+        "tags": [
+          "auth"
+        ],
+        "operationId": "getAuthStatus",
+        "summary": "Is a key needed",
+        "description": "Tells whether a key is needed, and whether this request has it. Open without the API key.",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "The state.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "required",
+                    "authenticated"
+                  ],
+                  "properties": {
+                    "required": {
+                      "type": "boolean"
+                    },
+                    "authenticated": {
+                      "type": "boolean"
+                    }
+                  },
+                  "additionalProperties": true
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ps5sd/v1/auth/login": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "operationId": "login",
+        "summary": "Sign in with the key",
+        "description": "Sets the cookie `ps5sd_key` (`HttpOnly`, `SameSite=Strict`, `Secure` behind HTTPS) for a year. Spaces and dashes in the key are left out. Open without the API key.",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "key"
+                ],
+                "properties": {
+                  "key": {
+                    "type": "string",
+                    "description": "The API key, 52 letters and digits (`a-z`, `2-7`)."
+                  }
+                },
+                "additionalProperties": true
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The key is right; the cookie is set.",
+            "headers": {
+              "Set-Cookie": {
+                "description": "The cookie `ps5sd_key`.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request is not valid (code `invalid_request`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many wrong keys in a row (code `rate_limited`); `Retry-After` says how long to wait.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ps5sd/v1/auth/logout": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "operationId": "logout",
+        "summary": "Sign out",
+        "description": "Deletes the cookie `ps5sd_key`. Open without the API key.",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "The cookie is deleted.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ps5sd/v1/app/auth": {
+      "get": {
+        "tags": [
+          "auth"
+        ],
+        "operationId": "getAppAuth",
+        "summary": "State of the API key",
+        "description": "Whether the API key is on, and the key. It needs the key, of course.",
+        "responses": {
+          "200": {
+            "description": "The state.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppAuth"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key is needed, or it is wrong (code `unauthorized`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ps5sd/v1/app/auth/enable": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "operationId": "enableAppAuth",
+        "summary": "Turn on the API key",
+        "description": "Makes a new key, also when there is one; the old one stops working at once.",
+        "responses": {
+          "200": {
+            "description": "The new key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppAuth"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key is needed, or it is wrong (code `unauthorized`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A request with the login cookie lacks the header `X-PS5SD-Request` (code `forbidden`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ps5sd/v1/app/auth/disable": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "operationId": "disableAppAuth",
+        "summary": "Turn off the API key",
+        "description": "No key is needed any more.",
+        "responses": {
+          "200": {
+            "description": "The key is off.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key is needed, or it is wrong (code `unauthorized`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A request with the login cookie lacks the header `X-PS5SD-Request` (code `forbidden`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ps5sd/v1/app/models": {
+      "get": {
+        "tags": [
+          "models"
+        ],
+        "operationId": "listModels",
+        "summary": "The model library",
+        "description": "The library entries (presets and checkpoints), the active and the loaded one, and the state of a switch. While the server switches, `switching` is true. In standby, `standby` is true.",
+        "responses": {
+          "200": {
+            "description": "The library.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Library"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key is needed, or it is wrong (code `unauthorized`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ps5sd/v1/app/models/active": {
+      "post": {
+        "tags": [
+          "models"
+        ],
+        "operationId": "switchModel",
+        "summary": "Switch the model",
+        "description": "Writes `model.txt` and loads the entry into the running server. A `202` means the switch has started: poll `GET /ps5sd/v1/app/models` until `loaded` is the new id. A `200` means that entry is loaded already, or loads with the same arguments as the loaded one.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "id"
+                ],
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "description": "The id of a library entry."
+                  }
+                },
+                "additionalProperties": true
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The entry is loaded already; the switch is done.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "The switch has started.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The body is not `{\"id\": \"...\"}` (code `invalid_request`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key is needed, or it is wrong (code `unauthorized`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A request with the login cookie lacks the header `X-PS5SD-Request` (code `forbidden`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "There is no such entry (code `model_not_found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A switch is already running (`switching`), or the title is stopping (`stopping`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The body is over 64 MB (code `payload_too_large`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The entry is a single file that is only a part of a model (`part`); the message says what is missing and what to do (code `model_part`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "`model.txt` could not be written (code `server_error`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ps5sd/v1/app/models/{id}": {
+      "delete": {
+        "tags": [
+          "models"
+        ],
+        "operationId": "deleteModel",
+        "summary": "Delete a library entry",
+        "description": "A saved preset: only its own file. A preset that is a model: its file together with the model files it names; a file stays when another preset or the loaded model uses it. A checkpoint: the file; a checkpoint that a preset names cannot be deleted. The saved presets of the entry go with it.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The id of the entry.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The library, plus `deleted` (the deleted files) and `kept` (the files that stayed).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Library"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "deleted": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "kept": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key is needed, or it is wrong (code `unauthorized`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A request with the login cookie lacks the header `X-PS5SD-Request` (code `forbidden`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "There is no such entry (code `not_found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The entry or a preset of it is in use (`in_use`), or a switch is running (`switching`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ps5sd/v1/app/fit": {
+      "post": {
+        "tags": [
+          "models"
+        ],
+        "operationId": "checkFit",
+        "summary": "Will a run fit in GPU memory",
+        "description": "Takes the body of an `img_gen` or `vid_gen` request (`width`, `height`, `hires`, `video_frames` count) and says whether it fits in the GPU memory of the loaded model. Nothing runs, and a run is never refused for it. `tight` means larger than measured, or than every run since the model loaded.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ImgGenRequest"
+              }
+            }
+          },
+          "description": "The body of an `img_gen` or `vid_gen` request."
+        },
+        "responses": {
+          "200": {
+            "description": "The verdict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "verdict": {
+                      "type": "string",
+                      "enum": [
+                        "fits",
+                        "tight",
+                        "too_big"
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "family": {
+                      "type": "string"
+                    },
+                    "width": {
+                      "type": "integer",
+                      "description": "Of the largest pass (the hires target)."
+                    },
+                    "height": {
+                      "type": "integer",
+                      "description": "Of the largest pass (the hires target)."
+                    },
+                    "frames": {
+                      "type": "integer"
+                    }
+                  },
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request is not valid (code `invalid_request`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key is needed, or it is wrong (code `unauthorized`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The body is over 64 MB (code `payload_too_large`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ps5sd/v1/app/loras": {
+      "get": {
+        "tags": [
+          "models"
+        ],
+        "operationId": "listLoras",
+        "summary": "LoRA files",
+        "description": "The LoRA files in `/data/PS5SD/loras` and its subfolders. `family` is the network the LoRA works on, named as a model's `family`.",
+        "responses": {
+          "200": {
+            "description": "The LoRA files.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoraList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key is needed, or it is wrong (code `unauthorized`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ps5sd/v1/app/loras/{path}": {
+      "delete": {
+        "tags": [
+          "models"
+        ],
+        "operationId": "deleteLora",
+        "summary": "Delete a LoRA file",
+        "description": "Deletes one LoRA file.",
+        "parameters": [
+          {
+            "name": "path",
+            "in": "path",
+            "required": true,
+            "description": "The `path` of the LoRA as the list gives it (URL-encoded when it has a subfolder).",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The list as `GET` gives it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoraList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key is needed, or it is wrong (code `unauthorized`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A request with the login cookie lacks the header `X-PS5SD-Request` (code `forbidden`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "There is no such route, file, job, download or preset (code `not_found`; `model_not_found` for a model).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ps5sd/v1/app/upscalers": {
+      "get": {
+        "tags": [
+          "models"
+        ],
+        "operationId": "listUpscalers",
+        "summary": "Upscaler files",
+        "description": "The upscaler files in `/data/PS5SD/upscalers` (ESRGAN and the like).",
+        "responses": {
+          "200": {
+            "description": "The upscaler files.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpscalerList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key is needed, or it is wrong (code `unauthorized`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ps5sd/v1/app/upscalers/{file}": {
+      "delete": {
+        "tags": [
+          "models"
+        ],
+        "operationId": "deleteUpscaler",
+        "summary": "Delete an upscaler file",
+        "description": "Deletes one upscaler file.",
+        "parameters": [
+          {
+            "name": "file",
+            "in": "path",
+            "required": true,
+            "description": "The file name.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The list as `GET` gives it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpscalerList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key is needed, or it is wrong (code `unauthorized`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A request with the login cookie lacks the header `X-PS5SD-Request` (code `forbidden`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "There is no such route, file, job, download or preset (code `not_found`; `model_not_found` for a model).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ps5sd/v1/app/presets": {
+      "post": {
+        "tags": [
+          "models"
+        ],
+        "operationId": "createPreset",
+        "summary": "Save a preset",
+        "description": "Saves a model with other settings. It takes the model's arguments and its prompt starters from `base` (the loaded model when it is left out; the base's own base when that is a saved preset too). The id comes from the name. A key that is not one of the `defaults` keys, or a value with a space, is a `400`.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "name"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "maxLength": 100,
+                    "description": "One line, at most 100 characters.",
+                    "example": "Portrait fast"
+                  },
+                  "base": {
+                    "type": "string",
+                    "description": "The id of the model it is a preset of."
+                  },
+                  "defaults": {
+                    "$ref": "#/components/schemas/PresetDefaults"
+                  }
+                },
+                "additionalProperties": true
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The library, plus `id` of the new preset.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Library"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request is not valid (code `invalid_request`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key is needed, or it is wrong (code `unauthorized`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A request with the login cookie lacks the header `X-PS5SD-Request` (code `forbidden`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "There is no such route, file, job, download or preset (code `not_found`; `model_not_found` for a model).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The body is over 64 MB (code `payload_too_large`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ps5sd/v1/app/presets/{id}": {
+      "get": {
+        "tags": [
+          "models"
+        ],
+        "operationId": "getPreset",
+        "summary": "A preset file",
+        "description": "The preset file as it is.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The preset id.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The preset.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "text": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key is needed, or it is wrong (code `unauthorized`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "There is no such route, file, job, download or preset (code `not_found`; `model_not_found` for a model).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "models"
+        ],
+        "operationId": "updatePreset",
+        "summary": "Change a preset",
+        "description": "`{\"text\": \"...\"}` replaces the file (at most 64 KB, it must name a model). `{\"defaults\": {...}}` replaces only the preset's `# defaults:` line and the rest of the file stays; `{}` removes the line. Changed options count from the next load of that preset. For the loaded preset the new settings are the API's defaults at once.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The preset id.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "text": {
+                    "type": "string",
+                    "maxLength": 65536
+                  },
+                  "defaults": {
+                    "$ref": "#/components/schemas/PresetDefaults"
+                  }
+                },
+                "additionalProperties": true
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The library.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Library"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A key or value a preset cannot keep (code `invalid_request`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key is needed, or it is wrong (code `unauthorized`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A request with the login cookie lacks the header `X-PS5SD-Request` (code `forbidden`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "There is no such preset (code `not_found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The body is over 64 MB (code `payload_too_large`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "models"
+        ],
+        "operationId": "deletePreset",
+        "summary": "Delete a saved preset",
+        "description": "Deletes a saved preset's file, never a model file.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The preset id.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The preset is deleted.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key is needed, or it is wrong (code `unauthorized`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A request with the login cookie lacks the header `X-PS5SD-Request` (code `forbidden`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "There is no such route, file, job, download or preset (code `not_found`; `model_not_found` for a model).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The preset is in use (`in_use`), or it is a model itself (no `base`); delete it with `DELETE /ps5sd/v1/app/models/{id}` (code `conflict`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ps5sd/v1/app/catalog": {
+      "get": {
+        "tags": [
+          "downloads"
+        ],
+        "operationId": "getCatalog",
+        "summary": "Recommended models",
+        "description": "The recommended models, each with its files, its size and `installed`.",
+        "responses": {
+          "200": {
+            "description": "The catalog.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "entries": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": true
+                      }
+                    }
+                  },
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key is needed, or it is wrong (code `unauthorized`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ps5sd/v1/app/downloads": {
+      "get": {
+        "tags": [
+          "downloads"
+        ],
+        "operationId": "listDownloads",
+        "summary": "The download queue",
+        "description": "The queue, oldest first: state, bytes, speed. It survives a restart of the title.",
+        "responses": {
+          "200": {
+            "description": "The queue.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "downloads": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": true
+                      }
+                    }
+                  },
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key is needed, or it is wrong (code `unauthorized`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "downloads"
+        ],
+        "operationId": "createDownload",
+        "summary": "Start a download",
+        "description": "Either fetches a catalog entry (its preset is written once every file is there), or fetches one file by URL. `kind` `loras` puts it into `loras/` (a file name, no folders), `upscalers` into `upscalers/`. Without `kind`, a Civitai LoRA goes to `loras/`, a Civitai upscaler to `upscalers/`, anything else to `models/`. A Hugging Face or Civitai token for gated models goes in `/data/PS5SD/hf-token.txt` or `/data/PS5SD/civitai-token.txt`.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/DownloadCatalogRequest"
+                  },
+                  {
+                    "$ref": "#/components/schemas/DownloadUrlRequest"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The download was queued. The fields of the answer are not pinned down.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request is not valid (code `invalid_request`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key is needed, or it is wrong (code `unauthorized`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A request with the login cookie lacks the header `X-PS5SD-Request` (code `forbidden`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "There is no such route, file, job, download or preset (code `not_found`; `model_not_found` for a model).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The thing is there already, or is busy (codes `conflict`, `switching`, `stopping`, `in_use`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The body is over 64 MB (code `payload_too_large`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Hugging Face or Civitai did not answer as expected (code `bad_gateway`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "507": {
+            "description": "The console's storage is full (code `storage_full`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ps5sd/v1/app/downloads/clear": {
+      "post": {
+        "tags": [
+          "downloads"
+        ],
+        "operationId": "clearDownloads",
+        "summary": "Clear finished downloads",
+        "description": "Removes the finished downloads from the list.",
+        "responses": {
+          "200": {
+            "description": "The finished downloads are removed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key is needed, or it is wrong (code `unauthorized`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A request with the login cookie lacks the header `X-PS5SD-Request` (code `forbidden`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ps5sd/v1/app/downloads/{id}": {
+      "delete": {
+        "tags": [
+          "downloads"
+        ],
+        "operationId": "deleteDownload",
+        "summary": "Cancel or remove a download",
+        "description": "Cancels a download, or removes a finished one from the list.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The download id.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Done.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key is needed, or it is wrong (code `unauthorized`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A request with the login cookie lacks the header `X-PS5SD-Request` (code `forbidden`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "There is no such route, file, job, download or preset (code `not_found`; `model_not_found` for a model).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ps5sd/v1/app/downloads/{id}/retry": {
+      "post": {
+        "tags": [
+          "downloads"
+        ],
+        "operationId": "retryDownload",
+        "summary": "Retry a download",
+        "description": "Resumes a failed or cancelled download from its `.part` file.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The download id.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The download goes on.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key is needed, or it is wrong (code `unauthorized`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A request with the login cookie lacks the header `X-PS5SD-Request` (code `forbidden`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "There is no such route, file, job, download or preset (code `not_found`; `model_not_found` for a model).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The thing is there already, or is busy (codes `conflict`, `switching`, `stopping`, `in_use`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ps5sd/v1/app/hf/search": {
+      "post": {
+        "tags": [
+          "downloads"
+        ],
+        "operationId": "searchHuggingFace",
+        "summary": "Search Hugging Face",
+        "description": "Searches Hugging Face for model files.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "q"
+                ],
+                "properties": {
+                  "q": {
+                    "type": "string",
+                    "example": "flux klein"
+                  },
+                  "limit": {
+                    "type": "integer",
+                    "example": 20
+                  }
+                },
+                "additionalProperties": true
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The result. Its fields are not pinned down.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request is not valid (code `invalid_request`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key is needed, or it is wrong (code `unauthorized`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A request with the login cookie lacks the header `X-PS5SD-Request` (code `forbidden`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The body is over 64 MB (code `payload_too_large`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Hugging Face or Civitai did not answer as expected (code `bad_gateway`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ps5sd/v1/app/uploads/{folder}/{name}": {
+      "put": {
+        "tags": [
+          "uploads"
+        ],
+        "operationId": "uploadFile",
+        "summary": "Upload a file to the console",
+        "description": "The file is the body. It is passed on to ftpsrv as it arrives, written as `<name>.part` and renamed once all of it is there; if the upload breaks off, the `.part` is removed. There is no size limit. Names: `models` takes a `.gguf`, `.safetensors`, `.ckpt` or `.sft` file, optionally in subfolders (`vae/my-vae.safetensors`); `loras` and `embeddings` a model file name, no subfolders; `presets` `<id>.txt`, at most 64 KB; `upscalers` a `.pth`, `.pt`, `.safetensors` or `.gguf` file, no subfolders; `tags` a `.csv` or `.txt` tag file, at most 64 MB.",
+        "parameters": [
+          {
+            "name": "folder",
+            "in": "path",
+            "required": true,
+            "description": "Where the file goes.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "models",
+                "loras",
+                "embeddings",
+                "presets",
+                "upscalers",
+                "tags"
+              ]
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "description": "The file name (URL-encoded when it has a subfolder, for `models`).",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "description": "The raw file.",
+          "content": {
+            "application/octet-stream": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The file is there.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "bytes": {
+                      "type": "integer"
+                    },
+                    "through_ftpsrv": {
+                      "type": "boolean"
+                    }
+                  },
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A name that is not allowed, or a body that broke off or differs from its `Content-Length` (code `invalid_request`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key is needed, or it is wrong (code `unauthorized`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A request with the login cookie lacks the header `X-PS5SD-Request` (code `forbidden`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The file is already there or is being uploaded; delete it first or use another name (code `conflict`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "507": {
+            "description": "The console's storage is full (code `storage_full`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ps5sd/v1/jobs": {
+      "get": {
+        "tags": [
+          "jobs"
+        ],
+        "operationId": "listJobs",
+        "summary": "The job queue",
+        "description": "The queued and running async jobs.",
+        "responses": {
+          "200": {
+            "description": "The jobs.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key is needed, or it is wrong (code `unauthorized`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ps5sd/v1/jobs/cancel": {
+      "post": {
+        "tags": [
+          "jobs"
+        ],
+        "operationId": "cancelAllJobs",
+        "summary": "Cancel all jobs",
+        "description": "Cancels every queued job and stops the one that runs.",
+        "responses": {
+          "200": {
+            "description": "Done.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "cancelled_queued": {
+                      "type": "integer"
+                    },
+                    "interrupted": {
+                      "type": "boolean"
+                    }
+                  },
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key is needed, or it is wrong (code `unauthorized`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A request with the login cookie lacks the header `X-PS5SD-Request` (code `forbidden`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ps5sd/v1/events": {
+      "get": {
+        "tags": [
+          "events"
+        ],
+        "operationId": "streamEvents",
+        "summary": "Job and model events",
+        "description": "A stream of server-sent events (`text/event-stream`): the jobs and their progress as they change. Events: `jobs` (the queued and generating jobs, when the stream opens and whenever the list changes), `progress` (a step is done; at most four a second), `job` (a job ended: `completed`, `failed` or `cancelled`), `model` (the state of the model library, when the stream opens and whenever it changes; not with `job`), and the comment `: ping` every 15 s. The data of each event is JSON; see the schemas `JobsEvent`, `ProgressEvent`, `JobEvent` and `ModelEvent`. A job's images or video are not in the stream: get them with `GET /sdcpp/v1/jobs/{id}` after its `job` event. At most four streams are open at once. The stream ends when the title closes; it stays open during a model switch.",
+        "parameters": [
+          {
+            "name": "job",
+            "in": "query",
+            "required": false,
+            "description": "Sends only what concerns that job and ends the stream after its `job` event (at once when the job has ended already).",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The event stream.",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string",
+                  "description": "Server-sent events. Each has an `event:` name (`jobs`, `progress`, `job`, `model`) and a `data:` line of JSON."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key is needed, or it is wrong (code `unauthorized`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "There is no such job (code `not_found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Four streams are open already (code `too_many_streams`), or too many wrong keys (`rate_limited`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ps5sd/v1/gallery": {
+      "get": {
+        "tags": [
+          "gallery"
+        ],
+        "operationId": "listGallery",
+        "summary": "List the gallery",
+        "description": "The images and videos in `/data/PS5SD/outputs`, the newest first. `X-Total-Count` says how many match before `limit` and `offset`.",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "description": "How many files to list (100 by default, at most 1000).",
+            "schema": {
+              "type": "integer",
+              "default": 100,
+              "minimum": 1,
+              "maximum": 1000
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "description": "How many files to skip.",
+            "schema": {
+              "type": "integer",
+              "default": 0,
+              "minimum": 0
+            }
+          },
+          {
+            "name": "order",
+            "in": "query",
+            "required": false,
+            "description": "`oldest` turns the order round.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "oldest"
+              ]
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "description": "Keeps the files whose prompt has that text (any case; not the names and tags).",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "type",
+            "in": "query",
+            "required": false,
+            "description": "Keeps one kind.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "image",
+                "video"
+              ]
+            }
+          },
+          {
+            "name": "temporary",
+            "in": "query",
+            "required": false,
+            "description": "`1` lists only the files that are not kept (`tmp_*`, which are left out otherwise).",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "1"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The files.",
+            "headers": {
+              "X-Total-Count": {
+                "description": "How many files match, before `limit` and `offset`.",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/GalleryItem"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key is needed, or it is wrong (code `unauthorized`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ps5sd/v1/gallery/{name}": {
+      "get": {
+        "tags": [
+          "gallery"
+        ],
+        "operationId": "getGalleryFile",
+        "summary": "A gallery file",
+        "description": "One image as PNG; a video is served with its own type.",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "description": "The file name.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The file.",
+            "content": {
+              "image/png": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "video/webm": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "image/webp": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "video/x-msvideo": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key is needed, or it is wrong (code `unauthorized`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "There is no such route, file, job, download or preset (code `not_found`; `model_not_found` for a model).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ps5sd/v1/gallery/thumb/{name}": {
+      "get": {
+        "tags": [
+          "gallery"
+        ],
+        "operationId": "getGalleryThumb",
+        "summary": "A thumbnail",
+        "description": "A JPEG at most 320 px a side. A video's is from its first frame. A PNG saved before 0.9.0 gets its own on the first request; a video saved before 0.9.0 has none (404).",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "description": "The file name.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The thumbnail.",
+            "content": {
+              "image/jpeg": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key is needed, or it is wrong (code `unauthorized`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "There is no such route, file, job, download or preset (code `not_found`; `model_not_found` for a model).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ps5sd/v1/gallery/info/{name}": {
+      "get": {
+        "tags": [
+          "gallery"
+        ],
+        "operationId": "getGalleryInfo",
+        "summary": "What made a file",
+        "description": "`parameters` is A1111's text, `sdcpp` the JSON of the request that sd.cpp puts at its end (prompt, size, seed, sampling, models, LoRAs, hires, video), `null` when there is none.",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "description": "The file name.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The information.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string"
+                    },
+                    "parameters": {
+                      "type": "string"
+                    },
+                    "prompt": {
+                      "type": "string"
+                    },
+                    "sdcpp": {
+                      "type": [
+                        "object",
+                        "null"
+                      ],
+                      "additionalProperties": true
+                    }
+                  },
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key is needed, or it is wrong (code `unauthorized`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "There is no such route, file, job, download or preset (code `not_found`; `model_not_found` for a model).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ps5sd/v1/app/gallery": {
+      "post": {
+        "tags": [
+          "gallery"
+        ],
+        "operationId": "saveGalleryImage",
+        "summary": "Save an image to the gallery",
+        "description": "Saves a finished image (for example an inpainting result the web UI put together) to `/data/PS5SD/outputs` as `sd_<date>_<time>_edit.png`, with the parameters in the PNG.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "image"
+                ],
+                "properties": {
+                  "image": {
+                    "type": "string",
+                    "description": "A base64 PNG or a data URL."
+                  },
+                  "parameters": {
+                    "type": "string",
+                    "description": "A1111's text (optional)."
+                  }
+                },
+                "additionalProperties": true
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The image is saved.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "saved": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Anything that is not a PNG (code `invalid_request`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key is needed, or it is wrong (code `unauthorized`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A request with the login cookie lacks the header `X-PS5SD-Request` (code `forbidden`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The body is over 64 MB (code `payload_too_large`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "507": {
+            "description": "The console's storage is full (code `storage_full`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ps5sd/v1/app/gallery/{name}": {
+      "delete": {
+        "tags": [
+          "gallery"
+        ],
+        "operationId": "deleteGalleryFile",
+        "summary": "Delete a gallery file",
+        "description": "Deletes one image or video. Its name and tags go with it.",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "description": "The file name.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The file is deleted.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "deleted": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A name the gallery does not list: folders, other files (code `invalid_request`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key is needed, or it is wrong (code `unauthorized`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A request with the login cookie lacks the header `X-PS5SD-Request` (code `forbidden`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The file is gone already (code `not_found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ps5sd/v1/app/gallery/labels": {
+      "get": {
+        "tags": [
+          "gallery"
+        ],
+        "operationId": "getGalleryLabels",
+        "summary": "Names and tags of files",
+        "description": "The names and tags of the files that have any. They are kept in `/data/PS5SD/outputs/.labels.json`, not in the files.",
+        "responses": {
+          "200": {
+            "description": "The labels.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "labels": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "$ref": "#/components/schemas/Label"
+                      }
+                    }
+                  },
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key is needed, or it is wrong (code `unauthorized`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "gallery"
+        ],
+        "operationId": "setGalleryLabels",
+        "summary": "Name and tag a file",
+        "description": "Sets a file's name (one line, at most 100 characters) and tags (at most 20, each at most 40 characters, no commas; one that is there twice in any case counts once). An empty title without tags removes them.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "name"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "description": "The file name."
+                  },
+                  "title": {
+                    "type": "string",
+                    "maxLength": 100
+                  },
+                  "tags": {
+                    "type": "array",
+                    "maxItems": 20,
+                    "items": {
+                      "type": "string",
+                      "maxLength": 40
+                    }
+                  }
+                },
+                "additionalProperties": true
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The name and tags as kept.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Label"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "name": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request is not valid (code `invalid_request`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key is needed, or it is wrong (code `unauthorized`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A request with the login cookie lacks the header `X-PS5SD-Request` (code `forbidden`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The file is not there (code `not_found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The body is over 64 MB (code `payload_too_large`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ps5sd/v1/app/gallery/keep": {
+      "post": {
+        "tags": [
+          "gallery"
+        ],
+        "operationId": "keepGalleryFile",
+        "summary": "Keep a temporary file",
+        "description": "Keeps a file that was made with `\"temporary\": true`. `tmp_<file>` becomes `<file>`, with its thumbnail and parameters.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "name"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "example": "tmp_sd_20261028_120000_0.png"
+                  }
+                },
+                "additionalProperties": true
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The file is kept.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "kept": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request is not valid (code `invalid_request`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key is needed, or it is wrong (code `unauthorized`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A request with the login cookie lacks the header `X-PS5SD-Request` (code `forbidden`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "There is no such file (code `not_found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`<file>` is taken (code `conflict`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/sdapi/v1/txt2img": {
+      "post": {
+        "tags": [
+          "A1111"
+        ],
+        "operationId": "sdapiTxt2img",
+        "summary": "Text to image (A1111)",
+        "description": "Generates synchronously; `images` are base64 PNG. Without `width` and `height` it makes the server's default size (the loaded preset's, or `-W`/`-H` of `server-args.txt`), 512x512 only when there is none. LoRAs go in a `lora` field, not as `<lora:name:1>` in the prompt. `extra_images` are references for FLUX.2 Klein. Behind Cloudflare, an image that takes more than 100 s fails; use `POST /sdcpp/v1/img_gen` and poll the job.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Txt2ImgRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The images.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/A1111Result"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request is not valid (code `invalid_request`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key is needed, or it is wrong (code `unauthorized`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The body is over 64 MB (code `payload_too_large`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many wrong API keys (`rate_limited`, see `Retry-After`), a full queue (`queue_full`) or too many event streams (`too_many_streams`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The run failed (`generation_failed`, `out_of_memory`), or it was stopped by `POST /sdapi/v1/interrupt` (`cancelled`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "No model is loaded (code `standby`), or the title is closing (`stopping`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/sdapi/v1/img2img": {
+      "post": {
+        "tags": [
+          "A1111"
+        ],
+        "operationId": "sdapiImg2img",
+        "summary": "Image to image (A1111)",
+        "description": "Generates synchronously from a start image. Without a size it keeps the size of its image. A1111's hires fix is for text to image only.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Img2ImgRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The images.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/A1111Result"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request is not valid (code `invalid_request`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key is needed, or it is wrong (code `unauthorized`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The body is over 64 MB (code `payload_too_large`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many wrong API keys (`rate_limited`, see `Retry-After`), a full queue (`queue_full`) or too many event streams (`too_many_streams`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The run failed (`generation_failed`, `out_of_memory`), or it was stopped by `POST /sdapi/v1/interrupt` (`cancelled`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "No model is loaded (code `standby`), or the title is closing (`stopping`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/sdapi/v1/sd-models": {
+      "get": {
+        "tags": [
+          "A1111"
+        ],
+        "operationId": "sdapiListModels",
+        "summary": "Models that can be loaded",
+        "description": "The models that can be loaded; `title` is the entry id. A saved preset is not listed, but `sd_model_checkpoint` still takes its id.",
+        "responses": {
+          "200": {
+            "description": "The models.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "title": {
+                        "type": "string",
+                        "description": "The entry id."
+                      }
+                    },
+                    "additionalProperties": true
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key is needed, or it is wrong (code `unauthorized`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/sdapi/v1/options": {
+      "get": {
+        "tags": [
+          "A1111"
+        ],
+        "operationId": "sdapiGetOptions",
+        "summary": "The loaded model",
+        "description": "`sd_model_checkpoint` is the loaded model, or the one a switch is loading.",
+        "responses": {
+          "200": {
+            "description": "The options.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "sd_model_checkpoint": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key is needed, or it is wrong (code `unauthorized`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "A1111"
+        ],
+        "operationId": "sdapiSetOptions",
+        "summary": "Switch the model (A1111)",
+        "description": "`sd_model_checkpoint` switches the model and answers `200 {}` once it has loaded, at most 10 minutes. The other options are ignored.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "sd_model_checkpoint": {
+                    "type": "string",
+                    "description": "The id or the name of a model."
+                  }
+                },
+                "additionalProperties": true
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The model is loaded.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request is not valid (code `invalid_request`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key is needed, or it is wrong (code `unauthorized`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "There is no such model (code `model_not_found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A switch is already running (`switching`), or the title is stopping (`stopping`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The body is over 64 MB (code `payload_too_large`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The entry is only a part of a model (code `model_part`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The model did not load (code `load_failed`); the server is back on the last model that worked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The title is closing (code `stopping`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "The model had not loaded after 10 minutes (code `timeout`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/sdapi/v1/samplers": {
+      "get": {
+        "tags": [
+          "A1111"
+        ],
+        "operationId": "sdapiSamplers",
+        "summary": "Samplers",
+        "description": "The samplers. A list in A1111's shape.",
+        "responses": {
+          "200": {
+            "description": "The list.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {}
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key is needed, or it is wrong (code `unauthorized`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/sdapi/v1/schedulers": {
+      "get": {
+        "tags": [
+          "A1111"
+        ],
+        "operationId": "sdapiSchedulers",
+        "summary": "Schedulers",
+        "description": "The schedulers. A list in A1111's shape.",
+        "responses": {
+          "200": {
+            "description": "The list.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {}
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key is needed, or it is wrong (code `unauthorized`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/sdapi/v1/latent-upscale-modes": {
+      "get": {
+        "tags": [
+          "A1111"
+        ],
+        "operationId": "sdapiLatentUpscaleModes",
+        "summary": "Latent upscale modes",
+        "description": "The latent upscale modes. A list in A1111's shape.",
+        "responses": {
+          "200": {
+            "description": "The list.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {}
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key is needed, or it is wrong (code `unauthorized`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/sdapi/v1/loras": {
+      "get": {
+        "tags": [
+          "A1111"
+        ],
+        "operationId": "sdapiLoras",
+        "summary": "LoRAs (A1111)",
+        "description": "The LoRAs; `path` is what the `lora` field of a request takes. It needs the model, so it waits during a switch.",
+        "responses": {
+          "200": {
+            "description": "The list.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": true
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key is needed, or it is wrong (code `unauthorized`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "No model is loaded (code `standby`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/sdapi/v1/upscalers": {
+      "get": {
+        "tags": [
+          "A1111"
+        ],
+        "operationId": "sdapiUpscalers",
+        "summary": "Upscalers (A1111)",
+        "description": "The upscalers. It needs the model, so it waits during a switch.",
+        "responses": {
+          "200": {
+            "description": "The list.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": true
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key is needed, or it is wrong (code `unauthorized`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "No model is loaded (code `standby`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/sdapi/v1/progress": {
+      "get": {
+        "tags": [
+          "A1111"
+        ],
+        "operationId": "sdapiProgress",
+        "summary": "Progress (A1111)",
+        "description": "An A1111-shaped progress answer.",
+        "responses": {
+          "200": {
+            "description": "The progress.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key is needed, or it is wrong (code `unauthorized`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/sdapi/v1/interrupt": {
+      "post": {
+        "tags": [
+          "A1111"
+        ],
+        "operationId": "sdapiInterrupt",
+        "summary": "Stop the running generation",
+        "description": "Stops the generation that runs, whichever API started it. A stopped generation returns no image; a synchronous request answers with an error (code `cancelled`).",
+        "responses": {
+          "200": {
+            "description": "The generation is stopped.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key is needed, or it is wrong (code `unauthorized`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A request with the login cookie lacks the header `X-PS5SD-Request` (code `forbidden`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/sdapi/v1/skip": {
+      "post": {
+        "tags": [
+          "A1111"
+        ],
+        "operationId": "sdapiSkip",
+        "summary": "Skip the running generation",
+        "description": "Does the same as `POST /sdapi/v1/interrupt`.",
+        "responses": {
+          "200": {
+            "description": "The generation is stopped.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key is needed, or it is wrong (code `unauthorized`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A request with the login cookie lacks the header `X-PS5SD-Request` (code `forbidden`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/models": {
+      "get": {
+        "tags": [
+          "OpenAI"
+        ],
+        "operationId": "openaiListModels",
+        "summary": "Models that can be loaded (OpenAI)",
+        "description": "The models that can be loaded, not the saved presets.",
+        "responses": {
+          "200": {
+            "description": "The models.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "object": {
+                      "type": "string",
+                      "example": "list"
+                    },
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "id"
+                        ],
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          }
+                        },
+                        "additionalProperties": true
+                      }
+                    }
+                  },
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key is needed, or it is wrong (code `unauthorized`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/images/generations": {
+      "post": {
+        "tags": [
+          "OpenAI"
+        ],
+        "operationId": "openaiCreateImage",
+        "summary": "Create images (OpenAI)",
+        "description": "Generates synchronously; `b64_json` in the answer. The `model` is the id or the name of a library entry (the console switches to it and waits at most 10 minutes), or any other name such as `dall-e-3`, which the loaded model answers. `n` is the number of images (up to the batch limit of the capabilities).",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "prompt"
+                ],
+                "properties": {
+                  "prompt": {
+                    "type": "string"
+                  },
+                  "model": {
+                    "type": "string"
+                  },
+                  "n": {
+                    "type": "integer",
+                    "minimum": 1
+                  }
+                },
+                "additionalProperties": true
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The images.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OpenAIImages"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request is not valid (code `invalid_request`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key is needed, or it is wrong (code `unauthorized`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "There is no such model (code `model_not_found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A switch is already running (`switching`), or the title is stopping (`stopping`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The body is over 64 MB (code `payload_too_large`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The file is only a part of a model (code `model_part`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many wrong API keys (`rate_limited`, see `Retry-After`), a full queue (`queue_full`) or too many event streams (`too_many_streams`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The run failed, or the model did not load (codes `generation_failed`, `out_of_memory`, `load_failed`, `cancelled`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "No model is loaded (code `standby`), or the title is closing (`stopping`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "The model a request waited for had not loaded after 10 minutes (code `timeout`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/images/edits": {
+      "post": {
+        "tags": [
+          "OpenAI"
+        ],
+        "operationId": "openaiEditImage",
+        "summary": "Edit an image (OpenAI)",
+        "description": "Image to image. The body is a multipart form, as OpenAI clients send it. The `model` of the form picks the model as for `/v1/images/generations`.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "image",
+                  "prompt"
+                ],
+                "properties": {
+                  "image": {
+                    "type": "string",
+                    "format": "binary",
+                    "description": "The start image."
+                  },
+                  "prompt": {
+                    "type": "string"
+                  },
+                  "model": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": true
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The images.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OpenAIImages"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request is not valid (code `invalid_request`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key is needed, or it is wrong (code `unauthorized`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "There is no such model (code `model_not_found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A switch is already running (`switching`), or the title is stopping (`stopping`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The body is over 64 MB (code `payload_too_large`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The file is only a part of a model (code `model_part`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many wrong API keys (`rate_limited`, see `Retry-After`), a full queue (`queue_full`) or too many event streams (`too_many_streams`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The run failed, or the model did not load (codes `generation_failed`, `out_of_memory`, `load_failed`, `cancelled`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "No model is loaded (code `standby`), or the title is closing (`stopping`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "The model a request waited for had not loaded after 10 minutes (code `timeout`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/sdcpp/v1/capabilities": {
+      "get": {
+        "tags": [
+          "sd-server"
+        ],
+        "operationId": "sdcppCapabilities",
+        "summary": "Defaults and what the server supports",
+        "description": "The defaults and what the server supports. It lists the `upscalers` (with the built-in `Lanczos`, `Nearest` and `Latent` modes; `image_upscale: true` marks the ones `POST /sdcpp/v1/upscale` can use), `upscale` (true when there is one) and `limits` (`max_batch_count`, `max_repeat`). It needs the model, so it waits during a switch.",
+        "responses": {
+          "200": {
+            "description": "The capabilities. The fields are not pinned down.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key is needed, or it is wrong (code `unauthorized`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "No model is loaded (code `standby`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/sdcpp/v1/img_gen": {
+      "post": {
+        "tags": [
+          "sd-server"
+        ],
+        "operationId": "sdcppImgGen",
+        "summary": "Queue an image job",
+        "description": "Queues an image job and answers at once with the job. Poll `GET /sdcpp/v1/jobs/{id}` or read the event stream. Also does hires fix, image to image and inpainting (`init_image`, `mask_image`, `strength`), edit by the prompt (`ref_images`, FLUX.2 Klein) and ControlNet (`control_image`). `batch_count` makes several images in one job, `repeat` runs the same request several times.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ImgGenRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "The job is queued.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Job"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request is not valid (code `invalid_request`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key is needed, or it is wrong (code `unauthorized`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The body is over 64 MB (code `payload_too_large`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The job queue is full (code `queue_full`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The run or the server failed (codes `generation_failed`, `load_failed`, `out_of_memory`, `cancelled`, `server_error`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "No model is loaded (code `standby`), or the title is closing (`stopping`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/sdcpp/v1/vid_gen": {
+      "post": {
+        "tags": [
+          "sd-server"
+        ],
+        "operationId": "sdcppVidGen",
+        "summary": "Queue a video job",
+        "description": "Queues a video job (video models only). It takes the `img_gen` fields and `video_frames` and `fps`. A finished job has the video in `result`.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VidGenRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "The job is queued.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Job"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request is not valid (code `invalid_request`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key is needed, or it is wrong (code `unauthorized`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The body is over 64 MB (code `payload_too_large`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The job queue is full (code `queue_full`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The run or the server failed (codes `generation_failed`, `load_failed`, `out_of_memory`, `cancelled`, `server_error`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "No model is loaded (code `standby`), or the title is closing (`stopping`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/sdcpp/v1/jobs/{id}": {
+      "get": {
+        "tags": [
+          "sd-server"
+        ],
+        "operationId": "sdcppGetJob",
+        "summary": "A job",
+        "description": "`status` is `queued`, `generating`, `completed`, `failed` or `cancelled`. The images, or the video, are in `result`. A failed job says why in `error`.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The job id.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The job.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Job"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key is needed, or it is wrong (code `unauthorized`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "There is no such route, file, job, download or preset (code `not_found`; `model_not_found` for a model).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "The job ended so long ago that its result is gone (code `expired`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/sdcpp/v1/jobs/{id}/cancel": {
+      "post": {
+        "tags": [
+          "sd-server"
+        ],
+        "operationId": "sdcppCancelJob",
+        "summary": "Cancel a job",
+        "description": "A queued job is cancelled at once (`200`). A running one stops after the current step (`202`, then the status is `cancelled`).",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The job id.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A queued job was cancelled.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "A running job is stopping.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key is needed, or it is wrong (code `unauthorized`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A request with the login cookie lacks the header `X-PS5SD-Request` (code `forbidden`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "There is no such route, file, job, download or preset (code `not_found`; `model_not_found` for a model).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/sdcpp/v1/upscale": {
+      "post": {
+        "tags": [
+          "sd-server"
+        ],
+        "operationId": "sdcppUpscale",
+        "summary": "Upscale an image",
+        "description": "Runs an upscaler model over an image (4x for most). The result is saved to the gallery. It runs on the GPU between generations, never at the same time.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "image"
+                ],
+                "properties": {
+                  "image": {
+                    "type": "string",
+                    "description": "A base64 image."
+                  },
+                  "upscaler": {
+                    "type": "string",
+                    "description": "The name of an upscaler."
+                  },
+                  "return_image": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "`false` leaves the image out of the answer."
+                  }
+                },
+                "additionalProperties": true
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The result.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "saved": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      },
+                      "description": "The gallery names it was saved under."
+                    }
+                  },
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request is not valid (code `invalid_request`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key is needed, or it is wrong (code `unauthorized`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The body is over 64 MB (code `payload_too_large`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The run or the server failed (codes `generation_failed`, `load_failed`, `out_of_memory`, `cancelled`, `server_error`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "No model is loaded (code `standby`), or the title is closing (`stopping`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearer": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "`Authorization: Bearer <key>`, for OpenAI clients."
+      },
+      "basic": {
+        "type": "http",
+        "scheme": "basic",
+        "description": "`Authorization: Basic` with the key as the password and any user name, for A1111 clients."
+      },
+      "apiKeyHeader": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-API-Key",
+        "description": "The key in a header."
+      },
+      "cookie": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "ps5sd_key",
+        "description": "The cookie that `POST /ps5sd/v1/auth/login` sets. A POST, PUT or DELETE with only the cookie also needs the header `X-PS5SD-Request`."
+      }
+    },
+    "schemas": {
+      "Error": {
+        "type": "object",
+        "required": [
+          "error"
+        ],
+        "description": "The shape of every answer of 400 and more. `message` is for people; `code` is for programs. The codes are: `invalid_request` (400), `unauthorized` (401), `forbidden` (403), `not_found` (404), `model_not_found` (404), `conflict` (409), `switching` (409), `stopping` (409, 503), `in_use` (409), `expired` (410), `payload_too_large` (413), `model_part` (422), `rate_limited` (429), `queue_full` (429), `too_many_streams` (429), `generation_failed` (500), `load_failed` (500), `out_of_memory` (500), `cancelled` (500), `server_error` (500), `bad_gateway` (502), `standby` (503), `timeout` (504), `storage_full` (507). A status without a code of its own gives `http_<status>`. New codes may come. An answer may have more fields next to `error`.",
+        "properties": {
+          "error": {
+            "type": "object",
+            "required": [
+              "code",
+              "message"
+            ],
+            "properties": {
+              "code": {
+                "type": "string",
+                "example": "out_of_memory"
+              },
+              "message": {
+                "type": "string",
+                "example": "Not enough memory on the console for this run."
+              }
+            },
+            "additionalProperties": true
+          }
+        },
+        "additionalProperties": true
+      },
+      "AppAuth": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "key": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": true
+      },
+      "Settings": {
+        "type": "object",
+        "properties": {
+          "tv_images": {
+            "type": "boolean",
+            "description": "Show images and prompts on the TV."
+          },
+          "tv_api_key": {
+            "type": "boolean",
+            "description": "Show the API key on the TV."
+          },
+          "fan": {
+            "type": "string",
+            "enum": [
+              "quiet",
+              "balanced",
+              "cool",
+              "manual"
+            ]
+          },
+          "fan_target": {
+            "type": "integer",
+            "minimum": 70,
+            "maximum": 95,
+            "description": "The target temperature in degrees C for `manual`."
+          },
+          "image_metadata": {
+            "type": "boolean",
+            "description": "False: the web UI sends `embed_image_metadata: false` with each image."
+          },
+          "default_presets": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "`{\"<model_file>\": \"<preset id>\"}`: the preset the web UI loads when you press Use on a model."
+          }
+        },
+        "additionalProperties": true
+      },
+      "SettingsUpdate": {
+        "type": "object",
+        "description": "The fields to change. The others stay.",
+        "properties": {
+          "tv_images": {
+            "type": "boolean"
+          },
+          "tv_api_key": {
+            "type": "boolean"
+          },
+          "fan": {
+            "type": "string",
+            "enum": [
+              "quiet",
+              "balanced",
+              "cool",
+              "manual"
+            ]
+          },
+          "fan_target": {
+            "type": "integer",
+            "minimum": 70,
+            "maximum": 95
+          },
+          "image_metadata": {
+            "type": "boolean"
+          },
+          "default_presets": {
+            "type": "object",
+            "additionalProperties": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "description": "Merged: a preset id sets one, `\"\"` or `null` drops one."
+          }
+        },
+        "additionalProperties": true
+      },
+      "ConsoleReadings": {
+        "type": "object",
+        "properties": {
+          "exporter": {
+            "type": "string",
+            "description": "`running`, `not running`, `not answering` or `no ELF loader`."
+          },
+          "now": {
+            "type": "object",
+            "description": "`soc_c`, `cpu_c` (degrees C), `watts`, `fan` (0 to 1), `cpu_ghz`, `cpu` (0 to 1) and `job` (0 to 1). A value that was not read is `null`.",
+            "additionalProperties": {
+              "type": [
+                "number",
+                "null"
+              ]
+            }
+          },
+          "sensors": {
+            "type": "object",
+            "additionalProperties": {
+              "type": [
+                "number",
+                "null"
+              ]
+            }
+          },
+          "seconds": {
+            "type": "object",
+            "description": "A point a second for 120 s, oldest first, by reading.",
+            "additionalProperties": {
+              "type": "array",
+              "items": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              }
+            }
+          },
+          "seconds_interval": {
+            "type": "number"
+          },
+          "minutes": {
+            "type": "object",
+            "description": "The mean of each 30 s for an hour, oldest first, by reading.",
+            "additionalProperties": {
+              "type": "array",
+              "items": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              }
+            }
+          },
+          "minutes_interval": {
+            "type": "number"
+          },
+          "fan_control": {
+            "type": "object",
+            "properties": {
+              "mode": {
+                "type": "string"
+              },
+              "manual_target": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "state": {
+                "type": "string",
+                "description": "`off`, `starting`, `running`, `no ELF loader` or `not answering`."
+              },
+              "stock": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "target": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "wanted": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              }
+            },
+            "additionalProperties": true
+          }
+        },
+        "additionalProperties": true
+      },
+      "PresetDefaults": {
+        "type": "object",
+        "description": "The settings of a preset, all as strings. Only these keys are allowed, and a value has no space.",
+        "properties": {
+          "width": {
+            "type": "string"
+          },
+          "height": {
+            "type": "string"
+          },
+          "steps": {
+            "type": "string"
+          },
+          "cfg": {
+            "type": "string"
+          },
+          "sampler": {
+            "type": "string"
+          },
+          "scheduler": {
+            "type": "string"
+          },
+          "clip_skip": {
+            "type": "string"
+          },
+          "loras": {
+            "type": "string"
+          },
+          "hires_scale": {
+            "type": "string"
+          },
+          "hires_steps": {
+            "type": "string"
+          },
+          "hires_denoise": {
+            "type": "string"
+          },
+          "hires_upscaler": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": true,
+        "example": {
+          "width": "832",
+          "height": "1216",
+          "steps": "10",
+          "cfg": "6",
+          "sampler": "dpm++2m",
+          "scheduler": "ays",
+          "clip_skip": "2",
+          "loras": "detail.safetensors:0.8",
+          "hires_scale": "1.5",
+          "hires_steps": "0",
+          "hires_denoise": "0.5",
+          "hires_upscaler": "Latent"
+        }
+      },
+      "ModelEntry": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "description": "`preset` or `checkpoint`."
+          },
+          "bytes": {
+            "type": "integer"
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "missing": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Files of the entry that are not on the console."
+          },
+          "base": {
+            "type": "string",
+            "description": "Set for a saved preset: the id of the model it is a preset of."
+          },
+          "control_net": {
+            "type": "string",
+            "description": "The file name of the preset's `--control-net`, or `\"\"`."
+          },
+          "family": {
+            "type": "string",
+            "description": "The network the entry runs, read from its tensor names, e.g. `FLUX.2 Klein 9B`, `SDXL`, `SD 1.5`, `Z-Image`; `\"\"` when nothing can be told."
+          },
+          "model_file": {
+            "type": "string"
+          },
+          "part": {
+            "type": "string",
+            "description": "Set for a single file that is only a part of a model: `diffusion model`, `text encoder` or `VAE`. `\"\"` otherwise."
+          },
+          "prompt": {
+            "type": "string",
+            "description": "The preset's prompt starter."
+          },
+          "negative": {
+            "type": "string",
+            "description": "The preset's negative prompt starter."
+          },
+          "defaults": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "The settings that suit the model, all as strings."
+          }
+        },
+        "additionalProperties": true
+      },
+      "Library": {
+        "type": "object",
+        "properties": {
+          "active": {
+            "type": "string",
+            "description": "The entry `model.txt` names."
+          },
+          "loaded": {
+            "type": "string",
+            "description": "The entry the server has ready; `\"\"` while a model loads and in standby."
+          },
+          "switching": {
+            "type": "boolean"
+          },
+          "standby": {
+            "type": "boolean"
+          },
+          "load_error": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Set when the last model asked for did not load; cleared by the next switch.",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": true
+          },
+          "models": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ModelEntry"
+            }
+          }
+        },
+        "additionalProperties": true
+      },
+      "LoraList": {
+        "type": "object",
+        "properties": {
+          "loras": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "path": {
+                  "type": "string"
+                },
+                "bytes": {
+                  "type": "integer"
+                },
+                "family": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": true
+            }
+          }
+        },
+        "additionalProperties": true
+      },
+      "UpscalerList": {
+        "type": "object",
+        "properties": {
+          "upscalers": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "file": {
+                  "type": "string"
+                },
+                "bytes": {
+                  "type": "integer"
+                }
+              },
+              "additionalProperties": true
+            }
+          }
+        },
+        "additionalProperties": true
+      },
+      "DownloadCatalogRequest": {
+        "type": "object",
+        "required": [
+          "catalog"
+        ],
+        "properties": {
+          "catalog": {
+            "type": "string",
+            "description": "The id of a catalog entry."
+          }
+        },
+        "additionalProperties": true
+      },
+      "DownloadUrlRequest": {
+        "type": "object",
+        "required": [
+          "url"
+        ],
+        "properties": {
+          "url": {
+            "type": "string"
+          },
+          "dest": {
+            "type": "string",
+            "description": "A path under `models/`."
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "models",
+              "loras",
+              "upscalers"
+            ]
+          }
+        },
+        "additionalProperties": true
+      },
+      "JobError": {
+        "type": "object",
+        "required": [
+          "code",
+          "message"
+        ],
+        "description": "Why a job failed. `out_of_memory` when the console ran out of memory, otherwise `generation_failed` with the server's last error.",
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": true
+      },
+      "JobRepeat": {
+        "type": "object",
+        "description": "Shown for a job whose `repeat` is more than 1.",
+        "properties": {
+          "total": {
+            "type": "integer"
+          },
+          "done": {
+            "type": "integer"
+          },
+          "saved": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The gallery file names so far (the last 50)."
+          }
+        },
+        "additionalProperties": true
+      },
+      "Job": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "description": "For example `img_gen` or `vid_gen`."
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "generating",
+              "completed",
+              "failed",
+              "cancelled"
+            ]
+          },
+          "queue_position": {
+            "type": "integer"
+          },
+          "prompt": {
+            "type": "string"
+          },
+          "completed": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "result": {
+            "type": "object",
+            "description": "The images, or the video. A video has `b64_json` (base64), `mime_type` (`video/webm` by default), `fps` and `frame_count`. Only the last run of a `repeat` is in it.",
+            "additionalProperties": true
+          },
+          "error": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/JobError"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "repeat": {
+            "$ref": "#/components/schemas/JobRepeat"
+          },
+          "preview": {
+            "type": "object",
+            "description": "While the job runs; `pass` says which image is being sampled (1 for the first).",
+            "additionalProperties": true
+          }
+        },
+        "additionalProperties": true
+      },
+      "JobList": {
+        "type": "object",
+        "properties": {
+          "jobs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Job"
+            }
+          }
+        },
+        "additionalProperties": true
+      },
+      "JobsEvent": {
+        "type": "object",
+        "description": "Data of the `jobs` event.",
+        "properties": {
+          "jobs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Job"
+            }
+          }
+        },
+        "additionalProperties": true
+      },
+      "ProgressEvent": {
+        "type": "object",
+        "description": "Data of the `progress` event.",
+        "properties": {
+          "job": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`null` for a synchronous request."
+          },
+          "kind": {
+            "type": "string"
+          },
+          "step": {
+            "type": "integer"
+          },
+          "steps": {
+            "type": "integer"
+          },
+          "seconds_per_step": {
+            "type": "number"
+          },
+          "eta_seconds": {
+            "type": "number"
+          }
+        },
+        "additionalProperties": true
+      },
+      "JobEvent": {
+        "type": "object",
+        "description": "Data of the `job` event.",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "completed",
+              "failed",
+              "cancelled"
+            ]
+          },
+          "completed": {
+            "type": "integer"
+          },
+          "error": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/JobError"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "saved": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The gallery files of a job with `repeat`."
+          }
+        },
+        "additionalProperties": true
+      },
+      "ModelEvent": {
+        "type": "object",
+        "description": "Data of the `model` event.",
+        "properties": {
+          "active": {
+            "type": "string"
+          },
+          "loaded": {
+            "type": "string"
+          },
+          "switching": {
+            "type": "boolean"
+          },
+          "standby": {
+            "type": "boolean"
+          },
+          "load_error": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": true
+          }
+        },
+        "additionalProperties": true
+      },
+      "GalleryItem": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
+          "thumb": {
+            "type": "string"
+          },
+          "created": {
+            "type": "integer"
+          },
+          "size": {
+            "type": "integer"
+          },
+          "type": {
+            "type": "string",
+            "description": "The MIME type: `image/png`, `video/webm`, `image/webp` or `video/x-msvideo`."
+          },
+          "prompt": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": true
+      },
+      "Label": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "example": "Old town at night"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "example": [
+              "night",
+              "houses"
+            ]
+          }
+        },
+        "additionalProperties": true
+      },
+      "ImgGenRequest": {
+        "type": "object",
+        "required": [
+          "prompt"
+        ],
+        "description": "The body of `img_gen`. A field that is left out takes the loaded model's default.",
+        "properties": {
+          "prompt": {
+            "type": "string"
+          },
+          "width": {
+            "type": "integer"
+          },
+          "height": {
+            "type": "integer"
+          },
+          "seed": {
+            "type": "integer",
+            "description": "A negative seed is a random one."
+          },
+          "batch_count": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Images in one job, up to `limits.max_batch_count` (8). Their seeds are `seed`, `seed + 1`, ..."
+          },
+          "repeat": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100000,
+            "default": 1,
+            "description": "Runs the same request n times, one after the other."
+          },
+          "sample_params": {
+            "type": "object",
+            "description": "For example `sample_steps`, `guidance` (`txt_cfg`), `flow_shift`.",
+            "properties": {
+              "sample_steps": {
+                "type": "integer"
+              },
+              "guidance": {
+                "type": "object",
+                "properties": {
+                  "txt_cfg": {
+                    "type": "number"
+                  }
+                },
+                "additionalProperties": true
+              },
+              "flow_shift": {
+                "type": "number"
+              }
+            },
+            "additionalProperties": true
+          },
+          "hires": {
+            "type": "object",
+            "properties": {
+              "enabled": {
+                "type": "boolean"
+              },
+              "upscaler": {
+                "type": "string",
+                "example": "Latent"
+              },
+              "scale": {
+                "type": "number",
+                "example": 1.5
+              },
+              "steps": {
+                "type": "integer",
+                "description": "0 takes the first pass's steps."
+              },
+              "denoising_strength": {
+                "type": "number",
+                "example": 0.5
+              }
+            },
+            "additionalProperties": true
+          },
+          "init_image": {
+            "type": "string",
+            "description": "Base64 or a data URL: the start image (image to image)."
+          },
+          "mask_image": {
+            "type": "string",
+            "description": "Base64 or a data URL. White is painted over, black stays."
+          },
+          "strength": {
+            "type": "number",
+            "description": "How much changes with a start image; below 1 only that share of the steps runs."
+          },
+          "ref_images": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Reference images (base64 or data URLs) for edit by the prompt, FLUX.2 Klein."
+          },
+          "control_image": {
+            "type": "string",
+            "description": "The ControlNet guide: a base64 PNG or a data URL."
+          },
+          "control_strength": {
+            "type": "number",
+            "description": "Default 0.9."
+          },
+          "image_preprocess": {
+            "type": "string",
+            "example": "target=control,canny=true"
+          },
+          "lora": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "path"
+              ],
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "As `GET /sdapi/v1/loras` lists it."
+                },
+                "multiplier": {
+                  "type": "number",
+                  "default": 1
+                }
+              },
+              "additionalProperties": true
+            },
+            "description": "The LoRAs to use. A path that is not in `/data/PS5SD/loras` fails the request."
+          },
+          "embed_image_metadata": {
+            "type": "boolean",
+            "default": true,
+            "description": "False leaves the settings out of the PNG."
+          },
+          "temporary": {
+            "type": "boolean",
+            "default": false,
+            "description": "Saves the files as `tmp_sd_...`; they are deleted when PS5SD starts, unless kept."
+          }
+        },
+        "additionalProperties": true
+      },
+      "VidGenRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/ImgGenRequest"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "video_frames": {
+                "type": "integer",
+                "description": "4n+1: 5 to 81, the most measured."
+              },
+              "fps": {
+                "type": "integer"
+              },
+              "output_format": {
+                "type": "string",
+                "enum": [
+                  "webm",
+                  "webp",
+                  "avi"
+                ],
+                "default": "webm",
+                "description": "`webp` is animated WebP, `avi` is MJPEG."
+              },
+              "vae_tiling_params": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            },
+            "additionalProperties": true
+          }
+        ],
+        "description": "The `img_gen` fields, plus these. With a model that starts from a picture, `init_image` is the first frame."
+      },
+      "Txt2ImgRequest": {
+        "type": "object",
+        "description": "A1111's request. The fields PS5SD documents are listed; others may be accepted.",
+        "properties": {
+          "prompt": {
+            "type": "string"
+          },
+          "steps": {
+            "type": "integer"
+          },
+          "cfg_scale": {
+            "type": "number"
+          },
+          "sampler_name": {
+            "type": "string"
+          },
+          "scheduler": {
+            "type": "string"
+          },
+          "clip_skip": {
+            "type": "integer"
+          },
+          "width": {
+            "type": "integer"
+          },
+          "height": {
+            "type": "integer"
+          },
+          "batch_size": {
+            "type": "integer",
+            "description": "Images in one request, up to `limits.max_batch_count`."
+          },
+          "lora": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "path"
+              ],
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "As `GET /sdapi/v1/loras` lists it."
+                },
+                "multiplier": {
+                  "type": "number",
+                  "default": 1
+                }
+              },
+              "additionalProperties": true
+            },
+            "description": "The LoRAs to use. A path that is not in `/data/PS5SD/loras` fails the request."
+          },
+          "embed_image_metadata": {
+            "type": "boolean",
+            "default": true
+          },
+          "extra_images": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Reference images for FLUX.2 Klein."
+          },
+          "enable_hr": {
+            "type": "boolean"
+          },
+          "hr_scale": {
+            "type": "number"
+          },
+          "hr_upscaler": {
+            "type": "string"
+          },
+          "hr_steps": {
+            "type": "integer"
+          },
+          "hr_resize_x": {
+            "type": "integer"
+          },
+          "hr_resize_y": {
+            "type": "integer"
+          },
+          "denoising_strength": {
+            "type": "number"
+          }
+        },
+        "additionalProperties": true
+      },
+      "Img2ImgRequest": {
+        "type": "object",
+        "properties": {
+          "prompt": {
+            "type": "string"
+          },
+          "steps": {
+            "type": "integer"
+          },
+          "cfg_scale": {
+            "type": "number"
+          },
+          "sampler_name": {
+            "type": "string"
+          },
+          "scheduler": {
+            "type": "string"
+          },
+          "clip_skip": {
+            "type": "integer"
+          },
+          "width": {
+            "type": "integer"
+          },
+          "height": {
+            "type": "integer"
+          },
+          "batch_size": {
+            "type": "integer",
+            "description": "Images in one request, up to `limits.max_batch_count`."
+          },
+          "lora": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "path"
+              ],
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "As `GET /sdapi/v1/loras` lists it."
+                },
+                "multiplier": {
+                  "type": "number",
+                  "default": 1
+                }
+              },
+              "additionalProperties": true
+            },
+            "description": "The LoRAs to use. A path that is not in `/data/PS5SD/loras` fails the request."
+          },
+          "embed_image_metadata": {
+            "type": "boolean",
+            "default": true
+          },
+          "init_images": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Base64 start images."
+          },
+          "mask": {
+            "type": "string",
+            "description": "Base64 mask. White is painted over."
+          },
+          "denoising_strength": {
+            "type": "number"
+          },
+          "inpainting_mask_invert": {
+            "type": "integer"
+          }
+        },
+        "additionalProperties": true
+      },
+      "A1111Result": {
+        "type": "object",
+        "properties": {
+          "images": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "description": "A base64 PNG."
+            }
+          }
+        },
+        "additionalProperties": true
+      },
+      "OpenAIImages": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "b64_json": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": true
+            }
+          }
+        },
+        "additionalProperties": true
+      }
+    }
+  }
+}

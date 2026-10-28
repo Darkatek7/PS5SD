@@ -1361,19 +1361,19 @@ bool set_api_key(bool on, std::string & error) {
 //   console (GET)       the console's temperature, power, fan and load, now,
 //                       the last 2 minutes and the last hour (console_stats.hpp).
 // GET docs/<name>: docs/MODELS.md or docs/API.md, which the title carries,
-// for the web UI's Help tab.
+// for the web UI's Help tab, and openapi.json (GET openapi.json).
 int doc_request(const std::string & name, char ** out_body, size_t * out_len, const char ** content_type) {
     std::string out;
     int         status = 404;
     *content_type      = "application/json";
-    if (name == "MODELS.md" || name == "API.md") {
+    if (name == "MODELS.md" || name == "API.md" || name == "openapi.json") {
         std::ifstream      in(std::string(kDocs) + "/" + name, std::ios::binary);
         std::ostringstream text;
         text << in.rdbuf();
         out = text.str();
         if (!out.empty()) {
             status        = 200;
-            *content_type = "text/markdown; charset=utf-8";
+            *content_type = name == "openapi.json" ? "application/json" : "text/markdown; charset=utf-8";
         }
     }
     if (status != 200) {
@@ -1429,6 +1429,11 @@ extern "C" int sd_app_request(const char * method, const char * path, const char
     const std::string p = path;
     if (m == "GET" && p.rfind("docs/", 0) == 0) {
         return doc_request(p.substr(5), out_body, out_len, content_type);
+    }
+    // The OpenAPI description of every route (ps5/app/openapi.json; open without
+    // the API key, patches/sdcpp/0081).
+    if (m == "GET" && p == "openapi.json") {
+        return doc_request("openapi.json", out_body, out_len, content_type);
     }
     std::string       out;
     // The downloader's routes (downloader.hpp: catalog, downloads, hf/search);

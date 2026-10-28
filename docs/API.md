@@ -22,6 +22,19 @@ server reads only up to 8 KB, so a larger body (a base64 image, say) needs the h
 
 The examples use `<console>` for the PS5's address.
 
+## OpenAPI
+
+`GET /ps5sd/v1/app/openapi.json` describes every route of this page as [OpenAPI](https://spec.openapis.org/oas/v3.1.0)
+3.1, since 0.9.17: its parameters, bodies, answers and errors. Tools such as Swagger UI, Postman or a client
+generator read it. It answers without the API key.
+
+```sh
+curl http://<console>:7860/ps5sd/v1/app/openapi.json
+```
+
+The file is `ps5/app/openapi.json` in the source. CI checks that it lists every route the server and the
+app register, and no other (`scripts/check-openapi.py`).
+
 ## Errors
 
 Since 0.9.15, every answer of 400 and more has one shape, on every route (A1111, OpenAI, sd-server's own and
@@ -98,7 +111,8 @@ curl -u any:<key> http://<console>:7860/sdapi/v1/sd-models
   the code `rate_limited` and `Retry-After`. Each wrong key is in the log (`app.log` and the TV's log). Behind a proxy the client is
   the address in `CF-Connecting-IP` or `X-Forwarded-For`.
 - Open without the key: `GET /` (the web UI, which then asks for the key), `GET /ps5sd/v1/health`
-  (`{"status": "ok"}`, for a proxy or a monitor) and the routes below.
+  (`{"status": "ok"}`, for a proxy or a monitor), `GET /ps5sd/v1/app/openapi.json` (see
+  [OpenAPI](#openapi)) and the routes below.
 
 | Route | |
 |---|---|

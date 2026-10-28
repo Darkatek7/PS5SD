@@ -17,7 +17,7 @@ repo=https://github.com/Darkatek7/PS5SD
 id=PPSA99576
 
 for f in eboot.bin sce_sys/param.json sce_sys/icon0.png sce_sys/icon0.dds sce_sys/pic0.dds sce_sys/pic1.dds sce_module/libc.prx \
-    ftpsrv/ps5sd-ftpsrv.elf ftpsrv/LICENSE.txt ftpsrv/SOURCE.txt docs/MODELS.md docs/API.md; do
+    ftpsrv/ps5sd-ftpsrv.elf ftpsrv/LICENSE.txt ftpsrv/SOURCE.txt docs/MODELS.md docs/API.md docs/openapi.json; do
     [ -f "$title/$f" ] || { echo "package-release: $title has no $f (scripts/build-app.sh first)" >&2; exit 1; }
 done
 [ -d "$title/assets/fonts" ] || { echo "package-release: $title has no assets/fonts (a display build is needed)" >&2; exit 1; }

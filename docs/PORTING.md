@@ -211,6 +211,10 @@ instead of trapping, so `main.cpp` reports an out-of-memory load or generation a
   `patches/sdcpp/0080` asks the app (`compat/model`) for the `model` of an OpenAI request, in the model
   gate before it takes the lock. The app switches to a model of its library and waits for it
   (`switch_and_wait`, as for A1111's `options`), and leaves any other name to the loaded model.
+  `patches/sdcpp/0081` lets `GET /ps5sd/v1/app/openapi.json` through without the API key. The app serves
+  `ps5/app/openapi.json` there (the title carries it in `docs/`); `scripts/check-openapi.py` compares it
+  with the routes it reads from the patched server's sources and from `main.cpp` and `downloader.cpp`,
+  in CI's `host` job.
   The request's own settings (steps, CFG, size) win over the server's defaults, which are sd.cpp's, not
   the one-shot's SD-Turbo ones. `main.cpp` defines the activity hooks of `server_hooks.h` (in its own
   object: from an archive, lld could take the weak no-ops instead), which feed the status and the

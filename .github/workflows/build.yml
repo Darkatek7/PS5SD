@@ -182,6 +182,10 @@ jobs:
             git -C third_party/stable-diffusion.cpp/ggml apply --verbose "$GITHUB_WORKSPACE/$p"
           done
 
+      # ps5/app/openapi.json lists every route the patched server and the app register, and no other.
+      - name: OpenAPI description
+        run: python3 scripts/check-openapi.py
+
       - name: Build stable-diffusion.cpp (CPU)
         run: |
           cmake -S third_party/stable-diffusion.cpp -B build/host-sd -DCMAKE_BUILD_TYPE=Release \

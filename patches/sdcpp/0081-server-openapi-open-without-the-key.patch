@@ -1,0 +1,38 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: ps5sd <ps5sd@localhost>
+Date: Wed, 28 Oct 2026 15:00:00 +0100
+Subject: [PATCH] server: the OpenAPI description open without the API key
+
+GET /ps5sd/v1/app/openapi.json, the application's description of every
+route, answers without the key, as /ps5sd/v1/health does: a client reads it
+before it knows that the server wants one, and it says nothing a client
+could misuse.
+
+diff --git a/examples/server/auth.cpp b/examples/server/auth.cpp
+index e6b0b96..222a34a 100644
+--- a/examples/server/auth.cpp
++++ b/examples/server/auth.cpp
+@@ -247,7 +247,7 @@ bool is_open_route(const httplib::Request& req) {
+     const std::string& p = req.path;
+     const std::string& m = req.method;
+     if (m == "GET" || m == "HEAD") {
+-        return p == "/" || p == "/ps5sd/v1/health" || p == "/ps5sd/v1/auth";
++        return p == "/" || p == "/ps5sd/v1/health" || p == "/ps5sd/v1/auth" || p == "/ps5sd/v1/app/openapi.json";
+     }
+     return m == "POST" && (p == "/ps5sd/v1/auth/login" || p == "/ps5sd/v1/auth/logout");
+ }
+diff --git a/examples/server/auth.h b/examples/server/auth.h
+index 0e080d6..c07b903 100644
+--- a/examples/server/auth.h
++++ b/examples/server/auth.h
+@@ -15,7 +15,9 @@
+ // 1 s, then 2, 4, ... up to 60 s (429); each wrong key is logged.
+ //
+ // Open without a key: GET / (the web UI, which then asks for the key),
+-// GET /ps5sd/v1/health, GET /ps5sd/v1/auth, POST /ps5sd/v1/auth/login and
++// GET /ps5sd/v1/health, GET /ps5sd/v1/auth, GET /ps5sd/v1/app/openapi.json (the
++// description of the API, which says nothing a client could misuse),
++// POST /ps5sd/v1/auth/login and
+ // /logout, and every OPTIONS (CORS preflight).
+ #pragma once
+ 
