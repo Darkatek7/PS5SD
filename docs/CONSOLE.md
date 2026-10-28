@@ -965,7 +965,9 @@ With patches 0079 and 0080 on the same day: `POST /sdapi/v1/options` with `sdxl-
 `/v1/images/generations` with `"model": "z-image-turbo"` switched from SDXL and answered with the image after
 34.1 s in all (the switch, Z-Image's weights, the image); one with `"model": "dall-e-3"` ran on the loaded
 model. The stream's `model` events of a switch: switching, then nothing loaded, then the new model, 8.3 s
-apart for SDXL and 2.8 s for Z-Image.
+apart for SDXL and 2.8 s for Z-Image. A `POST /sdapi/v1/options` naming a broken file (4 KB of noise uploaded as a
+`.gguf`) answered `500 load_failed` after 4 s, with sd.cpp's reason ("get sd version from file failed"), and
+the server was back on Z-Image Turbo.
 
 ## A Close during a stalled main loop (2026-10-28)
 
