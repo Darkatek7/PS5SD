@@ -194,6 +194,13 @@ std::string part_reason(const ModelEntry & e);
 // clears it); safe from several threads.
 void set_load_error(const std::string & id, const std::string & message);
 
+// The reason set_load_error() keeps for id; "" when the last failure was another entry's, or none.
+std::string load_error_message(const std::string & id);
+
+// The switch as models_json says it, without the models: {"active", "loaded", "switching", "standby",
+// "load_error"}, for the event stream's model event.
+std::string model_state_json(const std::string & active, const std::string & loaded, bool switching, bool standby);
+
 // GET /ps5sd/v1/app/upscalers: {"upscalers": [{"name", "file", "bytes"}]},
 // the upscaler files (.pth, .pt, .safetensors, .gguf) directly in dir, as
 // sd-server lists them (name is the file name without its extension), sorted.

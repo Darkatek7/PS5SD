@@ -45,4 +45,15 @@
       var d = readEvent(e);
       if (d && d.id === st.job) pollSoon();
     });
+    // the switch (0.9.16): a look at the library now, not at the next poll; a switch another page or a
+    // client started shows at once
+    es.addEventListener('model', function (e) {
+      var d = readEvent(e);
+      if (!d) return;
+      if (st.sw) {
+        if (!st.sw.polling) swPoll(st.sw);
+      } else if (d.switching && d.active) {
+        beginSwitch(d.active, '', false);
+      }
+    });
   }

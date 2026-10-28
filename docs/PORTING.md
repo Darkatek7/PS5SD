@@ -206,6 +206,11 @@ instead of trapping, so `main.cpp` reports an out-of-memory load or generation a
   pre-request and post-routing handlers, `install_model_gate`), the job worker holds it for each job,
   and a load holds it alone. So a load waits for the generation that runs, and those requests wait for
   the load. Without a model they answer 503 `standby`; the separate standby server of `0056` is gone.
+  `patches/sdcpp/0079` adds the `model` event: the app gives the switch's state with
+  `sd_server_set_model_state()` (`publish_model_state` in `main.cpp`, whenever it changes).
+  `patches/sdcpp/0080` asks the app (`compat/model`) for the `model` of an OpenAI request, in the model
+  gate before it takes the lock. The app switches to a model of its library and waits for it
+  (`switch_and_wait`, as for A1111's `options`), and leaves any other name to the loaded model.
   The request's own settings (steps, CFG, size) win over the server's defaults, which are sd.cpp's, not
   the one-shot's SD-Turbo ones. `main.cpp` defines the activity hooks of `server_hooks.h` (in its own
   object: from an archive, lld could take the weak no-ops instead), which feed the status and the

@@ -81,7 +81,16 @@ int main() {
     ps5sd::set_load_error("sdxl", "SDXL did not load: a reason");
     const auto jl = nlohmann::json::parse(ps5sd::models_json(lib, "sdxl", "", false));
     check(jl["load_error"]["id"] == "sdxl" && jl["load_error"]["message"] == "SDXL did not load: a reason", "json load error");
+    check(ps5sd::load_error_message("sdxl") == "SDXL did not load: a reason" && ps5sd::load_error_message("flux").empty(),
+          "the load error of one entry");
+    const auto js = nlohmann::json::parse(ps5sd::model_state_json("sdxl", "", true, false));
+    check(js["active"] == "sdxl" && js["loaded"] == "" && js["switching"] == true && js["standby"] == false &&
+              js["load_error"]["id"] == "sdxl" && !js.contains("models"),
+          "model state json");
     ps5sd::set_load_error("", "");
+    check(ps5sd::load_error_message("sdxl").empty() &&
+              nlohmann::json::parse(ps5sd::model_state_json("a", "a", false, false))["load_error"].is_null(),
+          "model state without a load error");
     check(nlohmann::json::parse(ps5sd::models_json(lib, "", "", false))["load_error"].is_null(), "load error cleared");
 
     check(nlohmann::json::parse(ps5sd::error_json("no \"x\""))["error"]["message"] == "no \"x\"", "error json");

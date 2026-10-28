@@ -54,11 +54,13 @@ PS5SD's):
 | `queue_full` | 429 | the job queue is full |
 | `too_many_streams` | 429 | four event streams are open already (see [Events](#events-progress-without-polling)) |
 | `generation_failed` | 500 | the run failed; the message has the server's last error |
+| `load_failed` | 500 | the model a request waited for did not load; the message says why (the server went back to the last model that worked) |
 | `out_of_memory` | 500 | the console ran out of memory for this run |
 | `cancelled` | 500 | the run was stopped (a synchronous route after `POST /sdapi/v1/interrupt`) |
 | `server_error` | 500 | anything else that went wrong in the server |
 | `bad_gateway` | 502 | Hugging Face or Civitai did not answer as expected |
 | `standby` | 503 | no model is loaded (see [Standby](#standby-no-model)) |
+| `timeout` | 504 | the model a request waited for had not loaded after 10 minutes |
 | `storage_full` | 507 | the console's storage is full |
 
 A status without a code of its own gives `http_<status>`. Before 0.9.15 most routes answered
@@ -433,6 +435,7 @@ the web UI's login counts, so the page needs no header.
 | `jobs` | `{"jobs": [...]}`: the queued and generating jobs, as `GET /ps5sd/v1/jobs` lists them, with `repeat` (`total`, `done`) for a job with `repeat` | when the stream opens, and whenever the list changes |
 | `progress` | `{"job", "kind", "step", "steps", "seconds_per_step", "eta_seconds"}` | a step is done; at most four a second |
 | `job` | `{"id", "kind", "status", "completed", "error", "saved"}` | a job ended: `status` is `completed`, `failed` or `cancelled`, `error` as a failed job has it (else `null`), `saved` the gallery files of a job with `repeat` |
+| `model` | `{"active", "loaded", "switching", "standby", "load_error"}`, as `GET /ps5sd/v1/app/models` has them | when the stream opens, and whenever they change: a switch begins, the model is unloaded, the new one is loaded or failed (since 0.9.16; not with `?job=`) |
 | `: ping` | a comment, no data | every 15 s without another event, so a proxy keeps the stream open |
 
 - `progress` counts the steps of what runs now, and sd.cpp counts every phase from 1: loading the weights
@@ -470,7 +473,7 @@ data: {"id":"job_6ae113d7_00000000","kind":"img_gen","status":"completed","compl
 | `POST /sdapi/v1/txt2img`, `POST /sdapi/v1/img2img` | generate; the answer has `images` as base64 PNG |
 | `GET /sdapi/v1/sd-models` | the models that can be loaded; `title` is the entry id. A saved preset is settings on a model, not a model, so it is not listed; `sd_model_checkpoint` still takes its id |
 | `GET /sdapi/v1/options` | `{"sd_model_checkpoint": "<id>"}`: the loaded model, or the one a switch is loading |
-| `POST /sdapi/v1/options` | `{"sd_model_checkpoint": "<id or name>"}` switches the model; the other options are ignored |
+| `POST /sdapi/v1/options` | `{"sd_model_checkpoint": "<id or name>"}` switches the model and answers `200 {}` once it has loaded, as A1111 does (since 0.9.16); the other options are ignored |
 | `GET /sdapi/v1/samplers`, `/schedulers`, `/loras`, `/upscalers`, `/latent-upscale-modes` | lists |
 | `GET /sdapi/v1/progress` | an A1111-shaped progress answer |
 
@@ -479,9 +482,9 @@ These differ from A1111:
 - `txt2img` without `width` and `height` makes the server's default size (the loaded preset's, or
   `-W`/`-H` of `server-args.txt`), 512x512 only when there is none. A request that names one takes the
   other from the default too. `img2img` without a size keeps the size of its image.
-- `POST /sdapi/v1/options` answers at once, while A1111 answers once the model has loaded. Generate
-  requests sent meanwhile wait for the load. Poll `GET /ps5sd/v1/app/models` (or `GET /sdapi/v1/options`)
-  for the switch to end.
+- `POST /sdapi/v1/options` that switches the model waits until it has loaded, at most 10 minutes
+  (`504 timeout`). A model that does not load answers `500 load_failed` with the reason; the server is then
+  back on the last model that worked. Before 0.9.16 it answered at once.
 - In standby `txt2img`, `img2img` and the LoRA and upscaler lists answer `503`.
 - LoRAs go in a `lora` field, `[{"path": "<path as /sdapi/v1/loras lists it>", "multiplier": 1.0}]`,
   not as `<lora:name:1>` in the prompt: sd-server leaves such tags out. `POST /sdcpp/v1/img_gen` takes
@@ -501,8 +504,14 @@ curl http://<console>:7860/sdapi/v1/txt2img -d '{"prompt": "a lighthouse at dusk
 | `POST /v1/images/generations` | generate; `b64_json` in the answer |
 | `POST /v1/images/edits` | image to image |
 
-The `model` field of a generation request does not switch the model; the loaded one answers. Switch with
-`POST /ps5sd/v1/app/models/active` first.
+The `model` of a request (a field of the JSON body, or of `/v1/images/edits`' form) picks the model, since
+0.9.16:
+
+- the id or the name of a model of the library (as `GET /v1/models` lists them, or a saved preset): the
+  console switches to it and runs the request once it has loaded. The request waits for that (at most 10
+  minutes), as for `POST /sdapi/v1/options`, with the same errors.
+- any other name, such as the `dall-e-3` or `gpt-image-1` that OpenAI clients send: the loaded model
+  answers.
 
 ## sd-server's own API
 

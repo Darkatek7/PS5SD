@@ -406,8 +406,9 @@
     }, 15000);
   }
 
-  // The switch: the server restarts, so the API is gone for a while. Poll the library
-  // every two seconds and treat errors as "still restarting".
+  // The switch: the console loads the new model (an older one restarts its server, and the API is
+  // gone for a while). Poll the library every two seconds, at once when the event stream says the
+  // model changed, and treat errors as "still restarting".
   function beginSwitch(id, name, waitJob) {
     var m = findModel(id);
     var sw = { id: id, name: name || (m ? titleOf(m) : id), t0: new Date().getTime(), ticks: 0, polling: false, down: false, waitJob: !!waitJob };
@@ -432,7 +433,7 @@
       toast('Stopped waiting for ' + sw.name + '. Reload this page when the console is back.', 6000);
       return;
     }
-    var note = sw.waitJob ? 'Waiting for the running image, then restarting' : (sw.down ? 'The server is restarting' : 'Starting the switch');
+    var note = sw.waitJob ? 'Waiting for the running image, then loading' : (sw.down ? 'The server is restarting' : 'Loading the model');
     note += ' · ' + clock(secs);
     if (secs > SWITCH_SLOW) note += ' · This takes longer than usual. If the model does not load, the previous one comes back.';
     text($('swsub'), note);

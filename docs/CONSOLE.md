@@ -960,3 +960,10 @@ Every image of both series was made; nothing ran out of memory. Loading in place
 way as the restart did (the old one first, then the new one), and the HTTP server and the job queue that
 now stay take no measurable memory: the pool after each step is the same within the noise, and the CPU heap
 stays lower.
+
+With patches 0079 and 0080 on the same day: `POST /sdapi/v1/options` with `sdxl-base` answered `200 {}` after
+8.3 s, once SDXL had loaded (again: at once), and a `txt2img` right after it made its image. A
+`/v1/images/generations` with `"model": "z-image-turbo"` switched from SDXL and answered with the image after
+34.1 s in all (the switch, Z-Image's weights, the image); one with `"model": "dall-e-3"` ran on the loaded
+model. The stream's `model` events of a switch: switching, then nothing loaded, then the new model, 8.3 s
+apart for SDXL and 2.8 s for Z-Image.

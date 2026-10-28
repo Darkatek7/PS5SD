@@ -1,0 +1,123 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: ps5sd <ps5sd@localhost>
+Date: Wed, 28 Oct 2026 13:00:00 +0100
+Subject: [PATCH 1/2] server: the model's state as an event
+
+A page that switched the model polled the library every two seconds until
+the new one had loaded. The server now stays up during a switch (0078), so
+the event stream can say it as it happens.
+
+sd_server_set_model_state() takes the model's state from the embedding
+application as a JSON object (PS5SD: active, loaded, switching, standby,
+load_error); GET /ps5sd/v1/events sends it as a "model" event when the
+stream opens and whenever it changes (not with ?job=).
+
+diff --git a/examples/server/events.cpp b/examples/server/events.cpp
+index 51e5eca..762103b 100644
+--- a/examples/server/events.cpp
++++ b/examples/server/events.cpp
+@@ -39,6 +39,7 @@ struct Progress {
+     float secs   = 0;
+ };
+ Progress g_progress;
++std::string g_model_state;  // sd_server_set_model_state, a JSON object or ""
+ 
+ std::string dump(const json& j) {
+     return j.dump(-1, ' ', false, json::error_handler_t::replace);
+@@ -112,6 +113,7 @@ struct Stream {
+     std::set<std::string> running;  // the active jobs it saw
+     uint64_t change        = 0;
+     uint64_t progress_seq  = 0;
++    std::string model_sent;  // the last model event's data
+     bool first             = true;
+     bool done              = false;  // the ?job= job's event is out
+     std::chrono::steady_clock::time_point progress_at;
+@@ -119,8 +121,12 @@ struct Stream {
+ };
+ 
+ // Everything new since the stream's last call, as event text; "" for nothing.
+-std::string next_events(Stream& s, AsyncJobManager& manager, const Progress& progress) {
++std::string next_events(Stream& s, AsyncJobManager& manager, const Progress& progress, const std::string& model) {
+     std::string out;
++    if (s.only.empty() && !model.empty() && model != s.model_sent) {
++        out += "event: model\ndata: " + model + "\n\n";
++        s.model_sent = model;
++    }
+     std::lock_guard<std::mutex> lock(manager.mutex);
+ 
+     json jobs = json::array();
+@@ -208,6 +214,26 @@ void sd_events_progress(int step, int steps, float secs) {
+     g_cv.notify_all();
+ }
+ 
++extern "C" void sd_server_set_model_state(const char* state_json) {
++    std::string state;
++    if (state_json != nullptr && *state_json != '\0') {
++        // one line: an event's data must not break
++        const json parsed = json::parse(state_json, nullptr, false);
++        if (parsed.is_object()) {
++            state = dump(parsed);
++        }
++    }
++    {
++        std::lock_guard<std::mutex> lock(g_mutex);
++        if (state == g_model_state) {
++            return;
++        }
++        g_model_state = state;
++        g_change++;
++    }
++    g_cv.notify_all();
++}
++
+ void sd_events_notify() {
+     {
+         std::lock_guard<std::mutex> lock(g_mutex);
+@@ -251,6 +277,7 @@ void register_event_endpoints(httplib::Server& svr, ServerRuntime& rt) {
+             "text/event-stream",
+             [manager, stream](size_t, httplib::DataSink& sink) {
+                 Progress progress;
++                std::string model;
+                 {
+                     std::unique_lock<std::mutex> lock(g_mutex);
+                     if (!stream->first) {
+@@ -262,12 +289,13 @@ void register_event_endpoints(httplib::Server& svr, ServerRuntime& rt) {
+                     }
+                     stream->change = g_change;
+                     progress       = g_progress;
++                    model          = g_model_state;
+                 }
+                 // a client that went away (a closed tab) frees its stream within a second, not at the next ping
+                 if (!sink.is_writable()) {
+                     return false;
+                 }
+-                std::string out = next_events(*stream, *manager, progress);
++                std::string out = next_events(*stream, *manager, progress, model);
+                 const auto now  = std::chrono::steady_clock::now();
+                 if (out.empty() && now - stream->ping_at >= k_ping) {
+                     out = ": ping\n\n";
+diff --git a/examples/server/events.h b/examples/server/events.h
+index bb8be0d..9a60aca 100644
+--- a/examples/server/events.h
++++ b/examples/server/events.h
+@@ -15,6 +15,10 @@
+ //   event: job       {"id", "kind", "status", "completed", "error", "saved"}:
+ //                    a job ended (completed, failed or cancelled); its images
+ //                    or video are in GET /sdcpp/v1/jobs/<id>
++//   event: model     what the embedding application says of the model
++//                    (sd_server_set_model_state; PS5SD: {"active", "loaded",
++//                    "switching", "standby", "load_error"}): when the stream
++//                    opens and whenever it changes; not with ?job=
+ //   : ping           a comment every 15 s, so a proxy keeps the stream open
+ //
+ // ?job=<id> sends only what concerns that job, and ends the stream after its
+@@ -37,3 +41,9 @@ void sd_events_progress(int step, int steps, float secs);
+ void sd_events_notify();
+ // true: the server stops, every stream ends; false: a new server starts.
+ void sd_events_stop(bool stop);
++
++extern "C" {
++// The model's state as a JSON object, for the model event; NULL or "" for none
++// (no model event). Kept across sd_server() calls; thread-safe.
++void sd_server_set_model_state(const char* json);
++}

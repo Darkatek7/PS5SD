@@ -1,0 +1,73 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: ps5sd <ps5sd@localhost>
+Date: Wed, 28 Oct 2026 13:30:00 +0100
+Subject: [PATCH 2/2] server: the model of an OpenAI request
+
+The "model" of /v1/images/generations and of /v1/images/edits' form was
+ignored: the loaded model answered, whatever the client named.
+
+The model gate (0078) now asks the embedding application first, through
+sd_app_request "compat/model" with {"model": "<name>"}, before it takes the
+model lock (a load waits for every holder of it). PS5SD switches to a model
+of its library and answers once it has loaded; any other name, such as the
+dall-e-3 or gpt-image-1 that OpenAI clients send, runs on the loaded model.
+An answer of 400 and more from the application is the request's answer.
+Without an application (the plain sd-server) nothing changes.
+
+diff --git a/examples/server/main.cpp b/examples/server/main.cpp
+index 2b6fc05..b375f9f 100644
+--- a/examples/server/main.cpp
++++ b/examples/server/main.cpp
+@@ -223,6 +223,42 @@ static bool needs_model(const std::string& path) {
+ // which runs on the same thread before the answer is written).
+ static thread_local std::shared_lock<std::shared_mutex> t_model_lock;
+ 
++// PS5SD: the "model" of an OpenAI request (/v1/images/generations, a field of
++// /v1/images/edits' form) names the model to run it with. The application
++// (sd_app_request "compat/model") switches to one it knows and answers once it
++// has loaded; any other name (dall-e-3, gpt-image-1, ...) runs on the loaded
++// model. Before the model lock: a load waits for every holder of it. True when
++// the application refused it; its answer is then in res.
++static bool switch_to_requested_model(const httplib::Request& req, httplib::Response& res) {
++    if (req.path.rfind("/v1/images/", 0) != 0) {
++        return false;
++    }
++    std::string model;
++    if (req.is_multipart_form_data()) {
++        model = req.form.has_field("model") ? req.form.get_field("model") : "";
++    } else {
++        const json body = json::parse(req.body, nullptr, false);
++        if (body.is_object() && body.contains("model") && body["model"].is_string()) {
++            model = body["model"].get<std::string>();
++        }
++    }
++    if (model.empty()) {
++        return false;
++    }
++    const std::string ask = json({{"model", model}}).dump(-1, ' ', false, json::error_handler_t::replace);
++    char* out             = nullptr;
++    size_t out_len        = 0;
++    const char* type      = nullptr;
++    const int status      = sd_app_request("POST", "compat/model", ask.data(), ask.size(), &out, &out_len, &type);
++    const bool refused    = status >= 400;
++    if (refused) {
++        res.status = status;
++        res.set_content(out != nullptr ? std::string(out, out_len) : std::string(), type != nullptr ? type : "application/json");
++    }
++    std::free(out);
++    return refused;
++}
++
+ static void install_model_gate(httplib::Server& svr, ServerRuntime& rt) {
+     ServerRuntime* runtime = &rt;
+     svr.set_pre_request_handler([runtime](const httplib::Request& req, httplib::Response& res) {
+@@ -232,6 +268,9 @@ static void install_model_gate(httplib::Server& svr, ServerRuntime& rt) {
+         if (!needs_model(req.path)) {
+             return httplib::Server::HandlerResponse::Unhandled;
+         }
++        if (switch_to_requested_model(req, res)) {
++            return httplib::Server::HandlerResponse::Handled;
++        }
+         t_model_lock = std::shared_lock<std::shared_mutex>(g_model_mutex);
+         if (runtime->sd_ctx == nullptr) {
+             t_model_lock.unlock();

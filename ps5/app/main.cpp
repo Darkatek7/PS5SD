@@ -144,6 +144,8 @@ void sd_server_terminate(void);
 void sd_server_set_api_key(const char * key);
 // patches/sdcpp/0063 (runtime.h): the defaults of API requests, set at run time; -1 or "" for not set.
 void sd_server_set_request_defaults(int steps, float cfg, const char * sampler, const char * scheduler, int width, int height);
+// patches/sdcpp/0079 (events.h): the model's state for the event stream's model event.
+void sd_server_set_model_state(const char * json);
 // patches/sdcpp/0069 (runtime.h): the loaded preset's CLIP skip (-1 for none), its prompt starters and its name
 // (into each saved PNG); "" for none.
 void sd_server_set_preset_extras(int clip_skip, const char * prompt_starter, const char * negative_starter,
@@ -177,6 +179,7 @@ constexpr const char * kFont    = "/app0/assets/fonts/dejavu-sans-mono.huifont";
 constexpr double       kGiB     = 1073741824.0;
 constexpr int          kPort    = 7860;  // sd-server's listen port unless server-args.txt names one
 constexpr int          kStopWaitSeconds = 120;  // how long a quit waits for the server to stop
+constexpr int          kSwitchWaitSeconds = 600;  // how long a client that asked for a model waits for it
 
 AppStatus g_status;
 ConsoleStats g_console;  // the temperature, power, fan and load (console_stats.hpp)
@@ -240,6 +243,24 @@ std::vector<std::string> read_lines(const char * path) {
         }
     }
     return out;
+}
+
+// The switch as GET models says it, for the event stream's model event
+// (patches/sdcpp/0079): called whenever it changes.
+void publish_model_state() {
+    const auto active = read_lines(kModel);
+    sd_server_set_model_state(
+        model_state_json(active.empty() ? "" : active[0], loaded_id(), g_switching, g_standby && !g_switching).c_str());
+}
+
+// The switch is over: no longer switching, and clients that wait for it learn so.
+void end_switch() {
+    {
+        std::lock_guard<std::mutex> lock(g_switch_mutex);
+        g_switching = false;
+    }
+    g_switch_cv.notify_all();
+    publish_model_state();
 }
 
 // A system notification on the TV.
@@ -761,6 +782,7 @@ bool load_plan(const ServerPlan & plan, bool standby) {
         std::lock_guard<std::mutex> lock(g_model_mutex);
         g_loaded_id.clear();
     }
+    publish_model_state();
     // The settings of the entry being loaded (none in standby, or when
     // server-args.txt names the model itself).
     ModelEntry  entry;
@@ -898,7 +920,7 @@ void run_server() {
             force_standby = true;
             continue;
         }
-        g_switching = false;
+        end_switch();
         // the next switch, a quit, or the server's end
         std::unique_lock<std::mutex> lock(g_switch_mutex);
         g_switch_cv.wait(lock, [] { return g_switch_pending || g_quit_requested || g_server_done; });
@@ -907,7 +929,7 @@ void run_server() {
             std::printf("ps5sd: switching the model\n");
         }
     }
-    g_switching = false;
+    end_switch();
     {
         // a quit stops the server (quit_if_asked); the worker is busy until it has
         std::unique_lock<std::mutex> lock(g_switch_mutex);
@@ -1049,6 +1071,7 @@ int ask_switch(const std::string & id, std::string & out) {
             }
             g_status.set_model(entry.name);
             std::printf("ps5sd: %s uses the loaded model; no restart\n", entry.id.c_str());
+            publish_model_state();
             out = models_json(g_library, entry.id, entry.id, false);
             return 200;
         }
@@ -1064,8 +1087,58 @@ int ask_switch(const std::string & id, std::string & out) {
         g_switch_pending = true;
     }
     g_switch_cv.notify_all();
+    publish_model_state();
     out              = models_json(g_library, entry.id, loaded_id(), true);
     return 202;
+}
+
+// For a client that asked for the model id and waits until it has loaded (A1111's
+// options, the "model" of an OpenAI request), once ask_switch() answered 202, or
+// 409 while a switch runs: the HTTP status and body. 200 when id is loaded then;
+// 500 load_failed with the reason when it did not load (the server went back to
+// the last model that worked); 504 timeout after kSwitchWaitSeconds.
+int wait_for_switch(const std::string & id, std::string & out) {
+    bool ended;
+    {
+        std::unique_lock<std::mutex> lock(g_switch_mutex);
+        ended = g_switch_cv.wait_for(lock, std::chrono::seconds(kSwitchWaitSeconds), [] {
+            return (!g_switching && !g_switch_pending) || g_quit_requested || g_server_done;
+        });
+    }
+    if (loaded_id() == id) {
+        out = "{}";
+        return 200;
+    }
+    if (!ended) {
+        out = error_json("the model is still loading after " + std::to_string(kSwitchWaitSeconds) +
+                             " s; GET /ps5sd/v1/app/models says when it is done",
+                         "timeout");
+        return 504;
+    }
+    if (g_quit_requested || g_server_done) {
+        out = error_json("the app is stopping", "stopping");
+        return 503;
+    }
+    const std::string message = load_error_message(id);
+    out = error_json(message.empty() ? id + " did not load" : message, "load_failed");
+    return 500;
+}
+
+// Switches to id and waits for it (wait_for_switch). A switch that runs already
+// is waited for first, then id is asked for (it may be the one that loaded).
+int switch_and_wait(const std::string & id, std::string & out) {
+    int status = ask_switch(id, out);
+    if (status == 409 && g_switching) {
+        wait_for_switch(id, out);
+        status = ask_switch(id, out);
+    }
+    if (status == 202) {
+        status = wait_for_switch(id, out);
+    }
+    if (status == 200) {
+        out = "{}";
+    }
+    return status;
 }
 
 // The model A1111 clients see: the one loaded, or while a switch runs (or
@@ -1343,9 +1416,8 @@ extern "C" int sd_app_request(const char * method, const char * path, const char
         status = 200;
     } else if (m == "POST" && p == "compat/options") {
         // A1111 clients switch the model with {"sd_model_checkpoint": title};
-        // the other options do not apply here and are ignored. A1111 answers
-        // once the model has loaded; this answers at once, and GET options
-        // names the new model from then on.
+        // the other options do not apply here and are ignored. As A1111, this
+        // answers once the model has loaded (wait_for_switch).
         const std::string checkpoint = checkpoint_from_options(std::string(body, body_len));
         const std::string id         = checkpoint.empty() ? std::string() : checkpoint_id(g_library, checkpoint);
         if (checkpoint.empty()) {
@@ -1355,11 +1427,21 @@ extern "C" int sd_app_request(const char * method, const char * path, const char
             out    = error_json("no model " + checkpoint + "; GET /sdapi/v1/sd-models lists them", "model_not_found");
             status = 404;
         } else {
-            status = ask_switch(id, out);
-            if (status == 200 || status == 202) {
-                out    = "{}";
-                status = 200;
-            }
+            status = switch_and_wait(id, out);
+        }
+    } else if (m == "POST" && p == "compat/model") {
+        // The "model" of an OpenAI request (patches/sdcpp/0080): a model of the
+        // library is switched to and waited for; any other name runs on the
+        // loaded one, as OpenAI clients send their own (dall-e-3, gpt-image-1).
+        const nlohmann::json j    = nlohmann::json::parse(std::string(body, body_len), nullptr, false);
+        const std::string    name = j.is_object() && j.contains("model") && j["model"].is_string() ? j["model"].get<std::string>() : "";
+        const std::string    id   = name.empty() ? std::string() : checkpoint_id(g_library, name);
+        if (id.empty() || id == loaded_id()) {
+            out    = "{}";
+            status = 200;
+        } else {
+            std::printf("ps5sd: an OpenAI request asks for %s\n", id.c_str());
+            status = switch_and_wait(id, out);
         }
     } else if (m == "GET" && p == "settings") {
         std::lock_guard<std::mutex> lock(g_settings_mutex);

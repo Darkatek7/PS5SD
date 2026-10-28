@@ -771,6 +771,30 @@ void set_load_error(const std::string & id, const std::string & message) {
     g_load_error_message = id.empty() ? "" : message;
 }
 
+std::string load_error_message(const std::string & id) {
+    std::lock_guard<std::mutex> lock(g_load_error_mutex);
+    return !id.empty() && id == g_load_error_id ? g_load_error_message : std::string();
+}
+
+namespace {
+
+nlohmann::json load_error_json() {
+    std::lock_guard<std::mutex> lock(g_load_error_mutex);
+    if (g_load_error_id.empty()) {
+        return nullptr;
+    }
+    return { { "id", g_load_error_id }, { "message", g_load_error_message } };
+}
+
+}  // namespace
+
+std::string model_state_json(const std::string & active, const std::string & loaded, bool switching, bool standby) {
+    const nlohmann::json out = { { "active", active },       { "loaded", loaded },
+                                 { "switching", switching }, { "standby", standby },
+                                 { "load_error", load_error_json() } };
+    return out.dump(-1, ' ', false, nlohmann::json::error_handler_t::replace);
+}
+
 std::string models_json(const ModelLibrary & library, const std::string & active, const std::string & loaded,
                         bool switching, bool standby) {
     nlohmann::json list = nlohmann::json::array();
@@ -794,15 +818,8 @@ std::string models_json(const ModelLibrary & library, const std::string & active
                          { "negative", e.negative_starter },
                          { "defaults", defaults } });
     }
-    nlohmann::json load_error = nullptr;
-    {
-        std::lock_guard<std::mutex> lock(g_load_error_mutex);
-        if (!g_load_error_id.empty()) {
-            load_error = { { "id", g_load_error_id }, { "message", g_load_error_message } };
-        }
-    }
     nlohmann::json out = { { "active", active }, { "loaded", loaded }, { "switching", switching },
-                           { "standby", standby }, { "load_error", load_error }, { "models", list } };
+                           { "standby", standby }, { "load_error", load_error_json() }, { "models", list } };
     // A file name that is not UTF-8 must not throw on an HTTP thread.
     return out.dump(-1, ' ', false, nlohmann::json::error_handler_t::replace);
 }
