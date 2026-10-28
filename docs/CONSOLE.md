@@ -1039,3 +1039,21 @@ the guide the SDXL image above, Canny on the console, strength 0.6):
   guide image run at 1024x1024 ran as before.
 - The fit hint has limits for a guide image of its own ("SDXL + ControlNet": up to 1536x1536); the web UI
   sends `"control": true` in Guide mode.
+
+## An update keeps everything (2026-10-28)
+
+`scripts/update-test.py` with the release zips of 0.5.0 to 0.9.17 and 0.9.18's build, on the console: for each
+release, install it, make state through its API, update to 0.9.18, and check the state. The app's own files
+(settings, presets, `model.txt`, the API key, the download queue, the gallery's names and tags) were saved
+first and put back at the end.
+
+| From | What the release made (where it has the route) | After the update |
+|---|---|---|
+| 0.5.0 to 0.9.4 | `tv_images` off, a saved preset of SDXL, a switch to it, the API key | all kept: the same key, the preset loaded |
+| 0.9.5 to 0.9.11 | the same, and a name and a tag on a gallery image | all kept |
+| 0.9.12 | the same, and the preset as the SDXL file's default | all kept |
+| 0.9.13 to 0.9.17 | the same, and `image_metadata` off | all kept |
+
+26 releases, 35 minutes, about 1.5 minutes each. Going back is not the same: an older release writes
+`settings.json` in its own form, so the settings it does not know (the fan, the default presets, `image_metadata`)
+are gone after it; 0.5.1 dropped them. An update after such a step back keeps what the old release kept.

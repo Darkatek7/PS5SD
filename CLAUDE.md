@@ -74,6 +74,12 @@ The toolchain runs on x86-64 Arch Linux only (in Docker, WSL2 or CI).
   `--mock-standby` fake the routes, so the UI works without a console and a delete cannot touch it.
 - **Dashboard without a console.** `scripts/preview-app-ui.sh` renders the TV screens into `build/app-preview/`.
 - **Server on the PC.** `scripts/host-server.sh` builds sd-server natively (CPU or Metal) on `127.0.0.1:7860`.
+- **Update test.** `scripts/update-test.py --releases DIR --new build/app-ps5/title/PPSA99576` installs each old
+  release on the console, makes state with it, updates and checks (DIR: `<version>/PPSA99576.zip` from
+  `gh release download`). It saves the app's files to `DIR/saved-state.json` first and puts them back; a stopped
+  run is put back by the next one (`--restore`).
+- **Soak test.** `scripts/soak-test.py --minutes 60`: switches, images, a video, a queue, a cancel, a download,
+  an open event stream; it reports failures, gaps and the CPU heap.
 
 ## Console
 

@@ -60,7 +60,8 @@ ftp_size() { # <file>: size in bytes, empty if it does not exist
 ftp_put() { # <local> <remote> [extra curl args]
     local src=$1 dst=$2
     shift 2
-    fcurl --ftp-create-dirs "$@" -T "$src" "$(ftp_url "$dst")"
+    # An upload that stalls (under 1 KB/s for a minute) fails instead of waiting for ever.
+    fcurl --ftp-create-dirs --speed-limit 1024 --speed-time 60 "$@" -T "$src" "$(ftp_url "$dst")"
 }
 ftp_put_text() { # <remote> <text>
     printf '%s\n' "$2" | fcurl --ftp-create-dirs -T - "$(ftp_url "$1")"

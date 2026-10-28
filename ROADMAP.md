@@ -401,21 +401,6 @@ The second part of 1.0's "The API is fixed".
 - [x] **The docs** read against the title (README, MODELS.md, API.md, the Help tab); links to a heading work
   in the Help tab.
 
-## Later in 0.9.x
-
-**Web UI**
-
-- [ ] **React, TypeScript and Tailwind** (as in [issue 7](https://github.com/Darkatek7/PS5SD/issues/7)'s
-  fork): only built down to ES5 in one page, so the PS5's browser keeps working, and with every feature of
-  the current page. Not started; first a word with the people who would work on it.
-
-**Images**
-
-- [ ] **More ControlNets**: OpenPose and depth for SDXL. Without a preprocessor on the console they need
-  a pose or depth image, so only if people ask for them.
-- [ ] **Face and detail fix** (like ADetailer): sd.cpp can find faces with a YOLOv8 model; with 0.5.0's
-  masked inpainting this is a button that inpaints each face it finds.
-
 ## 1.0.0: ready
 
 No large features; 1.0 is the version that keeps its promises. It is out when all of these hold:
@@ -436,6 +421,29 @@ No large features; 1.0 is the version that keeps its promises. It is out when al
 - [ ] **The docs match the title**: README, Help tab, MODELS.md and API.md read against 1.0, with the
   screenshots of 0.8.0.
 - [ ] **No known crash** and no open bug labelled `bug` older than a release.
+
+## After 1.0
+
+1.x adds what does not break a client of the API; a change that breaks one (a route, a field, an error
+code that goes away or changes its meaning) waits for 2.0. In no fixed order:
+
+**Web UI**
+
+- [ ] **React, TypeScript and Tailwind** (as in [issue 7](https://github.com/Darkatek7/PS5SD/issues/7)'s
+  fork): only built down to ES5 in one page, so the PS5's browser keeps working, and with every feature of
+  the current page. Not started; first a word with the people who would work on it.
+
+**Images**
+
+- [ ] **More ControlNets**: OpenPose and depth for SDXL. Without a preprocessor on the console they need
+  a pose or depth image, so only if people ask for them.
+- [ ] **Face and detail fix** (like ADetailer): sd.cpp can find faces with a YOLOv8 model; with 0.5.0's
+  masked inpainting this is a button that inpaints each face it finds.
+
+**API**
+
+- [ ] **Tighter OpenAPI schemas**: some answers are described loosely (the download routes, the A1111
+  lists, `capabilities`); each gets its fields as API.md names them.
 
 ## Later, if needed
 
