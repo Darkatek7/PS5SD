@@ -200,6 +200,12 @@ instead of trapping, so `main.cpp` reports an out-of-memory load or generation a
   server-sent events. `sd_progress_cb`, the job worker and the job routes wake the streams; each stream
   holds one of cpp-httplib's threads, so there are at most four, and `sd_server_terminate()` ends them
   before the server stops.
+  `patches/sdcpp/0078` keeps the server up across a model switch: `sd_server_load()` frees the model and
+  loads the next one into the running server (a `ModelSlot`). The routes that use the model hold a
+  `shared_mutex` shared from the match of the route to the end of the handler (cpp-httplib's
+  pre-request and post-routing handlers, `install_model_gate`), the job worker holds it for each job,
+  and a load holds it alone. So a load waits for the generation that runs, and those requests wait for
+  the load. Without a model they answer 503 `standby`; the separate standby server of `0056` is gone.
   The request's own settings (steps, CFG, size) win over the server's defaults, which are sd.cpp's, not
   the one-shot's SD-Turbo ones. `main.cpp` defines the activity hooks of `server_hooks.h` (in its own
   object: from an archive, lld could take the weak no-ops instead), which feed the status and the
@@ -231,11 +237,13 @@ instead of trapping, so `main.cpp` reports an out-of-memory load or generation a
   loads) and `switching`. `POST /ps5sd/v1/app/models/active` with `{"id": ...}` writes `model.txt`
   (through a `.tmp` and a rename) and answers 202 with the same JSON; 400 for a body without an id,
   404 for an unknown id or a preset whose files are missing, 409 while a switch or a quit runs, 200
-  when that model is loaded already. The switch itself waits for the main loop, which calls
-  `sd_server_terminate()` after the answer is out; the worker then starts `sd_server()` again with the
-  new arguments (the job that runs ends first). When the new model does not load (`sd_server()`
-  returns non-zero), the worker writes back the last model that came up and starts that, so the web UI
-  stays reachable. A quit between two starts ends the loop before the next one.
+  when that model is loaded already. The server runs on a thread of its own, started once with
+  `--standby` and the model's arguments (`sd_server()` reads them and loads nothing); the worker then
+  loads each model into it with `sd_server_load()` (`patches/sdcpp/0078`), first the one `model.txt`
+  names, then the one each switch asks for (the job that runs ends first). The server stays up all the
+  while. When the new model does not load (`sd_server_load()` returns non-zero), the worker writes back
+  the last model that came up and loads that, or none (standby). A quit stops the server and ends the
+  worker once `sd_server()` has returned.
 - `DELETE /ps5sd/v1/app/models/<id>` deletes a preset with the files it names, or a checkpoint
   (`ModelLibrary::remove`). A file that another preset or the model in use names stays, and the answer
   lists it under `kept` next to `deleted` (with the library as `GET models` gives it). 409 for the model

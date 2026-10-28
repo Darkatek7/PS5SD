@@ -200,8 +200,8 @@ tab shows the same, each preset as a button.
 
 - **Use** on a preset switches to it. When it loads the same files with the same options as the model
   that is loaded, the switch is at once, without loading anything. Its settings take effect at once too:
-  they are the defaults of the API, set without a restart. Other files or options restart the server (the
-  model loads again, about a minute for SDXL).
+  they are the defaults of the API, set without loading anything. Other files or options load the model
+  again (about a minute for SDXL); the web UI and the API stay up meanwhile.
 - **Use** on the model loads its default preset, marked ★. A click on the ☆ of another preset makes that
   one the default; it is kept on the console (`default_presets` in the app's settings, see
   [API.md](API.md#app-settings)), so it holds in every browser. Only the web UI reads it: an API that

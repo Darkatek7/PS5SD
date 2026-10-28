@@ -180,13 +180,16 @@ The server holds one model in memory. A model is a **library entry**:
 - a **checkpoint**: a single `.safetensors`, `.ckpt` or `.gguf` file directly in `/data/PS5SD/models`
   (its id is the file name).
 
-`/data/PS5SD/model.txt` names the active entry. Switching the model writes that file and starts the
-server again with the new entry. Before it switches, the server finishes the job that is running.
+`/data/PS5SD/model.txt` names the active entry. Switching the model writes that file and loads the new
+entry into the running server. Before it loads, the server finishes the job that is running.
 
 - A switch takes as long as loading the model: a few seconds for small models, about a minute for SDXL
   or FLUX.
-- During a switch the API is gone for that time. Only the web UI and the library keep answering, and
-  `GET /ps5sd/v1/app/models` reports `"switching": true`.
+- Since 0.9.16 the server stays up during a switch: the web UI, the gallery, the library, the job list and
+  the [event stream](#events-progress-without-polling) keep answering, and `GET /ps5sd/v1/app/models`
+  reports `"switching": true`.
+- A request that needs the model (generating, upscaling, the capabilities, the LoRA and upscaler lists)
+  waits until the new one has loaded, and then runs on it. A job queued meanwhile stays `queued`.
 - If the new model does not load, the server goes back to the last model that worked.
 - If no model has ever loaded, it goes to **standby**.
 
@@ -195,15 +198,12 @@ the next model is loaded from. Unloading would free nothing that a switch does n
 
 ### Standby: no model
 
-When there is no model (a fresh install), or the only one does not load, the server starts without one.
-In standby it serves:
+When there is no model (a fresh install), or the only one does not load, the server runs without one.
+In standby it serves everything that needs no model: the web UI, the gallery, `/ps5sd/v1/app/*` (the
+library, the downloader and switching), the job list and the event stream.
 
-- the web UI;
-- the gallery;
-- `/ps5sd/v1/app/*`: the library, the downloader and switching;
-- `POST /sdapi/v1/options`.
-
-Every other route answers `503` with the code `standby`. In standby,
+The routes that need the model answer `503` with the code `standby`, and a queued job fails with that
+code. In standby,
 `GET /ps5sd/v1/app/models` reports `"standby": true`. A switch (`POST /ps5sd/v1/app/models/active`)
 loads a model and ends standby.
 
@@ -446,8 +446,7 @@ the web UI's login counts, so the page needs no header.
 - A change shows at most a second late.
 - At most four streams are open at once; a fifth gets `429` with the code `too_many_streams`. Close a stream
   you no longer read.
-- The stream ends when the server stops: when the title closes, and when it switches the model. Open it
-  again once `GET /ps5sd/v1/app/models` has the new model `loaded`.
+- The stream ends when the title closes. Since 0.9.16 it stays open during a model switch.
 
 ```sh
 curl -N http://<console>:7860/ps5sd/v1/events
@@ -480,10 +479,10 @@ These differ from A1111:
 - `txt2img` without `width` and `height` makes the server's default size (the loaded preset's, or
   `-W`/`-H` of `server-args.txt`), 512x512 only when there is none. A request that names one takes the
   other from the default too. `img2img` without a size keeps the size of its image.
-- `POST /sdapi/v1/options` answers at once, while A1111 answers once the model has loaded. Until then,
-  generate requests fail or wait. Poll `GET /ps5sd/v1/app/models` (or `GET /sdapi/v1/options`) for the
-  switch to end.
-- In standby only `POST /sdapi/v1/options` answers. The other `/sdapi/` routes answer `503`.
+- `POST /sdapi/v1/options` answers at once, while A1111 answers once the model has loaded. Generate
+  requests sent meanwhile wait for the load. Poll `GET /ps5sd/v1/app/models` (or `GET /sdapi/v1/options`)
+  for the switch to end.
+- In standby `txt2img`, `img2img` and the LoRA and upscaler lists answer `503`.
 - LoRAs go in a `lora` field, `[{"path": "<path as /sdapi/v1/loras lists it>", "multiplier": 1.0}]`,
   not as `<lora:name:1>` in the prompt: sd-server leaves such tags out. `POST /sdcpp/v1/img_gen` takes
   the same field. A path that is not in `/data/PS5SD/loras` fails the request.

@@ -1,0 +1,549 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: ps5sd <ps5sd@localhost>
+Date: Wed, 28 Oct 2026 12:00:00 +0100
+Subject: [PATCH] server: load another model without stopping the server
+
+A model switch stopped sd-server and started it again with the new model.
+For the time of the load (4 to 10 s on the console, a minute for some) nothing
+answered on the port: the web UI lost the server, an event stream ended, and
+a client could not wait for the switch on the connection that asked for it,
+since that connection died with the server.
+
+sd_server() now serves until sd_server_terminate(), with a model or without
+one (--standby, which reads the model's options and does not use them), and
+sd_server_load() loads another model into it while it serves, or none with
+--standby. The model, its options and the generation defaults are a slot of
+their own (ModelSlot) that the load replaces; the old model is freed before
+the new one loads, as before, since both take from the console's one memory
+pool. The routes that use the model hold a lock on it, shared, from the
+match of the route to the end of the handler (install_model_gate); the job
+worker holds it for each job; a load holds it alone. So a load waits for the
+generation that runs, and a request that needs the model waits for the load:
+a job queued meanwhile stays queued and runs on the new model. With no model
+loaded those routes answer 503 standby, and a queued job fails with that code.
+A cancel takes the context under a mutex of its own, so it never waits for a
+load. The separate standby server (0056) is gone.
+
+Measured with the library build and a driver on the PC: the port answered all
+through a load; a load asked for while a job ran waited for it (9.8 s), the job
+queued meanwhile ran on the new model; an event stream stayed open across two
+loads; a load that failed left the server in standby, and the next one worked.
+
+diff --git a/examples/server/async_jobs.cpp b/examples/server/async_jobs.cpp
+index 21f4ae1..6c685cc 100644
+--- a/examples/server/async_jobs.cpp
++++ b/examples/server/async_jobs.cpp
+@@ -6,6 +6,7 @@
+ #include <iomanip>
+ #include <new>
+ #include <random>
++#include <shared_mutex>
+ #include <sstream>
+ 
+ #include "common/log.h"
+@@ -500,7 +501,16 @@ void async_job_worker(ServerRuntime& runtime) {
+             if (manager.stop && manager.queue.empty()) {
+                 break;
+             }
+-
++        }
++        // PS5SD: the model lock before the job, so a model that loads goes first
++        // and the job stays queued until it runs on the one loaded then
++        // (main.cpp, ModelSlot). Taken without manager.mutex, as the routes do.
++        std::shared_lock<std::shared_mutex> model_lock;
++        if (runtime.model_mutex != nullptr) {
++            model_lock = std::shared_lock<std::shared_mutex>(*runtime.model_mutex);
++        }
++        {
++            std::unique_lock<std::mutex> lock(manager.mutex);
+             purge_expired_jobs(manager);
+             if (manager.queue.empty()) {
+                 continue;
+@@ -534,7 +544,10 @@ void async_job_worker(ServerRuntime& runtime) {
+         // that needs more throws std::bad_alloc outside the graph code, which catches
+         // its own. The job fails with a reason instead, and the server keeps running.
+         try {
+-            if (job->kind == AsyncJobKind::ImgGen) {
++            if (runtime.sd_ctx == nullptr) {
++                error_code    = "standby";
++                error_message = "no model is loaded; pick or download one in the web UI, tab Models";
++            } else if (job->kind == AsyncJobKind::ImgGen) {
+                 ok = execute_img_gen_job(runtime, manager, *job, output_images, error_message);
+             } else if (job->kind == AsyncJobKind::VidGen) {
+                 ok = execute_vid_gen_job(runtime,
+diff --git a/examples/server/gallery.cpp b/examples/server/gallery.cpp
+index 646fff6..fec3661 100644
+--- a/examples/server/gallery.cpp
++++ b/examples/server/gallery.cpp
+@@ -532,7 +532,7 @@ static bool interrupt_generation(ServerRuntime& rt) {
+         }
+     }
+     sd_server_failure_log_cancelled();
+-    sd_cancel_generation(rt.sd_ctx, SD_CANCEL_ALL);
++    cancel_generation(rt);
+     return async_job;
+ }
+ 
+diff --git a/examples/server/main.cpp b/examples/server/main.cpp
+index 7094678..2b6fc05 100644
+--- a/examples/server/main.cpp
++++ b/examples/server/main.cpp
+@@ -1,10 +1,14 @@
+ #include <atomic>
+ #include <cerrno>
+ #include <chrono>
++#include <condition_variable>
+ #include <cstdio>
+ #include <cstdlib>
++#include <cstring>
+ #include <iostream>
++#include <memory>
+ #include <mutex>
++#include <shared_mutex>
+ #include <string>
+ #include <thread>
+ #include <vector>
+@@ -166,137 +170,288 @@ static std::string embedded_index_html() {
+     return index_html;
+ }
+ 
+-// PS5SD: sd-server --standby [server options]: no model is loaded. It serves
+-// the web UI, the gallery and the application's routes (its model library and
+-// downloader, /ps5sd/v1/app/*), so a fresh install can fetch and pick its
+-// first model; every other route answers 503 until the application starts
+-// the server again with a model.
+-static int sd_server_standby(int argc, const char** argv) {
+-    SDSvrParams svr_params;
+-    std::vector<ArgOptions> options_vec = {svr_params.get_options()};
+-    if (!parse_options(argc, argv, options_vec) || !svr_params.resolve_and_validate()) {
+-        print_usage(argv[0], options_vec);
+-        return 1;
++// PS5SD: the model the server has loaded. sd_server_load() replaces it while the
++// server goes on serving, so a model switch does not take the API, the web UI or
++// an event stream down. The routes that use the model (install_model_gate) and
++// the job worker hold g_model_mutex shared while they use it; a load holds it
++// alone, so it waits for the generation that runs, and a request that needs the
++// model waits for the load. With no model loaded (--standby, or a load that
++// failed) those routes answer 503 standby.
++struct ModelSlot {
++    SDCtxPtr ctx;
++    // owned here, apart from the context, which may point into them
++    std::unique_ptr<SDContextParams> ctx_params     = std::make_unique<SDContextParams>();
++    std::unique_ptr<SDGenerationParams> gen_params = std::make_unique<SDGenerationParams>();
++};
++
++static std::shared_mutex g_model_mutex;
++// runtime.sd_ctx while sd_cancel_generation() uses it: a cancel must not wait for a load
++static std::mutex g_ctx_pointer_mutex;
++
++// The serving server, for sd_server_load(); null before it serves and once it stops.
++static std::mutex g_serving_mutex;
++static std::condition_variable g_serving_cv;
++static ServerRuntime* g_serving = nullptr;
++static ModelSlot* g_serving_slot = nullptr;
++static int g_loads_running       = 0;
++static bool g_serving_ended      = false;  // sd_server() has returned (or never served)
++
++void cancel_generation(ServerRuntime& rt) {
++    std::lock_guard<std::mutex> lock(g_ctx_pointer_mutex);
++    if (rt.sd_ctx != nullptr) {
++        sd_cancel_generation(rt.sd_ctx, SD_CANCEL_ALL);
+     }
+-    log_level = svr_params.log_level;
+-    log_color = svr_params.color;
+-    if (!load_key_option(svr_params)) {
+-        return 1;
++}
++
++// The routes that use the loaded model or its options.
++static bool needs_model(const std::string& path) {
++    static const char* const k_routes[] = {
++        "/v1/images/",          "/sdapi/v1/txt2img",      "/sdapi/v1/img2img",
++        "/sdapi/v1/loras",      "/sdapi/v1/upscalers",    "/sdcpp/v1/capabilities",
++        "/sdcpp/v1/upscale",    "/sdcpp/v1/img_gen",      "/sdcpp/v1/vid_gen",
++    };
++    for (const char* route : k_routes) {
++        if (path.compare(0, std::strlen(route), route) == 0) {
++            return true;
++        }
+     }
++    return false;
++}
+ 
+-    AsyncJobManager async_job_manager;
+-    ServerRuntime runtime = {};
+-    runtime.svr_params        = &svr_params;
+-    runtime.async_job_manager = &async_job_manager;
++// The model lock of the request this thread serves: taken after the route is
++// matched (pre-request), given back once the handler is done (post-routing,
++// which runs on the same thread before the answer is written).
++static thread_local std::shared_lock<std::shared_mutex> t_model_lock;
+ 
+-    httplib::Server svr;
+-    svr.set_socket_options(listener_socket_options);
+-    install_request_guard(svr);
+-    install_error_shape(svr);
+-    register_index_endpoints(svr, svr_params, embedded_index_html());
+-    register_ps5sd_endpoints(svr, runtime);
+-    register_event_endpoints(svr, runtime);
+-    const auto no_model = [](const httplib::Request&, httplib::Response& res) {
+-        send_api_error(res, 503, "standby", "no model is loaded; pick or download one in the web UI, tab Models");
+-    };
+-    svr.Get(".*", no_model);
+-    svr.Post(".*", no_model);
+-    svr.Delete(".*", no_model);
++static void install_model_gate(httplib::Server& svr, ServerRuntime& rt) {
++    ServerRuntime* runtime = &rt;
++    svr.set_pre_request_handler([runtime](const httplib::Request& req, httplib::Response& res) {
++        if (t_model_lock.owns_lock()) {
++            t_model_lock.unlock();
++        }
++        if (!needs_model(req.path)) {
++            return httplib::Server::HandlerResponse::Unhandled;
++        }
++        t_model_lock = std::shared_lock<std::shared_mutex>(g_model_mutex);
++        if (runtime->sd_ctx == nullptr) {
++            t_model_lock.unlock();
++            send_api_error(res, 503, "standby", "no model is loaded; pick or download one in the web UI, tab Models");
++            return httplib::Server::HandlerResponse::Handled;
++        }
++        return httplib::Server::HandlerResponse::Unhandled;
++    });
++    svr.set_post_routing_handler([](const httplib::Request&, httplib::Response&) {
++        if (t_model_lock.owns_lock()) {
++            t_model_lock.unlock();
++        }
++    });
++}
+ 
+-    LOG_INFO("standby, no model: listening on http://%s:%d\n", svr_params.listen_ip.c_str(), svr_params.listen_port);
+-    g_sd_server_svr   = &svr;
+-    const bool served = serve_until_terminated(svr, svr_params.listen_ip, svr_params.listen_port);
+-    g_sd_server_svr   = nullptr;
+-    if (!served) {
+-        LOG_ERROR("could not listen on %s:%d\n", svr_params.listen_ip.c_str(), svr_params.listen_port);
++// Loads the model that ctx_params name into slot, after the one there is freed
++// (both take from the console's one memory pool). g_model_mutex is held alone.
++static bool load_model(ServerRuntime& rt,
++                       ModelSlot& slot,
++                       std::unique_ptr<SDContextParams> ctx_params,
++                       std::unique_ptr<SDGenerationParams> gen_params) {
++    {
++        std::lock_guard<std::mutex> lock(g_ctx_pointer_mutex);
++        rt.sd_ctx = nullptr;
++    }
++    slot.ctx.reset();
++    if (ctx_params == nullptr) {
++        return true;  // --standby: no model
++    }
++    LOG_DEBUG("%s", ctx_params->to_string().c_str());
++    LOG_DEBUG("%s", gen_params->to_string().c_str());
++    sd_ctx_params_t sd_ctx_params = ctx_params->to_sd_ctx_params_t(false);
++    SDCtxPtr ctx(new_sd_ctx(&sd_ctx_params));
++    if (ctx == nullptr) {
++        LOG_ERROR("new_sd_ctx_t failed");
++        return false;
++    }
++    slot.ctx_params      = std::move(ctx_params);
++    slot.gen_params      = std::move(gen_params);
++    slot.ctx             = std::move(ctx);
++    rt.ctx_params        = slot.ctx_params.get();
++    rt.default_gen_params = slot.gen_params.get();
++    {
++        std::lock_guard<std::mutex> lock(g_ctx_pointer_mutex);
++        rt.sd_ctx = slot.ctx.get();
++    }
++    // the next list reads the new model's folders again
++    if (rt.lora_cache != nullptr) {
++        std::lock_guard<std::mutex> lock(*rt.lora_mutex);
++        rt.lora_cache->clear();
++    }
++    if (rt.upscaler_cache != nullptr) {
++        std::lock_guard<std::mutex> lock(*rt.upscaler_mutex);
++        rt.upscaler_cache->clear();
++    }
++    return true;
++}
++
++extern "C" int sd_server_load(int argc, char** argv_in) {
++    const char** argv  = const_cast<const char**>(argv_in);
++    const bool standby = argc > 1 && std::string(argv[1]) == "--standby";
++    std::unique_ptr<SDContextParams> ctx_params;
++    std::unique_ptr<SDGenerationParams> gen_params;
++    if (!standby) {
++        ctx_params = std::make_unique<SDContextParams>();
++        ctx_params->lora_model_dir.clear();  // as sd_server(): no scan of the current directory
++        gen_params = std::make_unique<SDGenerationParams>();
++        SDSvrParams server_options;  // the running server's stay as they are
++        if (parse_args(argc, argv, server_options, *ctx_params, *gen_params) >= 0) {
++            return 1;
++        }
++    }
++
++    ServerRuntime* rt = nullptr;
++    ModelSlot* slot   = nullptr;
++    {
++        std::unique_lock<std::mutex> lock(g_serving_mutex);
++        g_serving_cv.wait(lock, [] { return g_serving != nullptr || g_serving_ended || g_sd_server_stop; });
++        if (g_serving == nullptr) {
++            return 1;
++        }
++        rt   = g_serving;
++        slot = g_serving_slot;
++        g_loads_running++;
+     }
+-    g_sd_server_stop = false;
+-    sd_events_stop(false);
+-    return served ? 0 : 1;
++    bool ok;
++    {
++        std::unique_lock<std::shared_mutex> model(g_model_mutex);
++        ok = load_model(*rt, *slot, std::move(ctx_params), std::move(gen_params));
++    }
++    LOG_INFO("%s\n", standby ? "no model loaded (standby)" : ok ? "model loaded" : "the model did not load");
++    {
++        std::lock_guard<std::mutex> lock(g_serving_mutex);
++        g_loads_running--;
++    }
++    g_serving_cv.notify_all();
++    sd_events_notify();
++    return ok ? 0 : 1;
+ }
+ 
+ extern "C" void sd_server_terminate(void) {
+     g_sd_server_stop = true;
+     sd_events_stop(true);
++    g_serving_cv.notify_all();
+     httplib::Server* svr = g_sd_server_svr.load();
+     if (svr != nullptr) {
+         svr->stop();
+     }
+ }
+ 
++// PS5SD: sd-server [options] serves the model the options name; sd-server
++// --standby [server options] starts without one (a fresh install fetches and
++// picks its first model in the web UI). Either way sd_server_load() loads
++// another one while it serves.
+ extern "C" int sd_server(int argc, char** argv_in) {
+     const char** argv = const_cast<const char**>(argv_in);
+     if (argc > 1 && std::string(argv[1]) == "--version") {
+         std::cout << version_string() << "\n";
+         return EXIT_SUCCESS;
+     }
+-    if (argc > 1 && std::string(argv[1]) == "--standby") {
+-        std::vector<const char*> args(argv, argv + argc);
++    const bool standby = argc > 1 && std::string(argv[1]) == "--standby";
++    std::vector<const char*> args(argv, argv + argc);
++    if (standby) {
+         args.erase(args.begin() + 1);
+-        return sd_server_standby((int)args.size(), args.data());
+     }
++
+     SDSvrParams svr_params;
+-    SDContextParams ctx_params;
++    ModelSlot slot;
+     // Preserve the CLI default while disabling cwd scans for sd-server.
+-    ctx_params.lora_model_dir.clear();
+-    SDGenerationParams default_gen_params;
++    slot.ctx_params->lora_model_dir.clear();
+ 
++    {
++        std::lock_guard<std::mutex> lock(g_serving_mutex);
++        g_serving_ended = false;
++    }
+     sd_set_log_callback(sd_log_cb, (void*)&svr_params);
+-    const int parse_result = parse_args(argc, argv, svr_params, ctx_params, default_gen_params);
+-    if (parse_result >= 0) {
++    const auto stopped = [](int rc) {
+         sd_set_log_callback(nullptr, nullptr);
+-        return parse_result;
++        {
++            // a load asked for from now on returns at once
++            std::lock_guard<std::mutex> lock(g_serving_mutex);
++            g_serving_ended = true;
++        }
++        g_serving_cv.notify_all();
++        g_sd_server_stop = false;
++        sd_events_stop(false);
++        return rc;
++    };
++    if (standby) {
++        // The model's options may be there too (an application passes what it
++        // gives sd_server_load() later): read, and not used.
++        SDContextParams unused_ctx_params;
++        SDGenerationParams unused_gen_params;
++        std::vector<ArgOptions> options_vec = {
++            svr_params.get_options(),
++            unused_ctx_params.get_options(),
++            unused_gen_params.get_options(),
++        };
++        if (!parse_options((int)args.size(), args.data(), options_vec) || !svr_params.resolve_and_validate()) {
++            print_usage(args[0], options_vec);
++            return stopped(svr_params.normal_exit ? 0 : 1);
++        }
++        log_level = svr_params.log_level;
++        log_color = svr_params.color;
++    } else {
++        const int parse_result = parse_args((int)args.size(), args.data(), svr_params, *slot.ctx_params, *slot.gen_params);
++        if (parse_result >= 0) {
++            return stopped(parse_result);
++        }
+     }
+     if (!load_key_option(svr_params)) {
+-        sd_set_log_callback(nullptr, nullptr);
+-        return 1;
++        return stopped(1);
+     }
+ 
+     LOG_VERBOSE("version: %s", version_string().c_str());
+     LOG_VERBOSE("%s", sd_get_system_info());
+     LOG_VERBOSE("%s", svr_params.to_string().c_str());
+-    LOG_DEBUG("%s", ctx_params.to_string().c_str());
+-    LOG_DEBUG("%s", default_gen_params.to_string().c_str());
+-
+-    sd_ctx_params_t sd_ctx_params = ctx_params.to_sd_ctx_params_t(false);
+-    SDCtxPtr sd_ctx(new_sd_ctx(&sd_ctx_params));
+-
+-    if (sd_ctx == nullptr) {
+-        LOG_ERROR("new_sd_ctx_t failed");
+-        sd_set_log_callback(nullptr, nullptr);
+-        g_sd_server_stop = false;
+-        sd_events_stop(false);
+-        return 1;
+-    }
+-
+-    sd_set_progress_callback(sd_progress_cb, nullptr);
+ 
+     std::mutex sd_ctx_mutex;
+-
+     std::vector<LoraEntry> lora_cache;
+     std::mutex lora_mutex;
+     std::vector<UpscalerEntry> upscaler_cache;
+     std::mutex upscaler_mutex;
+     AsyncJobManager async_job_manager;
+     ServerRuntime runtime = {
+-        sd_ctx.get(),
++        nullptr,
+         &sd_ctx_mutex,
+         &svr_params,
+-        &ctx_params,
+-        &default_gen_params,
++        slot.ctx_params.get(),
++        slot.gen_params.get(),
+         &lora_cache,
+         &lora_mutex,
+         &upscaler_cache,
+         &upscaler_mutex,
+         &async_job_manager,
++        &g_model_mutex,
+     };
+ 
++    if (!standby) {
++        // the model before the port: a plain sd-server stops at once on a bad one
++        std::unique_ptr<SDContextParams> ctx_params     = std::move(slot.ctx_params);
++        std::unique_ptr<SDGenerationParams> gen_params = std::move(slot.gen_params);
++        slot.ctx_params                                = std::make_unique<SDContextParams>();
++        slot.gen_params                                = std::make_unique<SDGenerationParams>();
++        std::unique_lock<std::shared_mutex> model(g_model_mutex);
++        if (!load_model(runtime, slot, std::move(ctx_params), std::move(gen_params))) {
++            return stopped(1);
++        }
++    } else {
++        LOG_INFO("standby, no model\n");
++    }
++
++    sd_set_progress_callback(sd_progress_cb, nullptr);
+     std::thread async_worker(async_job_worker, std::ref(runtime));
+ 
+     httplib::Server svr;
+     svr.set_socket_options(listener_socket_options);
+     install_request_guard(svr);
+     install_error_shape(svr);
++    install_model_gate(svr, runtime);
+     register_index_endpoints(svr, svr_params, embedded_index_html());
+     register_openai_api_endpoints(svr, runtime);
+     register_sdapi_endpoints(svr, runtime);
+@@ -304,6 +459,13 @@ extern "C" int sd_server(int argc, char** argv_in) {
+     register_ps5sd_endpoints(svr, runtime);
+     register_event_endpoints(svr, runtime);
+ 
++    {
++        std::lock_guard<std::mutex> lock(g_serving_mutex);
++        g_serving      = &runtime;
++        g_serving_slot = &slot;
++    }
++    g_serving_cv.notify_all();
++
+     LOG_INFO("listening on: http://%s:%d\n", svr_params.listen_ip.c_str(), svr_params.listen_port);
+     g_sd_server_svr = &svr;
+     const bool served = serve_until_terminated(svr, svr_params.listen_ip, svr_params.listen_port);
+@@ -312,17 +474,26 @@ extern "C" int sd_server(int argc, char** argv_in) {
+         LOG_ERROR("could not listen on %s:%d\n", svr_params.listen_ip.c_str(), svr_params.listen_port);
+     }
+ 
++    {
++        // no new load; one that runs ends first
++        std::unique_lock<std::mutex> lock(g_serving_mutex);
++        g_serving      = nullptr;
++        g_serving_slot = nullptr;
++        g_serving_cv.wait(lock, [] { return g_loads_running == 0; });
++    }
+     {
+         std::lock_guard<std::mutex> lock(async_job_manager.mutex);
+         async_job_manager.stop = true;
+     }
+     async_job_manager.cv.notify_all();
+     async_worker.join();
++    {
++        // the model is freed before sd_server() returns, as the caller expects
++        std::unique_lock<std::shared_mutex> model(g_model_mutex);
++        load_model(runtime, slot, nullptr, nullptr);
++    }
+     sd_set_progress_callback(nullptr, nullptr);
+-    sd_set_log_callback(nullptr, nullptr);
+-    g_sd_server_stop = false;
+-    sd_events_stop(false);
+-    return served ? 0 : 1;
++    return stopped(served ? 0 : 1);
+ }
+ 
+ #ifndef SD_SERVER_NO_MAIN
+diff --git a/examples/server/routes_sdcpp.cpp b/examples/server/routes_sdcpp.cpp
+index 5e7441e..635fc50 100644
+--- a/examples/server/routes_sdcpp.cpp
++++ b/examples/server/routes_sdcpp.cpp
+@@ -867,7 +867,7 @@ void register_sdcpp_api_endpoints(httplib::Server& svr, ServerRuntime& rt) {
+         if (job.status == AsyncJobStatus::Generating) {
+             job.cancel_requested = true;
+             sd_server_failure_log_cancelled();
+-            sd_cancel_generation(runtime->sd_ctx, SD_CANCEL_ALL);
++            cancel_generation(*runtime);
+             res.status = 202;
+             res.set_content(make_async_job_json(manager, job).dump(), "application/json");
+             return;
+diff --git a/examples/server/runtime.h b/examples/server/runtime.h
+index 2e695b4..fde5007 100644
+--- a/examples/server/runtime.h
++++ b/examples/server/runtime.h
+@@ -4,6 +4,7 @@
+ #include <cstdint>
+ #include <filesystem>
+ #include <mutex>
++#include <shared_mutex>
+ #include <string>
+ #include <vector>
+ 
+@@ -62,8 +63,13 @@ struct ServerRuntime {
+     std::vector<UpscalerEntry>* upscaler_cache;
+     std::mutex* upscaler_mutex;
+     AsyncJobManager* async_job_manager;
++    // PS5SD: held shared while the model is used, alone while another one loads (main.cpp, ModelSlot)
++    std::shared_mutex* model_mutex;
+ };
+ 
++// PS5SD: stops the generation that runs (sd_cancel_generation), without waiting for a model that loads.
++void cancel_generation(ServerRuntime& rt);
++
+ struct ImgGenJobRequest {
+     SDGenerationParams gen_params;
+     bool temporary            = false;  // PS5SD: saved as tmp_<name>, not in the gallery's list
