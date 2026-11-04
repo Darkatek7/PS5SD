@@ -1,6 +1,6 @@
 # Roadmap
 
-What is planned for PS5SD, in order, up to 1.0. Each version is one release in the homebrew store. Ideas
+What is planned for PS5SD, in order. Each version is one release in the homebrew store. Ideas
 and wishes go into [issues](https://github.com/Darkatek7/PS5SD/issues); this file says what comes next and
 why.
 
@@ -430,23 +430,112 @@ No large features; 1.0 is the version that keeps its promises. It is out when al
 ## After 1.0
 
 1.x adds what does not break a client of the API; a change that breaks one (a route, a field, an error
-code that goes away or changes its meaning) waits for 2.0. In no fixed order:
+code that goes away or changes its meaning) waits for 2.0.
 
-**Web UI**
+The plan as of 2026-11-04, in order. 1.3.0 only touches the web UI and the app's own routes, so it can be
+worked on next to 1.1.0 and 1.2.0. The times below are those of 1.0.0 on the console
+([CONSOLE.md](docs/CONSOLE.md)); every new number goes there with its date and build.
+
+## 1.1.0: two pictures for Edit, and how fast a model loads ([issue 13](https://github.com/Darkatek7/PS5SD/issues/13))
+
+Issue 13 asks for a pose (a skeleton of one or more people, for sprite sheets) and a character from a
+reference picture, with a prompt and no setup. FLUX.2 Klein takes several reference pictures, so this
+needs no ControlNet and no preprocessor.
+
+- [ ] **Try it through the API first**: `POST /sdcpp/v1/img_gen` with two `ref_images` (a pose skeleton
+  and a character) on Klein 4B Q8_0 and Klein 9B Q4_0, 1024x1024, 4 steps. Write down whether the pose
+  holds, whether the character holds, the time, and the pool after the run. Klein 9B leaves under 1 GiB in
+  its largest part after one image, so a second reference may not fit there; then try smaller references,
+  or offer it on Klein 4B only.
+- [ ] **A second picture in Edit**: the web UI sends one reference (`ps5/webui/src/js/09-generation.js`,
+  `ref_images = [p.req.init]`). "Edit by the prompt" gets a second, optional slot, shown only for a model
+  that takes references. The gallery's Edit and Use all fill the first one.
+- [ ] **A preset "Pose and character"** in the catalog (`ps5/app/catalog.hpp`), on Klein 4B, with prompt
+  starters that name the two pictures, so the issue's "download the preset, give it two pictures and a
+  prompt" works. `docs/MODELS.md` and `docs/API.md` say how to use it.
+- [ ] **Pictures in by drag and drop and by paste**: a file dropped on a picture slot (Edit, Guide, the
+  references), or Ctrl+V of a picture, fills it. The `paste` event carries the picture over plain HTTP;
+  only `navigator.clipboard.read` needs HTTPS.
+- [ ] **Where a model's load time goes**: Klein 9B takes 49 s warm but 102 s as the first image after a
+  start, and 139 s with a LoRA after a switch (the soak test). That is about 11 GB in 53 s, some 210 MB/s.
+  A switch to `sdxl-base` (`--eager-load`) reads its 5.4 GB in 8.6 s, about 630 MB/s. So the disk is not
+  the whole story: Klein loads its weights during the first step, and its text encoder is Q4_K. Measure
+  it: sd.cpp's "loading tensors completed" line splits reading, converting and copying; a plain read of a
+  large file in the title gives the disk's side; and Klein with `--eager-load`. If the title's reads slow
+  down the way its writes do after 1.4 GB, try what helped there (another process on loopback), or
+  larger reads in several threads. Then `--eager-load` for the presets where it pays, and the result in
+  CONSOLE.md either way.
+- [ ] **`sdxl-full` converted once**: the f16 checkpoint (6.9 GB) is converted to Q8_0 at every load, so a
+  switch takes 17.7 s against 8.6 s for `sdxl-base`. Convert it once after the download and load the GGUF.
+  sd.cpp's own conversion holds the whole model in CPU memory, which the title does not have (about
+  2 GB), and the title's writes slow down after 1.4 GB, so it has to go tensor by tensor and through
+  `ftp_writer.cpp`, with a host test. If that turns out too large, point the entry at a ready Q8_0 GGUF
+  instead.
+
+## 1.2.0: the stable-diffusion.cpp of November
+
+`third_party/stable-diffusion.cpp` is at `b13a482`. On 2026-11-04 upstream `master` was 73 commits
+ahead (`58bb3c1`). The numbers below are upstream's pull requests.
+
+- [ ] **Rebase** `patches/sdcpp` (37 patches, 30 of them in the server) and `patches/ggml` onto upstream.
+  Upstream rebuilt the parts our server patches touch: models managed by recipes (#2176, #2188, #2221),
+  cancelling a running job (#2190, next to our 0055), the generation's metadata in its result (#2206,
+  next to 0074 and 0075). Where upstream now does the same thing, take its version and drop our patch;
+  what `docs/API.md` promises stays as it is. The `host` CI job checks that the series applies.
+- [ ] **Speed** from upstream, measured on the console, not assumed: Vulkan kernels, graph fusion and
+  reused workspaces (#2251, #2252), fused GEGLU and GLU (#2245, #2250; the SDXL and SD 1.5 UNets use
+  them), Z-Image fusions and BF16 GEMM (#2265), position embeddings kept between runs (#2211). The
+  baseline: Z-Image Turbo 1024x1024 89 s, SDXL Base 29 s, Klein 9B 49 s warm, Wan 2.1 1.3B (9 frames at
+  832x480) 87 s.
+- [ ] **Fixes** that come with it: the hires fix keeps the step count it was given (#2227), Vulkan's free
+  memory checked again after a reclaim (#2256), small-BAR heaps (#2181), Wan's VAE decode plans (#2197).
+- [ ] **Face and detail fix**: upstream's server does ADetailer now (#2164). A face detector in the
+  catalog, a **Fix faces** button under the result and in the viewer, and the field in
+  `/sdcpp/v1/img_gen` and the A1111 routes. Measure the time it adds on an SDXL picture with two faces.
+- [ ] **Z-Image ControlNet** (#2187): the Union model (pose, depth, edges) in the catalog, for Guide on
+  Z-Image Turbo. With a pose picture this is a second way to issue 13's pose, on another model.
+- [ ] Soak test and update test again; the new times into CONSOLE.md and, where they changed, into the
+  catalog and `docs/MODELS.md`.
+
+## 1.3.0: the web UI, smaller steps
+
+Each one tested in a browser with `scripts/webui-dev.py` (`--mock-*` without a console) on a PC, a phone
+and the PS5's own browser, which needs ES5.
+
+- [ ] **The result's buttons in one row**: on a PC the seven buttons under the result wrap, and Delete
+  ends up alone on a second line (`docs/images/webui-pc-create.jpg`). Icons with a label for Download,
+  Run again, Upscale, Edit and Delete; Use seed and Open full size go into a ⋯ menu.
+- [ ] **Prompt history**: the last 50 prompts, with the negative prompt and the model, kept on the
+  console (in `/ps5sd/v1/app/settings` or a route of their own) so every browser has them. A button at the
+  prompt opens the list; a click puts one back.
+- [ ] **Favourites**: a ★ in the viewer and on the gallery's tiles, and a filter for them. Kept with the
+  names and tags (`/ps5sd/v1/app/gallery/labels`, a `fav` field), not in the file.
+- [ ] **Open like an app on a phone**: `apple-touch-icon`, `apple-mobile-web-app-capable` and a web
+  manifest with the title's icon, so a shortcut on the home screen opens without the browser's bars.
+  Android installs a full web app only over HTTPS; the shortcut works without it.
+- [ ] **Outpainting**: make an image larger on one or more sides (Edit, "Extend", 128 to 512 px a side).
+  The page puts the picture on a larger canvas with a mask over the new part and runs the masked
+  inpainting of 0.5.0.
+- [ ] **Wildcards**: `{red|blue|green}` in a prompt picks one for each image of a batch. The page expands
+  it before each job, so it works for every model and every API client sees a plain prompt; the image
+  keeps the expanded prompt.
+- [ ] `docs/API.md` for the new routes and fields; the Help tab shows it.
+
+## 1.4.0: the gallery on the TV
+
+- [ ] **A slideshow with the DualSense**: the gallery in full screen on the TV. Left and right step
+  through it, Options starts and stops it, Circle goes back to the dashboard; new images join it while it
+  runs, and a running job shows its progress in a corner. `third_party/ps5-homebrew-ui/src/platform/ps5/pad.hpp`
+  reads the pad; `ps5/app/dashboard.cpp` already decodes the gallery's PNGs one per frame. The dashboard
+  without a console: `scripts/preview-app-ui.sh`.
+
+## 1.x, no version yet
 
 - [ ] **React, TypeScript and Tailwind** (as in [issue 7](https://github.com/Darkatek7/PS5SD/issues/7)'s
   fork): only built down to ES5 in one page, so the PS5's browser keeps working, and with every feature of
   the current page. Not started; first a word with the people who would work on it.
-
-**Images**
-
 - [ ] **More ControlNets**: OpenPose and depth for SDXL. Without a preprocessor on the console they need
-  a pose or depth image, so only if people ask for them.
-- [ ] **Face and detail fix** (like ADetailer): sd.cpp can find faces with a YOLOv8 model; with 0.5.0's
-  masked inpainting this is a button that inpaints each face it finds.
-
-**API**
-
+  a pose or depth image, so only if people ask for them (1.2.0 brings one for Z-Image).
 - [ ] **Tighter OpenAPI schemas**: some answers are described loosely (the download routes, the A1111
   lists, `capabilities`); each gets its fields as API.md names them.
 
