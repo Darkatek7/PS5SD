@@ -1,0 +1,93 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: ps5sd <ps5sd@localhost>
+Date: Thu, 12 Nov 2026 21:00:00 +0100
+Subject: [PATCH] server: LoRA paths without realpath()
+
+Since upstream's model management (#2176), sd-server checks each LoRA path
+with fs::canonical, which calls realpath(). On the PS5 realpath() fails.
+fs::weakly_canonical then gives an empty path without an error, so the LoRA
+directory became "", fs::exists("") threw, and the server listed no LoRA.
+A request with one failed.
+
+model_canonical() tries fs::canonical first. Where that fails, an absolute
+path that exists is taken as it is, made normal by its text. The LoRA scan
+and get_lora_full_path use it, and make_model_root takes the normal path
+when weakly_canonical gives an empty one. The console has no links in
+/data, so a LoRA cannot lead out of its directory that way.
+---
+ examples/server/model_catalog.cpp | 20 +++++++++++++++++++-
+ examples/server/model_catalog.h   |  2 ++
+ examples/server/runtime.cpp       |  4 ++--
+ 3 files changed, 23 insertions(+), 3 deletions(-)
+
+diff --git a/examples/server/model_catalog.cpp b/examples/server/model_catalog.cpp
+index f665567..315104c 100644
+--- a/examples/server/model_catalog.cpp
++++ b/examples/server/model_catalog.cpp
+@@ -100,12 +100,30 @@ bool model_path_inside(const fs::path& root, const fs::path& path) {
+     return child != path.end();
+ }
+ 
++// PS5SD: realpath() fails on the PS5, so fs::canonical does too, and
++// fs::weakly_canonical gives an empty path without an error. An absolute path
++// that exists is then taken as it is, made normal by its text. The console has
++// no links in /data, so nothing can lead out of a directory that way.
++fs::path model_canonical(const fs::path& path, std::error_code& ec) {
++    fs::path canonical = fs::canonical(path, ec);
++    if (!ec && !canonical.empty())
++        return canonical;
++    std::error_code exists_ec;
++    if (path.is_absolute() && fs::exists(path, exists_ec) && !exists_ec) {
++        ec.clear();
++        return path.lexically_normal();
++    }
++    if (!ec)
++        ec = std::make_error_code(std::errc::no_such_file_or_directory);
++    return {};
++}
++
+ ModelRoot make_model_root(const fs::path& path, bool primary) {
+     ModelRoot root;
+     const auto absolute = fs::absolute(path);
+     std::error_code ec;
+     root.path = fs::weakly_canonical(absolute, ec);
+-    if (ec)
++    if (ec || root.path.empty())  // PS5SD: empty where realpath() fails
+         root.path = absolute.lexically_normal();
+     root.primary  = primary;
+     uint64_t hash = 14695981039346656037ULL;
+diff --git a/examples/server/model_catalog.h b/examples/server/model_catalog.h
+index 2e45fd1..2d210d3 100644
+--- a/examples/server/model_catalog.h
++++ b/examples/server/model_catalog.h
+@@ -26,6 +26,8 @@ struct ModelFile {
+ std::string model_path_key(const std::filesystem::path& path);
+ bool model_path_inside(const std::filesystem::path& root, const std::filesystem::path& path);
+ ModelRoot make_model_root(const std::filesystem::path& path, bool primary);
++// PS5SD: fs::canonical, or the absolute path made normal where realpath() fails.
++std::filesystem::path model_canonical(const std::filesystem::path& path, std::error_code& ec);
+ std::vector<ModelRoot> get_model_roots(const SDSvrParams& params);
+ std::vector<std::filesystem::path> model_category_directories(const ModelRoot& root, const std::string& category);
+ 
+diff --git a/examples/server/runtime.cpp b/examples/server/runtime.cpp
+index 9fc89d0..3f0fbc7 100644
+--- a/examples/server/runtime.cpp
++++ b/examples/server/runtime.cpp
+@@ -473,7 +473,7 @@ void refresh_lora_cache(ServerRuntime& rt) {
+                 continue;
+             for (fs::recursive_directory_iterator it(directory.path), end; it != end; ++it) {
+                 std::error_code ec;
+-                const auto canonical = fs::canonical(it->path(), ec);
++                const auto canonical = model_canonical(it->path(), ec);  // PS5SD
+                 if (ec || !model_path_inside(directory.path, canonical)) {
+                     it.disable_recursion_pending();
+                     LOG_WARN("skipping inaccessible LoRA or path outside LoRA directory: %s", it->path().u8string().c_str());
+@@ -515,7 +515,7 @@ std::string get_lora_full_path(ServerRuntime& rt, const std::string& path) {
+     if (it == rt.lora_cache->end())
+         return "";
+     std::error_code ec;
+-    const auto canonical = fs::canonical(fs::u8path(it->fullpath), ec);
++    const auto canonical = model_canonical(fs::u8path(it->fullpath), ec);  // PS5SD
+     if (ec || !model_path_inside(it->root, canonical) || !fs::is_regular_file(canonical, ec) || ec)
+         return "";
+     return canonical.u8string();

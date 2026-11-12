@@ -273,7 +273,9 @@ instead of trapping, so `main.cpp` reports an out-of-memory load or generation a
   carry a `kind` (`models` or `loras`, `download_core.cpp`); a Civitai version whose model type is
   LORA, LoCon or DoRA gets `loras` by itself. The A1111 routes refresh sd-server's LoRA cache before
   they look a `lora` path up, as its sdcpp routes do, so a LoRA added after the start is found. Up to
-  1.1 `patches/sdcpp/0058` did that; upstream does it since #2176.
+  1.1 `patches/sdcpp/0058` did that; upstream does it since #2176. Upstream checks each LoRA path
+  with `fs::canonical`, and `realpath()` fails on the PS5; `patches/sdcpp/0084` takes an absolute path
+  that exists as it is then.
 - Without a display (`PS5SD_NO_DISPLAY`): no `Display`, no renderer. Every phase (`set_phase`)
   goes to `app.log` as `ps5sd: status: ...`, to the kernel log through `sceKernelDebugOutText`
   (klogsrv, `scripts/ps5sd-app.sh log -f`) and to a system notification; the sampling progress

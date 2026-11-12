@@ -499,6 +499,9 @@ needs no ControlNet and no preprocessor.
     model routes are not registered, and its model status stays filled for `/sdcpp/v1/capabilities`.
   - 0082: upstream scales the guide for the hires pass of Z-Image's ControlNet (#2187); the patch
     keeps it for the others.
+  - 0084 is new: upstream checks each LoRA path with `fs::canonical` now (#2176), which needs
+    `realpath()`, and that fails on the PS5. The server then listed no LoRA. Where `realpath()` fails,
+    an absolute path that exists counts as it is.
 - [x] **Checked on the PC** (2026-11-12): the series gives the tree it was built from, sd-server builds
   on the CPU, and with SD-Turbo a `repeat` job, the gallery's info, a cancel of a running job, A1111's
   `interrupt` and `txt2img`, the events and `scripts/check-openapi.py` work. The app's one-shot mode uses
