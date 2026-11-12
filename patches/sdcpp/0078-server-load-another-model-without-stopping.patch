@@ -36,7 +36,7 @@ loads; a load that failed left the server in standby, and the next one worked.
  4 files changed, 297 insertions(+), 87 deletions(-)
 
 diff --git a/examples/server/async_jobs.cpp b/examples/server/async_jobs.cpp
-index fcd9cb1..119b745 100644
+index 9994210..c220bfa 100644
 --- a/examples/server/async_jobs.cpp
 +++ b/examples/server/async_jobs.cpp
 @@ -7,6 +7,7 @@

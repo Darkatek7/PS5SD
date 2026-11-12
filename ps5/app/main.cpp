@@ -623,7 +623,7 @@ void generate_once() {
         std::free(text);
     }
     set_phase("Generating", options.prompt);
-    // The result owns its images and their generation info (sd.cpp since 1.2.0).
+    // The result owns its images and their generation info (the sd.cpp of PS5SD 1.1.0 on).
     sd_image_generation_result_t * result = nullptr;
     const bool   ok     = generate_image(ctx, &gen_params, &result);
     const int    count  = ok && result != nullptr ? result->count : 0;

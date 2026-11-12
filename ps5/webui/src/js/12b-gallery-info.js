@@ -7,7 +7,7 @@
 
   function baseName(path) { return String(path || '').split('/').pop(); }
 
-  // sd.cpp's JSON of an image in the shape this page reads. Since 1.2.0 sd.cpp writes
+  // sd.cpp's JSON of an image in the shape this page reads. Since PS5SD 1.1.0 sd.cpp writes
   // "sdcpp.generation/v1": the prompt a string next to negative_prompt, sample_params, LoRAs by path,
   // video_frames and fps. Images made before keep "sdcpp.image.params/v1": prompt.positive and
   // .negative, sampling, LoRAs by name, video.

@@ -46,7 +46,7 @@ index 39f19f7..c95a00d 100644
      gallery.cpp
      routes_index.cpp
 diff --git a/examples/server/async_jobs.cpp b/examples/server/async_jobs.cpp
-index b3fccae..fcd9cb1 100644
+index b3fccae..9994210 100644
 --- a/examples/server/async_jobs.cpp
 +++ b/examples/server/async_jobs.cpp
 @@ -13,6 +13,7 @@
@@ -64,7 +64,7 @@ index b3fccae..fcd9cb1 100644
 -    result["created"]          = job.created_at;
 -    result["started"]          = job.started_at == 0 ? json(nullptr) : json(job.started_at);
 -    result["completed"]        = job.completed_at == 0 ? json(nullptr) : json(job.completed_at);
-+    // PS5SD: in seconds, as up to 1.1 (upstream counts milliseconds since #2176), so a client keeps working.
++    // PS5SD: in seconds, as in 1.0 (upstream counts milliseconds since #2176), so a client keeps working.
 +    result["created"]          = job.created_at / 1000;
 +    result["started"]          = job.started_at == 0 ? json(nullptr) : json(job.started_at / 1000);
 +    result["completed"]        = job.completed_at == 0 ? json(nullptr) : json(job.completed_at / 1000);

@@ -10,6 +10,8 @@ can rely on.
 
 ## Done
 
+- **1.1.0**: the stable-diffusion.cpp of November (upstream `32d516c`); images carry its new generation info,
+  which the gallery reads beside the old; the times and memory are those of 1.0.
 - **1.0.0**: an update keeps everything (tested from 0.5.0 on), a soak test, the docs read against the
   title with new screenshots, a home screen background of its own.
 - **0.9.18**: the open measurements; a guide image with the hires fix no longer ends PS5SD; the fit hint
@@ -427,16 +429,56 @@ No large features; 1.0 is the version that keeps its promises. It is out when al
   measurements found are fixed, and a 38-minute soak test ran without a failure
   ([CONSOLE.md](docs/CONSOLE.md#a-soak-test-before-10-2026-10-28)).
 
+## 1.1.0: the stable-diffusion.cpp of November, done
+
+`third_party/stable-diffusion.cpp` was at `b13a482`. On 2026-11-12 it moved to upstream `master`
+`32d516c` (111 commits), its ggml to `d803c23`. The numbers below are upstream's pull requests.
+
+- [x] **Rebase** `patches/sdcpp` and `patches/ggml` onto upstream (2026-11-12). The ggml patches and
+  0001 to 0003, 0070 and 0073 applied as they were; the rest was ported:
+  - 0055: upstream cancels a running job itself now (#2190), so the patch keeps only what `docs/API.md`
+    promises on top: `202` for a running job, `/ps5sd/v1/jobs`, A1111's `interrupt` and `skip`.
+  - 0058 is gone: the A1111 routes refresh the LoRA cache themselves (#2176).
+  - 0066 (repeat), 0071 and 0072 (out of memory) run around upstream's new generation API
+    (`sd_image_generation_result_t`, ADetailer, the cancel monitor).
+  - 0067 moved to `execution_engine.cpp`, where upstream put the graph's execution (#2321): the
+    engine says when a whole graph failed before any of it ran, and `GGMLRunner::compute` builds it
+    again and runs it in segments.
+  - 0068 and 0075: a saved image's parameters come from upstream's generation info (#2206), A1111's
+    text with sd.cpp's JSON at the end, as upstream's own PNGs have them. The JSON's schema changed
+    (`sdcpp.generation/v1`); the gallery viewer reads both, so older images keep their info. The
+    gallery writes its text (with `Preset:` and `Time:`) into the PNG itself, since upstream's encoder
+    now takes the JSON and writes its own text.
+  - 0077: upstream counts the jobs' times in milliseconds now; the job routes and the events give
+    seconds, as in 1.0, so a client keeps working.
+  - 0078: upstream manages models itself now (#2176, recipes), but refuses a switch while a job is
+    queued and answers 503 while one loads. The app keeps loading through `sd_server_load()`; upstream's
+    model routes are not registered, and its model status stays filled for `/sdcpp/v1/capabilities`.
+  - 0082: upstream scales the guide for the hires pass of Z-Image's ControlNet (#2187); the patch
+    keeps it for the others.
+  - 0084 is new: upstream checks each LoRA path with `fs::canonical` now (#2176), which needs
+    `realpath()`, and that fails on the PS5. The server then listed no LoRA. Where `realpath()` fails,
+    an absolute path that exists counts as it is.
+- [x] **Checked on the PC** (2026-11-12): the series gives the tree it was built from, sd-server builds
+  on the CPU, and with SD-Turbo a `repeat` job, the gallery's info, a cancel of a running job, A1111's
+  `interrupt` and `txt2img`, the events and `scripts/check-openapi.py` work. The app's one-shot mode uses
+  upstream's new `generate_image` result (`ps5/app/main.cpp`).
+- [x] **Build and test the title** (2026-11-12, CI's build of `sdcpp-november`): switches between presets,
+  an image with a LoRA on Klein 9B, a cancel, a repeat job, a video, the hires fix with a guide image, the
+  gallery's info of an image from 1.0 and a new one, and a soak test of 25 minutes with no failure
+  (`docs/CONSOLE.md`). It found 0084 (no LoRA was listed) and a job's `created` in milliseconds.
+
 ## After 1.0
 
 1.x adds what does not break a client of the API; a change that breaks one (a route, a field, an error
 code that goes away or changes its meaning) waits for 2.0.
 
-The plan as of 2026-11-04, in order. 1.3.0 only touches the web UI and the app's own routes, so it can be
-worked on next to 1.1.0 and 1.2.0. The times below are those of 1.0.0 on the console
+The plan as of 2026-11-04, in order (1.1.0 was taken by the stable-diffusion.cpp of November on
+2026-11-12, so the rest moved up one number). 1.4.0 only touches the web UI and the app's own routes, so it
+can be worked on next to 1.2.0 and 1.3.0. The times below are those of 1.0.0 on the console
 ([CONSOLE.md](docs/CONSOLE.md)); every new number goes there with its date and build.
 
-## 1.1.0: two pictures for Edit, and how fast a model loads ([issue 13](https://github.com/Darkatek7/PS5SD/issues/13))
+## 1.2.0: two pictures for Edit, and how fast a model loads ([issue 13](https://github.com/Darkatek7/PS5SD/issues/13))
 
 Issue 13 asks for a pose (a skeleton of one or more people, for sprite sheets) and a character from a
 reference picture, with a prompt and no setup. FLUX.2 Klein takes several reference pictures, so this
@@ -472,45 +514,10 @@ needs no ControlNet and no preprocessor.
   `ftp_writer.cpp`, with a host test. If that turns out too large, point the entry at a ready Q8_0 GGUF
   instead.
 
-## 1.2.0: the stable-diffusion.cpp of November
+## 1.3.0: what the stable-diffusion.cpp of November brings
 
-`third_party/stable-diffusion.cpp` was at `b13a482`. On 2026-11-12 it moved to upstream `master`
-`32d516c` (111 commits), its ggml to `d803c23`. The numbers below are upstream's pull requests.
+1.1.0 moved PS5SD onto it with the times of 1.0. This release uses what is new in it.
 
-- [x] **Rebase** `patches/sdcpp` and `patches/ggml` onto upstream (2026-11-12). The ggml patches and
-  0001 to 0003, 0070 and 0073 applied as they were; the rest was ported:
-  - 0055: upstream cancels a running job itself now (#2190), so the patch keeps only what `docs/API.md`
-    promises on top: `202` for a running job, `/ps5sd/v1/jobs`, A1111's `interrupt` and `skip`.
-  - 0058 is gone: the A1111 routes refresh the LoRA cache themselves (#2176).
-  - 0066 (repeat), 0071 and 0072 (out of memory) run around upstream's new generation API
-    (`sd_image_generation_result_t`, ADetailer, the cancel monitor).
-  - 0067 moved to `execution_engine.cpp`, where upstream put the graph's execution (#2321): the
-    engine says when a whole graph failed before any of it ran, and `GGMLRunner::compute` builds it
-    again and runs it in segments.
-  - 0068 and 0075: a saved image's parameters come from upstream's generation info (#2206), A1111's
-    text with sd.cpp's JSON at the end, as upstream's own PNGs have them. The JSON's schema changed
-    (`sdcpp.generation/v1`); the gallery viewer reads both, so older images keep their info. The
-    gallery writes its text (with `Preset:` and `Time:`) into the PNG itself, since upstream's encoder
-    now takes the JSON and writes its own text.
-  - 0077: upstream counts the jobs' times in milliseconds now; the job routes and the events give
-    seconds, as up to 1.1, so a client keeps working.
-  - 0078: upstream manages models itself now (#2176, recipes), but refuses a switch while a job is
-    queued and answers 503 while one loads. The app keeps loading through `sd_server_load()`; upstream's
-    model routes are not registered, and its model status stays filled for `/sdcpp/v1/capabilities`.
-  - 0082: upstream scales the guide for the hires pass of Z-Image's ControlNet (#2187); the patch
-    keeps it for the others.
-  - 0084 is new: upstream checks each LoRA path with `fs::canonical` now (#2176), which needs
-    `realpath()`, and that fails on the PS5. The server then listed no LoRA. Where `realpath()` fails,
-    an absolute path that exists counts as it is.
-- [x] **Checked on the PC** (2026-11-12): the series gives the tree it was built from, sd-server builds
-  on the CPU, and with SD-Turbo a `repeat` job, the gallery's info, a cancel of a running job, A1111's
-  `interrupt` and `txt2img`, the events and `scripts/check-openapi.py` work. The app's one-shot mode uses
-  upstream's new `generate_image` result (`ps5/app/main.cpp`).
-- [x] **Build and test the title** (2026-11-12, CI's build of `sdcpp-november`): switches between presets,
-  an image with a LoRA on Klein 9B, a cancel, a repeat job, a video, the hires fix with a guide image, the
-  gallery's info of an image from 1.0 and one from 1.2, and a soak test of 25 minutes with no failure
-  (`docs/CONSOLE.md`). It found 0084 (no LoRA was listed) and a job's `created` in milliseconds.
-- [ ] In a browser: the gallery viewer's info and Use all on an image from 1.0 and one from 1.2.
 - [ ] **Speed** from upstream, measured on the console, not assumed: Vulkan kernels, graph fusion and
   reused workspaces (#2251, #2252), fused GEGLU and GLU (#2245, #2250; the SDXL and SD 1.5 UNets use
   them), Z-Image fusions and BF16 GEMM (#2265), position embeddings kept between runs (#2211). The
@@ -523,10 +530,12 @@ needs no ControlNet and no preprocessor.
   `/sdcpp/v1/img_gen` and the A1111 routes. Measure the time it adds on an SDXL picture with two faces.
 - [ ] **Z-Image ControlNet** (#2187): the Union model (pose, depth, edges) in the catalog, for Guide on
   Z-Image Turbo. With a pose picture this is a second way to issue 13's pose, on another model.
+- [ ] **The gallery viewer in a browser**: its info and Use all on an image from 1.0 and one from 1.1. The
+  conversion of the new JSON (`infoShape` in `12b-gallery-info.js`) was tested with node only.
 - [ ] Soak test and update test again; the new times into CONSOLE.md and, where they changed, into the
   catalog and `docs/MODELS.md`.
 
-## 1.3.0: the web UI, smaller steps
+## 1.4.0: the web UI, smaller steps
 
 Each one tested in a browser with `scripts/webui-dev.py` (`--mock-*` without a console) on a PC, a phone
 and the PS5's own browser, which needs ES5.
@@ -550,7 +559,7 @@ and the PS5's own browser, which needs ES5.
   keeps the expanded prompt.
 - [ ] `docs/API.md` for the new routes and fields; the Help tab shows it.
 
-## 1.4.0: the gallery on the TV
+## 1.5.0: the gallery on the TV
 
 - [ ] **A slideshow with the DualSense**: the gallery in full screen on the TV. Left and right step
   through it, Options starts and stops it, Circle goes back to the dashboard; new images join it while it
@@ -564,7 +573,7 @@ and the PS5's own browser, which needs ES5.
   fork): only built down to ES5 in one page, so the PS5's browser keeps working, and with every feature of
   the current page. Not started; first a word with the people who would work on it.
 - [ ] **More ControlNets**: OpenPose and depth for SDXL. Without a preprocessor on the console they need
-  a pose or depth image, so only if people ask for them (1.2.0 brings one for Z-Image).
+  a pose or depth image, so only if people ask for them (1.3.0 brings one for Z-Image).
 - [ ] **Tighter OpenAPI schemas**: some answers are described loosely (the download routes, the A1111
   lists, `capabilities`); each gets its fields as API.md names them.
 
