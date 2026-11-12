@@ -16,12 +16,12 @@ Subject: [PATCH] server: API key, CORS without credentials, request size limit
  create mode 100644 examples/server/auth.h
 
 diff --git a/examples/server/CMakeLists.txt b/examples/server/CMakeLists.txt
-index 5a383c9..00c24f3 100644
+index de86a9c..d77400c 100644
 --- a/examples/server/CMakeLists.txt
 +++ b/examples/server/CMakeLists.txt
-@@ -73,6 +73,7 @@ set(SD_SERVER_SOURCES
-     main.cpp
-     runtime.cpp
+@@ -77,6 +77,7 @@ set(SD_SERVER_SOURCES
+     model_catalog.cpp
+     routes_models.cpp
      async_jobs.cpp
 +    auth.cpp
      server_hooks.cpp
@@ -456,7 +456,7 @@ index 0000000..0e080d6
 +void sd_server_set_api_key(const char* key);
 +}
 diff --git a/examples/server/main.cpp b/examples/server/main.cpp
-index 813fba7..38b55a2 100644
+index 3126780..de2514b 100644
 --- a/examples/server/main.cpp
 +++ b/examples/server/main.cpp
 @@ -12,6 +12,7 @@
@@ -466,8 +466,8 @@ index 813fba7..38b55a2 100644
 +#include "auth.h"
  #include "common/common.h"
  #include "common/resource_owners.hpp"
- #include "routes.h"
-@@ -137,24 +138,14 @@ static bool serve_until_terminated(httplib::Server& svr, const std::string& host
+ #include "model_catalog.h"
+@@ -142,24 +143,14 @@ static bool serve_until_terminated(httplib::Server& svr, const std::string& host
      return true;
  }
  
@@ -500,7 +500,7 @@ index 813fba7..38b55a2 100644
  }
  
  static std::string embedded_index_html() {
-@@ -183,6 +174,9 @@ static int sd_server_standby(int argc, const char** argv) {
+@@ -188,6 +179,9 @@ static int sd_server_standby(int argc, const char** argv) {
      }
      log_level = svr_params.log_level;
      log_color = svr_params.color;
@@ -510,7 +510,7 @@ index 813fba7..38b55a2 100644
  
      AsyncJobManager async_job_manager;
      ServerRuntime runtime = {};
-@@ -191,7 +185,7 @@ static int sd_server_standby(int argc, const char** argv) {
+@@ -196,7 +190,7 @@ static int sd_server_standby(int argc, const char** argv) {
  
      httplib::Server svr;
      svr.set_socket_options(listener_socket_options);
@@ -519,7 +519,7 @@ index 813fba7..38b55a2 100644
      register_index_endpoints(svr, svr_params, embedded_index_html());
      register_ps5sd_endpoints(svr, runtime);
      const auto no_model = [](const httplib::Request&, httplib::Response& res) {
-@@ -245,6 +239,10 @@ extern "C" int sd_server(int argc, char** argv_in) {
+@@ -250,6 +244,10 @@ extern "C" int sd_server(int argc, char** argv_in) {
          sd_set_log_callback(nullptr, nullptr);
          return parse_result;
      }
@@ -530,7 +530,7 @@ index 813fba7..38b55a2 100644
  
      LOG_VERBOSE("version: %s", version_string().c_str());
      LOG_VERBOSE("%s", sd_get_system_info());
-@@ -288,8 +286,7 @@ extern "C" int sd_server(int argc, char** argv_in) {
+@@ -310,8 +308,7 @@ extern "C" int sd_server(int argc, char** argv_in) {
  
      httplib::Server svr;
      svr.set_socket_options(listener_socket_options);
@@ -541,10 +541,10 @@ index 813fba7..38b55a2 100644
      register_openai_api_endpoints(svr, runtime);
      register_sdapi_endpoints(svr, runtime);
 diff --git a/examples/server/runtime.cpp b/examples/server/runtime.cpp
-index d72fec2..b17cd6c 100644
+index 3196c9e..5c81e1b 100644
 --- a/examples/server/runtime.cpp
 +++ b/examples/server/runtime.cpp
-@@ -193,6 +193,7 @@ ArgOptions SDSvrParams::get_options() {
+@@ -348,6 +348,7 @@ ArgOptions SDSvrParams::get_options() {
          {"-l", "--listen-ip", "server listen ip (default: 127.0.0.1)", 0, &listen_ip},
          {"", "--serve-html-path", "path to HTML file to serve at root (optional)", 0, &serve_html_path},
          {"", "--output-dir", "directory where every generated image is also saved as PNG; listed at GET /ps5sd/v1/gallery (optional)", 0, &output_dir},
@@ -553,17 +553,14 @@ index d72fec2..b17cd6c 100644
  
      options.int_options = {
 diff --git a/examples/server/runtime.h b/examples/server/runtime.h
-index 3d47021..7946f3f 100644
+index 8b47635..88cf258 100644
 --- a/examples/server/runtime.h
 +++ b/examples/server/runtime.h
-@@ -23,6 +23,7 @@ struct SDSvrParams {
-     int listen_port       = 1234;
+@@ -27,6 +27,7 @@ struct SDSvrParams {
      std::string serve_html_path;
+     std::vector<std::string> model_dirs;
      std::string output_dir;  // --output-dir: every generated image is also saved here as PNG
 +    std::string api_key_file;  // --api-key-file: requests need the key in its first line (auth.h)
-     bool normal_exit = false;
+     bool normal_exit         = false;
      sd_log_level_t log_level = SD_LOG_INFO;
-     bool color       = false;
--- 
-2.56.0
-
+     bool color               = false;

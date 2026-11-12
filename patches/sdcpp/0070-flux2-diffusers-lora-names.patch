@@ -9,11 +9,14 @@ linear_out, nor the single blocks' attn.to_qkv_mlp_proj and attn.to_out. A
 FLUX.2 Klein 9B LoRA in PEFT's diffusers names applied 128 of its 280 tensors
 (the attention of the double blocks); with these six names it applies all.
 ---
+ src/name_conversion.cpp | 10 ++++++++++
+ 1 file changed, 10 insertions(+)
+
 diff --git a/src/name_conversion.cpp b/src/name_conversion.cpp
-index 6a519ba..c5820c9 100644
+index 79179f6..bce3321 100644
 --- a/src/name_conversion.cpp
 +++ b/src/name_conversion.cpp
-@@ -659,6 +659,12 @@ std::string convert_diffusers_dit_to_original_flux(std::string name) {
+@@ -696,6 +696,12 @@ std::string convert_diffusers_dit_to_original_flux(std::string name) {
              flux_name_map[block_prefix + "ff_context.net.2.weight"]      = dst_prefix + "txt_mlp.2.weight";
              flux_name_map[block_prefix + "ff_context.net.2.bias"]        = dst_prefix + "txt_mlp.2.bias";
  
@@ -26,7 +29,7 @@ index 6a519ba..c5820c9 100644
              // output projections
              flux_name_map[block_prefix + "attn.to_out.0.weight"]   = dst_prefix + "img_attn.proj.weight";
              flux_name_map[block_prefix + "attn.to_out.0.bias"]     = dst_prefix + "img_attn.proj.bias";
-@@ -690,6 +696,10 @@ std::string convert_diffusers_dit_to_original_flux(std::string name) {
+@@ -727,6 +733,10 @@ std::string convert_diffusers_dit_to_original_flux(std::string name) {
              flux_name_map[dst_prefix + "norm.key_norm.weight"]   = dst_prefix + "norm.key_norm.scale";
              flux_name_map[block_prefix + "proj_out.weight"]      = dst_prefix + "linear2.weight";
              flux_name_map[block_prefix + "proj_out.bias"]        = dst_prefix + "linear2.bias";
@@ -37,6 +40,3 @@ index 6a519ba..c5820c9 100644
          }
  
          // --- final layers ---
--- 
-2.47.0
-

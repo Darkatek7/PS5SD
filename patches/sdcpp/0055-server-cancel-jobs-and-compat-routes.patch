@@ -5,60 +5,16 @@ Subject: [PATCH] server: stop running jobs, list and cancel the queue, A1111
  interrupt; the application answers the model routes
 
 ---
- examples/server/async_jobs.cpp    | 11 +++-
- examples/server/async_jobs.h      |  2 +
  examples/server/gallery.cpp       | 97 +++++++++++++++++++++++++++++++
- examples/server/gallery.h         |  8 ++-
- examples/server/routes_openai.cpp |  8 ++-
+ examples/server/gallery.h         |  6 ++
+ examples/server/routes_openai.cpp |  6 +-
  examples/server/routes_sdapi.cpp  | 10 +++-
- examples/server/routes_sdcpp.cpp  | 14 +++--
+ examples/server/routes_sdcpp.cpp  |  3 +-
  examples/server/server_hooks.h    |  3 +
- 8 files changed, 142 insertions(+), 11 deletions(-)
+ 6 files changed, 121 insertions(+), 4 deletions(-)
 
-diff --git a/examples/server/async_jobs.cpp b/examples/server/async_jobs.cpp
-index 53a12c7..ff2d608 100644
---- a/examples/server/async_jobs.cpp
-+++ b/examples/server/async_jobs.cpp
-@@ -419,7 +419,7 @@ void async_job_worker(ServerRuntime& runtime) {
-             }
- 
-             job->completed_at = unix_timestamp_now();
--            if (ok) {
-+            if (ok && !job->cancel_requested) {
-                 job->status                 = AsyncJobStatus::Completed;
-                 job->result_images_b64      = std::move(output_images);
-                 job->result_media_b64       = std::move(output_media_b64);
-@@ -428,6 +428,15 @@ void async_job_worker(ServerRuntime& runtime) {
-                 job->result_fps             = output_fps;
-                 job->error_code.clear();
-                 job->error_message.clear();
-+            } else if (job->cancel_requested) {
-+                job->status        = AsyncJobStatus::Cancelled;
-+                job->error_code    = "cancelled";
-+                job->error_message = "job cancelled by client";
-+                job->result_images_b64.clear();
-+                job->result_media_b64.clear();
-+                job->result_media_mime_type.clear();
-+                job->result_frame_count = 0;
-+                job->result_fps         = 0;
-             } else {
-                 job->status        = AsyncJobStatus::Failed;
-                 job->error_code    = "generation_failed";
-diff --git a/examples/server/async_jobs.h b/examples/server/async_jobs.h
-index 2fe79bb..b10959c 100644
---- a/examples/server/async_jobs.h
-+++ b/examples/server/async_jobs.h
-@@ -49,6 +49,8 @@ struct AsyncGenerationJob {
-     int preview_pass          = 0;
-     int preview_step          = 0;
-     int preview_total_steps   = 0;
-+    // PS5SD: set when a client cancels the job while it generates.
-+    bool cancel_requested = false;
- };
- 
- struct AsyncJobManager {
 diff --git a/examples/server/gallery.cpp b/examples/server/gallery.cpp
-index 58c7663..25fc822 100644
+index e8fb0f5..aeaab16 100644
 --- a/examples/server/gallery.cpp
 +++ b/examples/server/gallery.cpp
 @@ -17,6 +17,7 @@
@@ -101,7 +57,7 @@ index 58c7663..25fc822 100644
 +        j.erase("preview");
 +        j.erase("result");
 +        j["prompt"]           = job.kind == AsyncJobKind::VidGen ? job.vid_gen.gen_params.prompt : job.img_gen.gen_params.prompt;
-+        j["cancel_requested"] = job.cancel_requested;
++        j["cancel_requested"] = job.cancel_requested.load();
 +        jobs.push_back(j);
 +    }
 +    std::sort(jobs.begin(), jobs.end(), [](const json& a, const json& b) { return a["created"] < b["created"]; });
@@ -117,7 +73,7 @@ index 58c7663..25fc822 100644
 +        std::lock_guard<std::mutex> lock(rt.async_job_manager->mutex);
 +        for (auto& kv : rt.async_job_manager->jobs) {
 +            if (kv.second->status == AsyncJobStatus::Generating) {
-+                kv.second->cancel_requested = true;
++                kv.second->cancel_requested.store(true);
 +                async_job                   = true;
 +            }
 +        }
@@ -175,7 +131,7 @@ index 58c7663..25fc822 100644
      svr.Get(R"(/ps5sd/v1/app/(.+))", app_route);
      svr.Post(R"(/ps5sd/v1/app/(.+))", app_route);
 diff --git a/examples/server/gallery.h b/examples/server/gallery.h
-index a31fac8..5d7e872 100644
+index 775f8bf..2a60ed0 100644
 --- a/examples/server/gallery.h
 +++ b/examples/server/gallery.h
 @@ -4,9 +4,15 @@
@@ -188,61 +144,58 @@ index a31fac8..5d7e872 100644
  // PS5SD: --output-dir. Saves every generated image there as a PNG
  // (sd_<date>_<time>_<n>.png) and returns the full paths that were written.
  // Does nothing, and returns an empty list, when --output-dir is not set.
--std::vector<std::string> save_output_images(const SDSvrParams& svr_params, SDImageVec& images);
-+std::vector<std::string> save_output_images(const SDSvrParams& svr_params, SDImageVec& images);
+ std::vector<std::string> save_output_images(const SDSvrParams& svr_params, SDImageVec& images);
 +
 +// PS5SD: asks the application (sd_app_request) for "compat/<name>", so it can
 +// answer a route of the A1111 or OpenAI API itself (its model library, model
 +// switches). True when it did; false leaves the route to its own handler.
 +bool app_compat_route(const char* name, const httplib::Request& req, httplib::Response& res);
 diff --git a/examples/server/routes_openai.cpp b/examples/server/routes_openai.cpp
-index 7ec4d58..abfe5f9 100644
+index f936a54..9b44b20 100644
 --- a/examples/server/routes_openai.cpp
 +++ b/examples/server/routes_openai.cpp
-@@ -4,7 +4,8 @@
- #include <ctime>
+@@ -5,6 +5,7 @@
  #include <regex>
  
--#include "common/common.h"
-+#include "common/common.h"
+ #include "common/common.h"
 +#include "gallery.h"
  #include "common/media_io.h"
  #include "common/resource_owners.hpp"
  #include "gallery.h"
-@@ -257,7 +258,10 @@ static bool execute_sync_img_gen_request(ServerRuntime& runtime,
- void register_openai_api_endpoints(httplib::Server& svr, ServerRuntime& rt) {
+@@ -251,7 +252,10 @@ void register_openai_api_endpoints(httplib::Server& svr, ServerRuntime& rt) {
      ServerRuntime* runtime = &rt;
+     RuntimeRoutes routes(svr, rt);
  
--    svr.Get("/v1/models", [runtime](const httplib::Request&, httplib::Response& res) {
-+    svr.Get("/v1/models", [runtime](const httplib::Request& req, httplib::Response& res) {
+-    routes.get("/v1/models", [runtime](const httplib::Request&, httplib::Response& res) {
++    routes.get("/v1/models", [runtime](const httplib::Request& req, httplib::Response& res) {
 +        if (app_compat_route("models", req, res)) {
 +            return;
 +        }
          json r;
          r["data"] = json::array();
-         r["data"].push_back({{"id", "sd-cpp-local"}, {"object", "model"}, {"owned_by", "local"}});
+         if (runtime->sd_ctx) {
 diff --git a/examples/server/routes_sdapi.cpp b/examples/server/routes_sdapi.cpp
-index a5dea89..5a81b2c 100644
+index 60eef34..f517e06 100644
 --- a/examples/server/routes_sdapi.cpp
 +++ b/examples/server/routes_sdapi.cpp
-@@ -590,7 +590,10 @@ void register_sdapi_endpoints(httplib::Server& svr, ServerRuntime& rt) {
+@@ -790,7 +790,10 @@ void register_sdapi_endpoints(httplib::Server& svr, ServerRuntime& rt) {
          res.set_content(r.dump(), "application/json");
      });
  
--    svr.Get("/sdapi/v1/sd-models", [runtime](const httplib::Request&, httplib::Response& res) {
-+    svr.Get("/sdapi/v1/sd-models", [runtime](const httplib::Request& req, httplib::Response& res) {
+-    routes.get("/sdapi/v1/sd-models", [runtime](const httplib::Request&, httplib::Response& res) {
++    routes.get("/sdapi/v1/sd-models", [runtime](const httplib::Request& req, httplib::Response& res) {
 +        if (app_compat_route("sd-models", req, res)) {
 +            return;
 +        }
          fs::path model_path = resolve_display_model_path(*runtime);
          json entry;
          entry["title"]      = model_path.stem().u8string();
-@@ -604,7 +607,10 @@ void register_sdapi_endpoints(httplib::Server& svr, ServerRuntime& rt) {
+@@ -806,7 +809,10 @@ void register_sdapi_endpoints(httplib::Server& svr, ServerRuntime& rt) {
          res.set_content(r.dump(), "application/json");
      });
  
--    svr.Get("/sdapi/v1/options", [runtime](const httplib::Request&, httplib::Response& res) {
-+    svr.Get("/sdapi/v1/options", [runtime](const httplib::Request& req, httplib::Response& res) {
+-    routes.get("/sdapi/v1/options", [runtime](const httplib::Request&, httplib::Response& res) {
++    routes.get("/sdapi/v1/options", [runtime](const httplib::Request& req, httplib::Response& res) {
 +        if (app_compat_route("options", req, res)) {
 +            return;
 +        }
@@ -250,54 +203,23 @@ index a5dea89..5a81b2c 100644
          json r;
          r["samples_format"]      = "png";
 diff --git a/examples/server/routes_sdcpp.cpp b/examples/server/routes_sdcpp.cpp
-index a6c8a1e..9f490f7 100644
+index 1d11b89..b849018 100644
 --- a/examples/server/routes_sdcpp.cpp
 +++ b/examples/server/routes_sdcpp.cpp
-@@ -204,7 +204,7 @@ static json make_img_gen_features_json() {
-         {"hires", true},
-         {"cache", true},
-         {"cancel_queued", true},
--        {"cancel_generating", false},
-+        {"cancel_generating", true},
-         {"preview", true},
-     };
- }
-@@ -219,7 +219,7 @@ static json make_vid_gen_features_json() {
-         {"vae_tiling", true},
-         {"cache", true},
-         {"cancel_queued", true},
--        {"cancel_generating", false},
-+        {"cancel_generating", true},
-         {"preview", true},
-     };
- }
-@@ -362,7 +362,7 @@ static json make_capabilities_json(ServerRuntime& runtime) {
-     json top_level_output_formats = json::array();
-     json top_level_features       = {
-               {"cancel_queued", true},
--              {"cancel_generating", false},
-+              {"cancel_generating", true},
-     };
-     std::string current_mode = "";
-     if (supports_img) {
-@@ -817,9 +817,13 @@ void register_sdcpp_api_endpoints(httplib::Server& svr, ServerRuntime& rt) {
+@@ -850,9 +850,10 @@ void register_sdcpp_api_endpoints(httplib::Server& svr, ServerRuntime& rt) {
              return;
          }
  
-+        // PS5SD: a generating job is stopped through sd.cpp's cancel flag; the
-+        // worker marks it cancelled once generate_image() has returned.
++        // PS5SD: 202, the job stops after the current step and ends cancelled.
          if (job.status == AsyncJobStatus::Generating) {
--            res.status = 409;
--            res.set_content(R"({"error":"job is currently generating and cannot be interrupted yet"})", "application/json");
-+            job.cancel_requested = true;
-+            sd_cancel_generation(runtime->sd_ctx, SD_CANCEL_ALL);
+             job.cancel_requested.store(true);
+-            res.status = 200;
 +            res.status = 202;
-+            res.set_content(make_async_job_json(manager, job).dump(), "application/json");
+             res.set_content(make_async_job_json(manager, job).dump(), "application/json");
              return;
          }
- 
 diff --git a/examples/server/server_hooks.h b/examples/server/server_hooks.h
-index ce9cc7e..9a80775 100644
+index 36fc6fc..fee9aa1 100644
 --- a/examples/server/server_hooks.h
 +++ b/examples/server/server_hooks.h
 @@ -41,6 +41,9 @@ void sd_activity_job_end(int ok, const char* output_path);
@@ -310,6 +232,3 @@ index ce9cc7e..9a80775 100644
  int sd_app_request(const char* method, const char* path, const char* body, size_t body_len,
                     char** out_body, size_t* out_len, const char** content_type);
  
--- 
-2.56.0.windows.2
-

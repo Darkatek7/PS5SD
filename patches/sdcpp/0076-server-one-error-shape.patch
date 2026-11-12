@@ -22,13 +22,28 @@ rate_limited, queue_full, out_of_memory, generation_failed, cancelled. A
 failed job's code says out_of_memory now too (sd_server_failure_code). A
 body that is not JSON is 400 invalid_request instead of 500, and an
 exception out of a route is 500 server_error with what was thrown.
+---
+ examples/server/CMakeLists.txt    |   1 +
+ examples/server/api_error.cpp     | 155 ++++++++++++++++++++++++++++++
+ examples/server/api_error.h       |  55 +++++++++++
+ examples/server/async_jobs.cpp    |   7 +-
+ examples/server/auth.cpp          |  11 ++-
+ examples/server/main.cpp          |   7 +-
+ examples/server/routes_openai.cpp |  19 +---
+ examples/server/routes_sdapi.cpp  |  12 +--
+ examples/server/routes_sdcpp.cpp  |  25 ++---
+ examples/server/server_activity.h |   3 +
+ examples/server/server_hooks.cpp  |   8 ++
+ 11 files changed, 253 insertions(+), 50 deletions(-)
+ create mode 100644 examples/server/api_error.cpp
+ create mode 100644 examples/server/api_error.h
 
 diff --git a/examples/server/CMakeLists.txt b/examples/server/CMakeLists.txt
-index 00c24f3..2eeaf03 100644
+index d77400c..39f19f7 100644
 --- a/examples/server/CMakeLists.txt
 +++ b/examples/server/CMakeLists.txt
-@@ -74,6 +74,7 @@ set(SD_SERVER_SOURCES
-     runtime.cpp
+@@ -78,6 +78,7 @@ set(SD_SERVER_SOURCES
+     routes_models.cpp
      async_jobs.cpp
      auth.cpp
 +    api_error.cpp
@@ -258,10 +273,10 @@ index 0000000..3125b42
 +// exception handler that answers 500 server_error with what was thrown.
 +void install_error_shape(httplib::Server& svr);
 diff --git a/examples/server/async_jobs.cpp b/examples/server/async_jobs.cpp
-index e60cdd6..d91826b 100644
+index e68fc6c..b3fccae 100644
 --- a/examples/server/async_jobs.cpp
 +++ b/examples/server/async_jobs.cpp
-@@ -524,6 +524,7 @@ void async_job_worker(ServerRuntime& runtime) {
+@@ -646,6 +646,7 @@ void async_job_worker(ServerRuntime& runtime) {
          int output_frame_count = 0;
          int output_fps         = 0;
          std::string error_message;
@@ -269,7 +284,7 @@ index e60cdd6..d91826b 100644
          bool ok = false;
  
          // PS5SD: an exception out of a generation ended this thread and with it the
-@@ -548,6 +549,7 @@ void async_job_worker(ServerRuntime& runtime) {
+@@ -671,6 +672,7 @@ void async_job_worker(ServerRuntime& runtime) {
              clear_preview_callback();
              LOG_ERROR("job %s: out of CPU memory (std::bad_alloc)", job->id.c_str());
              ok            = false;
@@ -277,7 +292,7 @@ index e60cdd6..d91826b 100644
              error_message = "Not enough CPU memory on the console for this run. Close and open PS5SD to free it.";
          } catch (const std::exception& error) {
              clear_preview_callback();
-@@ -555,6 +557,9 @@ void async_job_worker(ServerRuntime& runtime) {
+@@ -678,6 +680,9 @@ void async_job_worker(ServerRuntime& runtime) {
              ok            = false;
              error_message = std::string("Generation failed: ") + error.what();
          }
@@ -287,15 +302,15 @@ index e60cdd6..d91826b 100644
  
          {
              std::lock_guard<std::mutex> lock(manager.mutex);
-@@ -584,7 +589,7 @@ void async_job_worker(ServerRuntime& runtime) {
-                 job->result_fps         = 0;
+@@ -704,7 +709,7 @@ void async_job_worker(ServerRuntime& runtime) {
+                 job->error_message.clear();
              } else {
                  job->status        = AsyncJobStatus::Failed;
 -                job->error_code    = "generation_failed";
 +                job->error_code    = error_code;
                  job->error_message = error_message.empty() ? "unknown generation error" : error_message;
                  job->result_images_b64.clear();
-                 job->result_media_b64.clear();
+                 job->result_generation_info = nullptr;
 diff --git a/examples/server/auth.cpp b/examples/server/auth.cpp
 index d869847..e6b0b96 100644
 --- a/examples/server/auth.cpp
@@ -350,7 +365,7 @@ index d869847..e6b0b96 100644
          }
          const std::string raw = body["key"].get<std::string>();
 diff --git a/examples/server/main.cpp b/examples/server/main.cpp
-index 1519810..aeb00d5 100644
+index 68d07e3..3e4c10c 100644
 --- a/examples/server/main.cpp
 +++ b/examples/server/main.cpp
 @@ -11,6 +11,7 @@
@@ -361,7 +376,7 @@ index 1519810..aeb00d5 100644
  #include "async_jobs.h"
  #include "auth.h"
  #include "common/common.h"
-@@ -189,12 +190,11 @@ static int sd_server_standby(int argc, const char** argv) {
+@@ -194,12 +195,11 @@ static int sd_server_standby(int argc, const char** argv) {
      httplib::Server svr;
      svr.set_socket_options(listener_socket_options);
      install_request_guard(svr);
@@ -376,7 +391,7 @@ index 1519810..aeb00d5 100644
      };
      svr.Get(".*", no_model);
      svr.Post(".*", no_model);
-@@ -290,6 +290,7 @@ extern "C" int sd_server(int argc, char** argv_in) {
+@@ -312,6 +312,7 @@ extern "C" int sd_server(int argc, char** argv_in) {
      httplib::Server svr;
      svr.set_socket_options(listener_socket_options);
      install_request_guard(svr);
@@ -385,7 +400,7 @@ index 1519810..aeb00d5 100644
      register_openai_api_endpoints(svr, runtime);
      register_sdapi_endpoints(svr, runtime);
 diff --git a/examples/server/routes_openai.cpp b/examples/server/routes_openai.cpp
-index ff4aec6..7030640 100644
+index 26cb1a4..78df131 100644
 --- a/examples/server/routes_openai.cpp
 +++ b/examples/server/routes_openai.cpp
 @@ -5,6 +5,7 @@
@@ -396,7 +411,7 @@ index ff4aec6..7030640 100644
  #include "gallery.h"
  #include "common/media_io.h"
  #include "common/resource_owners.hpp"
-@@ -292,8 +293,7 @@ void register_openai_api_endpoints(httplib::Server& svr, ServerRuntime& rt) {
+@@ -288,8 +289,7 @@ void register_openai_api_endpoints(httplib::Server& svr, ServerRuntime& rt) {
  
              SDImageVec results;
              if (!execute_sync_img_gen_request(*runtime, "openai_generations", request, results, error_message)) {
@@ -406,7 +421,7 @@ index ff4aec6..7030640 100644
                  return;
              }
  
-@@ -338,11 +338,7 @@ void register_openai_api_endpoints(httplib::Server& svr, ServerRuntime& rt) {
+@@ -333,11 +333,7 @@ void register_openai_api_endpoints(httplib::Server& svr, ServerRuntime& rt) {
              res.status = 200;
  
          } catch (const std::exception& e) {
@@ -419,7 +434,7 @@ index ff4aec6..7030640 100644
          }
      });
  
-@@ -366,8 +362,7 @@ void register_openai_api_endpoints(httplib::Server& svr, ServerRuntime& rt) {
+@@ -361,8 +357,7 @@ void register_openai_api_endpoints(httplib::Server& svr, ServerRuntime& rt) {
  
              SDImageVec results;
              if (!execute_sync_img_gen_request(*runtime, "openai_edits", request, results, error_message)) {
@@ -429,7 +444,7 @@ index ff4aec6..7030640 100644
                  return;
              }
  
-@@ -403,11 +398,7 @@ void register_openai_api_endpoints(httplib::Server& svr, ServerRuntime& rt) {
+@@ -397,11 +392,7 @@ void register_openai_api_endpoints(httplib::Server& svr, ServerRuntime& rt) {
              res.status = 200;
  
          } catch (const std::exception& e) {
@@ -443,18 +458,18 @@ index ff4aec6..7030640 100644
      });
  }
 diff --git a/examples/server/routes_sdapi.cpp b/examples/server/routes_sdapi.cpp
-index 2f35a42..4903ead 100644
+index 78f8889..9bd5890 100644
 --- a/examples/server/routes_sdapi.cpp
 +++ b/examples/server/routes_sdapi.cpp
-@@ -10,6 +10,7 @@
+@@ -13,6 +13,7 @@
  #include "common/common.h"
  #include "common/media_io.h"
  #include "common/resource_owners.hpp"
 +#include "api_error.h"
  #include "gallery.h"
+ #include "model_catalog.h"
  #include "server_activity.h"
- 
-@@ -434,9 +435,8 @@ void register_sdapi_endpoints(httplib::Server& svr, ServerRuntime& rt) {
+@@ -632,9 +633,8 @@ void register_sdapi_endpoints(httplib::Server& svr, ServerRuntime& rt) {
              activity.finish(!results.empty(), saved_paths(saved));
  
              if (results.empty()) {
@@ -466,7 +481,7 @@ index 2f35a42..4903ead 100644
                  return;
              }
  
-@@ -484,11 +484,7 @@ void register_sdapi_endpoints(httplib::Server& svr, ServerRuntime& rt) {
+@@ -681,11 +681,7 @@ void register_sdapi_endpoints(httplib::Server& svr, ServerRuntime& rt) {
              res.status = 200;
  
          } catch (const std::exception& e) {
@@ -480,7 +495,7 @@ index 2f35a42..4903ead 100644
      };
  
 diff --git a/examples/server/routes_sdcpp.cpp b/examples/server/routes_sdcpp.cpp
-index d93755f..3acfa58 100644
+index df3bea8..197cc0f 100644
 --- a/examples/server/routes_sdcpp.cpp
 +++ b/examples/server/routes_sdcpp.cpp
 @@ -9,6 +9,7 @@
@@ -489,9 +504,9 @@ index d93755f..3acfa58 100644
  #include "common/resource_owners.hpp"
 +#include "api_error.h"
  #include "gallery.h"
+ #include "model_catalog.h"
  #include "server_activity.h"
- #include "server_hooks.h"
-@@ -666,12 +667,8 @@ void register_sdcpp_api_endpoints(httplib::Server& svr, ServerRuntime& rt) {
+@@ -699,12 +700,8 @@ void register_sdcpp_api_endpoints(httplib::Server& svr, ServerRuntime& rt) {
              out["images"] = std::move(images);
              res.set_content(out.dump(), "application/json");
              res.status = 200;
@@ -505,7 +520,7 @@ index d93755f..3acfa58 100644
          }
      });
  
-@@ -729,8 +726,7 @@ void register_sdcpp_api_endpoints(httplib::Server& svr, ServerRuntime& rt) {
+@@ -762,8 +759,7 @@ void register_sdcpp_api_endpoints(httplib::Server& svr, ServerRuntime& rt) {
                  std::lock_guard<std::mutex> lock(manager.mutex);
                  purge_expired_jobs(manager);
                  if (count_pending_jobs(manager) >= manager.max_pending_jobs) {
@@ -515,7 +530,7 @@ index d93755f..3acfa58 100644
                      return;
                  }
                  job->id               = make_async_job_id(manager);
-@@ -749,12 +745,8 @@ void register_sdcpp_api_endpoints(httplib::Server& svr, ServerRuntime& rt) {
+@@ -782,12 +778,8 @@ void register_sdcpp_api_endpoints(httplib::Server& svr, ServerRuntime& rt) {
  
              res.status = 202;
              res.set_content(out.dump(), "application/json");
@@ -529,7 +544,7 @@ index d93755f..3acfa58 100644
          }
      });
  
-@@ -791,8 +783,7 @@ void register_sdcpp_api_endpoints(httplib::Server& svr, ServerRuntime& rt) {
+@@ -824,8 +816,7 @@ void register_sdcpp_api_endpoints(httplib::Server& svr, ServerRuntime& rt) {
                  std::lock_guard<std::mutex> lock(manager.mutex);
                  purge_expired_jobs(manager);
                  if (count_pending_jobs(manager) >= manager.max_pending_jobs) {
@@ -539,7 +554,7 @@ index d93755f..3acfa58 100644
                      return;
                  }
                  job->id               = make_async_job_id(manager);
-@@ -811,12 +802,8 @@ void register_sdcpp_api_endpoints(httplib::Server& svr, ServerRuntime& rt) {
+@@ -844,12 +835,8 @@ void register_sdcpp_api_endpoints(httplib::Server& svr, ServerRuntime& rt) {
  
              res.status = 202;
              res.set_content(out.dump(), "application/json");

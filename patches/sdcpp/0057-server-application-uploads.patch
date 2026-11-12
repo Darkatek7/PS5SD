@@ -11,7 +11,7 @@ Subject: [PATCH] server: PUT /ps5sd/v1/app/<path> streams the body to the
  3 files changed, 57 insertions(+)
 
 diff --git a/examples/server/gallery.cpp b/examples/server/gallery.cpp
-index 2730953..bdbf164 100644
+index aeaab16..6150d4d 100644
 --- a/examples/server/gallery.cpp
 +++ b/examples/server/gallery.cpp
 @@ -122,6 +122,46 @@ static void app_route(const httplib::Request& req, httplib::Response& res) {
@@ -106,6 +106,3 @@ index fee9aa1..addefb6 100644
  #ifdef __cplusplus
  }
  #endif
--- 
-2.56.0.windows.2
-

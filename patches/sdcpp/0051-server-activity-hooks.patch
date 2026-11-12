@@ -1,35 +1,47 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: ps5sd <ps5sd@localhost>
 Date: Mon, 19 Oct 2026 15:50:42 +0200
-Subject: [PATCH 2/4] server: weak activity hooks (job
- begin/progress/preview/end)
+Subject: [PATCH 2/4] server: weak activity hooks (job begin/progress/preview/end)
 
+---
+ examples/server/CMakeLists.txt    |  1 +
+ examples/server/async_jobs.cpp    | 11 +++++++
+ examples/server/main.cpp          | 14 +++++++++
+ examples/server/routes_openai.cpp |  9 ++++--
+ examples/server/routes_sdapi.cpp  |  8 +++++
+ examples/server/server_activity.h | 49 +++++++++++++++++++++++++++++++
+ examples/server/server_hooks.cpp  | 22 ++++++++++++++
+ examples/server/server_hooks.h    | 39 ++++++++++++++++++++++++
+ 8 files changed, 151 insertions(+), 2 deletions(-)
+ create mode 100644 examples/server/server_activity.h
+ create mode 100644 examples/server/server_hooks.cpp
+ create mode 100644 examples/server/server_hooks.h
 
 diff --git a/examples/server/CMakeLists.txt b/examples/server/CMakeLists.txt
-index 6a7757f..a05631b 100644
+index 7781b11..684db3d 100644
 --- a/examples/server/CMakeLists.txt
 +++ b/examples/server/CMakeLists.txt
-@@ -70,6 +70,7 @@ set(SD_SERVER_SOURCES
-     main.cpp
-     runtime.cpp
+@@ -74,6 +74,7 @@ set(SD_SERVER_SOURCES
+     model_catalog.cpp
+     routes_models.cpp
      async_jobs.cpp
 +    server_hooks.cpp
      routes_index.cpp
      routes_openai.cpp
      routes_sdapi.cpp
 diff --git a/examples/server/async_jobs.cpp b/examples/server/async_jobs.cpp
-index 8840808..bb9f304 100644
+index c730b9c..a82c4ff 100644
 --- a/examples/server/async_jobs.cpp
 +++ b/examples/server/async_jobs.cpp
-@@ -9,6 +9,7 @@
+@@ -11,6 +11,7 @@
  #include "common/log.h"
  #include "common/media_io.h"
  #include "common/resource_owners.hpp"
 +#include "server_activity.h"
  
- static void preview_callback(int step, int frame_count, sd_image_t* frames, bool is_noisy, void* data) {
-     (void)is_noisy;
-@@ -20,6 +21,10 @@ static void preview_callback(int step, int frame_count, sd_image_t* frames, bool
+ class JobCancellationMonitor {
+     std::mutex mutex_;
+@@ -53,6 +54,10 @@ static void preview_callback(int step, int frame_count, sd_image_t* frames, bool
      const sd_image_t& frame      = frames[0];
      const sd_preview_info_t info = sd_get_preview_info();
  
@@ -40,7 +52,7 @@ index 8840808..bb9f304 100644
      auto image_bytes = encode_image_to_vector(EncodedImageFormat::PNG,
                                                frame.data,
                                                frame.width,
-@@ -232,9 +237,11 @@ bool execute_img_gen_job(ServerRuntime& runtime,
+@@ -347,12 +352,14 @@ bool execute_img_gen_job(ServerRuntime& runtime,
      sd_img_gen_params_t params = job.img_gen.to_sd_img_gen_params_t();
  
      SDImageVec results;
@@ -48,19 +60,22 @@ index 8840808..bb9f304 100644
  
      {
          std::lock_guard<std::mutex> lock(*runtime.sd_ctx_mutex);
+         if (job.cancel_requested.load()) {
+             return false;
+         }
 +        activity.begin();
-         set_preview_callback(job);
-         sd_image_t* raw_results = nullptr;
-         int num_results         = 0;
-@@ -247,6 +254,7 @@ bool execute_img_gen_job(ServerRuntime& runtime,
+         JobCancellationMonitor cancellation(runtime.sd_ctx, job);
+         JobCallbacksGuard callbacks(runtime.sd_ctx, job);
+         sd_image_generation_result_t* generated = nullptr;
+@@ -371,6 +378,7 @@ bool execute_img_gen_job(ServerRuntime& runtime,
      }
  
      const int num_results = results.count();
-+    activity.finish(num_results > 0, "");
-     if (num_results <= 0) {
++    activity.finish(!job.cancel_requested.load() && num_results > 0, "");
+     if (job.cancel_requested.load() || num_results <= 0) {
          error_message = "generate_image returned no results";
          return false;
-@@ -307,9 +315,11 @@ bool execute_vid_gen_job(ServerRuntime& runtime,
+@@ -429,12 +437,14 @@ bool execute_vid_gen_job(ServerRuntime& runtime,
      SDImageVec results;
      int num_results             = 0;
      sd_audio_t* generated_audio = nullptr;
@@ -68,31 +83,34 @@ index 8840808..bb9f304 100644
  
      {
          std::lock_guard<std::mutex> lock(*runtime.sd_ctx_mutex);
+         if (job.cancel_requested.load()) {
+             return false;
+         }
 +        activity.begin();
-         set_preview_callback(job);
-         sd_image_t* raw_results = nullptr;
-         if (!generate_video(runtime.sd_ctx, &params, &raw_results, &num_results, &generated_audio, &output_fps)) {
-@@ -320,6 +330,7 @@ bool execute_vid_gen_job(ServerRuntime& runtime,
+         JobCancellationMonitor cancellation(runtime.sd_ctx, job);
+         JobCallbacksGuard callbacks(runtime.sd_ctx, job);
+         sd_video_generation_result_t* generated = nullptr;
+@@ -450,6 +460,7 @@ bool execute_vid_gen_job(ServerRuntime& runtime,
      }
  
      num_results = results.count();
-+    activity.finish(num_results > 0, "");
-     if (num_results <= 0) {
++    activity.finish(!job.cancel_requested.load() && num_results > 0, "");
+     if (job.cancel_requested.load() || num_results <= 0) {
          free_sd_audio(generated_audio);
          error_message = "generate_video returned no results";
 diff --git a/examples/server/main.cpp b/examples/server/main.cpp
-index bdb2aff..b3203cb 100644
+index 931aba7..3d95915 100644
 --- a/examples/server/main.cpp
 +++ b/examples/server/main.cpp
-@@ -15,6 +15,7 @@
- #include "common/common.h"
+@@ -16,6 +16,7 @@
  #include "common/resource_owners.hpp"
+ #include "model_catalog.h"
  #include "routes.h"
 +#include "server_hooks.h"
  #include "runtime.h"
  
  #ifdef HAVE_INDEX_HTML
-@@ -70,6 +71,16 @@ static int parse_args(int argc,
+@@ -75,6 +76,16 @@ static int parse_args(int argc,
      return -1;
  }
  
@@ -109,7 +127,7 @@ index bdb2aff..b3203cb 100644
  void sd_log_cb(enum sd_log_level_t level, const char* log, void* data) {
      SDSvrParams* svr_params = (SDSvrParams*)data;
      log_print(level, log, svr_params->log_level, svr_params->color);
-@@ -163,6 +174,8 @@ extern "C" int sd_server(int argc, char** argv_in) {
+@@ -173,6 +184,8 @@ extern "C" int sd_server(int argc, char** argv_in) {
          return 1;
      }
  
@@ -118,7 +136,7 @@ index bdb2aff..b3203cb 100644
      std::mutex sd_ctx_mutex;
  
      std::vector<LoraEntry> lora_cache;
-@@ -230,6 +243,7 @@ extern "C" int sd_server(int argc, char** argv_in) {
+@@ -253,6 +266,7 @@ extern "C" int sd_server(int argc, char** argv_in) {
      }
      async_job_manager.cv.notify_all();
      async_worker.join();
@@ -127,7 +145,7 @@ index bdb2aff..b3203cb 100644
      g_sd_server_stop = false;
      return served ? 0 : 1;
 diff --git a/examples/server/routes_openai.cpp b/examples/server/routes_openai.cpp
-index af0cdfa..cb962cb 100644
+index f721e14..d4e5819 100644
 --- a/examples/server/routes_openai.cpp
 +++ b/examples/server/routes_openai.cpp
 @@ -7,6 +7,7 @@
@@ -138,7 +156,7 @@ index af0cdfa..cb962cb 100644
  
  static std::string extract_and_remove_sd_cpp_extra_args(std::string& text) {
      std::regex re("<sd_cpp_extra_args>(.*?)</sd_cpp_extra_args>");
-@@ -224,14 +225,17 @@ static bool build_openai_edit_request(const httplib::Request& req,
+@@ -215,14 +216,17 @@ static bool build_openai_edit_request(const httplib::Request& req,
  }
  
  static bool execute_sync_img_gen_request(ServerRuntime& runtime,
@@ -153,19 +171,19 @@ index af0cdfa..cb962cb 100644
      {
          std::lock_guard<std::mutex> lock(*runtime.sd_ctx_mutex);
 +        activity.begin();
-         sd_image_t* raw_results = nullptr;
-         if (!generate_image(runtime.sd_ctx, &img_gen_params, &raw_results, &num_results)) {
-             raw_results = nullptr;
-@@ -239,6 +243,7 @@ static bool execute_sync_img_gen_request(ServerRuntime& runtime,
+         sd_image_generation_result_t* generated = nullptr;
+         generate_image(runtime.sd_ctx, &img_gen_params, &generated);
+         results.adopt(generated, runtime.ctx_params->lora_model_dir);
+@@ -232,6 +236,7 @@ static bool execute_sync_img_gen_request(ServerRuntime& runtime,
+             return false;
          }
-         results.adopt(raw_results, num_results);
      }
 +    activity.finish(!results.empty(), "");
  
      if (results.empty()) {
          error_message = "generate_image returned no results";
-@@ -276,7 +281,7 @@ void register_openai_api_endpoints(httplib::Server& svr, ServerRuntime& rt) {
-             LOG_VERBOSE("%s\n", request.gen_params.to_string().c_str());
+@@ -272,7 +277,7 @@ void register_openai_api_endpoints(httplib::Server& svr, ServerRuntime& rt) {
+             LOG_DEBUG("%s\n", request.gen_params.to_string().c_str());
  
              SDImageVec results;
 -            if (!execute_sync_img_gen_request(*runtime, request, results, error_message)) {
@@ -173,8 +191,8 @@ index af0cdfa..cb962cb 100644
                  res.status = 500;
                  res.set_content(json({{"error", error_message}}).dump(), "application/json");
                  return;
-@@ -350,7 +355,7 @@ void register_openai_api_endpoints(httplib::Server& svr, ServerRuntime& rt) {
-             LOG_VERBOSE("%s\n", request.gen_params.to_string().c_str());
+@@ -345,7 +350,7 @@ void register_openai_api_endpoints(httplib::Server& svr, ServerRuntime& rt) {
+             LOG_DEBUG("%s\n", request.gen_params.to_string().c_str());
  
              SDImageVec results;
 -            if (!execute_sync_img_gen_request(*runtime, request, results, error_message)) {
@@ -183,18 +201,18 @@ index af0cdfa..cb962cb 100644
                  res.set_content(json({{"error", error_message}}).dump(), "application/json");
                  return;
 diff --git a/examples/server/routes_sdapi.cpp b/examples/server/routes_sdapi.cpp
-index 158b2af..076a359 100644
+index 0d37898..a27dada 100644
 --- a/examples/server/routes_sdapi.cpp
 +++ b/examples/server/routes_sdapi.cpp
-@@ -10,6 +10,7 @@
- #include "common/common.h"
+@@ -14,6 +14,7 @@
  #include "common/media_io.h"
  #include "common/resource_owners.hpp"
+ #include "model_catalog.h"
 +#include "server_activity.h"
  
  namespace fs = std::filesystem;
  
-@@ -325,6 +326,10 @@ static void preview_callback(int step, int frame_count, sd_image_t* frames, bool
+@@ -509,6 +510,10 @@ static void preview_callback(int step, int frame_count, sd_image_t* frames, bool
      const sd_image_t& frame      = frames[0];
      const sd_preview_info_t info = sd_get_preview_info();
  
@@ -205,7 +223,7 @@ index 158b2af..076a359 100644
      auto image_bytes = encode_image_to_vector(EncodedImageFormat::JPEG,
                                                frame.data,
                                                frame.width,
-@@ -403,10 +408,12 @@ void register_sdapi_endpoints(httplib::Server& svr, ServerRuntime& rt) {
+@@ -597,11 +602,13 @@ void register_sdapi_endpoints(httplib::Server& svr, ServerRuntime& rt) {
              sd_img_gen_params_t img_gen_params = request.to_sd_img_gen_params_t();
              SDImageVec results;
              int num_results = 0;
@@ -213,14 +231,15 @@ index 158b2af..076a359 100644
  
              {
                  std::lock_guard<std::mutex> lock(*runtime->sd_ctx_mutex);
-                 SDAPIPreviewGuard preview_guard(id_task, img_gen_params, img2img ? "img2img" : "txt2img");
+                 const bool detailing = request.adetailer_enabled && !runtime->default_gen_params->ad_model_path.empty();
+                 SDAPIPreviewGuard preview_guard(id_task, img_gen_params, img2img ? "img2img" : "txt2img", detailing);
 +                activity.begin();
-                 sd_image_t* raw_results = nullptr;
-                 if (!generate_image(runtime->sd_ctx, &img_gen_params, &raw_results, &num_results)) {
-                     raw_results = nullptr;
-@@ -414,6 +421,7 @@ void register_sdapi_endpoints(httplib::Server& svr, ServerRuntime& rt) {
+                 sd_image_generation_result_t* generated = nullptr;
+                 generate_image(runtime->sd_ctx, &img_gen_params, &generated);
+                 results.adopt(generated, runtime->ctx_params->lora_model_dir);
+@@ -614,6 +621,7 @@ void register_sdapi_endpoints(httplib::Server& svr, ServerRuntime& rt) {
+                     return;
                  }
-                 results.adopt(raw_results, num_results);
              }
 +            activity.finish(!results.empty(), "");
  

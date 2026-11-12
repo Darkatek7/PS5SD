@@ -10,8 +10,12 @@ tells nobody the prompt; the parameters go to .thumbs/<name>.txt instead, as
 a video's do, and the gallery reads them from there when the PNG has none.
 The application already moves and deletes that file with the image.
 ---
+ examples/server/gallery.cpp | 75 +++++++++++++++++++++++++++++++------
+ examples/server/gallery.h   |  5 ++-
+ 2 files changed, 66 insertions(+), 14 deletions(-)
+
 diff --git a/examples/server/gallery.cpp b/examples/server/gallery.cpp
-index 1862457..646fff6
+index 87f5d08..bd1dfd6 100644
 --- a/examples/server/gallery.cpp
 +++ b/examples/server/gallery.cpp
 @@ -12,7 +12,8 @@
@@ -24,33 +28,81 @@ index 1862457..646fff6
  
  #include <algorithm>
  #include <atomic>
-@@ -228,27 +229,36 @@ std::vector<std::string> save_output_images(const SDSvrParams& svr_params,
+@@ -215,6 +216,43 @@ static std::string with_preset(const std::string& parameters) {
+     return out;
+ }
+ 
++// A PNG with text as its "parameters" chunk (tEXt, after IHDR), as sd.cpp's own PNGs carry it. The
++// gallery's text is A1111's with the preset and the time in it (with_preset); encode_image_to_vector
++// takes sd.cpp's JSON instead and writes its own text from it.
++static uint32_t png_crc(const uint8_t* data, size_t n) {
++    uint32_t crc = 0xffffffffu;
++    for (size_t i = 0; i < n; ++i) {
++        crc ^= data[i];
++        for (int k = 0; k < 8; ++k) {
++            crc = (crc >> 1) ^ (0xedb88320u & (0u - (crc & 1u)));
++        }
++    }
++    return crc ^ 0xffffffffu;
++}
++
++static std::vector<uint8_t> png_with_parameters(std::vector<uint8_t> png, const std::string& text) {
++    const size_t at = 8 + 4 + 4 + 13 + 4;  // the signature and IHDR
++    if (text.empty() || png.size() < at || std::memcmp(png.data() + 12, "IHDR", 4) != 0) {
++        return png;
++    }
++    std::string body = "tEXtparameters";
++    body.push_back('\0');
++    body += text;
++    const uint32_t len = static_cast<uint32_t>(body.size() - 4);
++    const uint32_t crc = png_crc(reinterpret_cast<const uint8_t*>(body.data()), body.size());
++    std::vector<uint8_t> chunk;
++    chunk.reserve(body.size() + 8);
++    for (int shift = 24; shift >= 0; shift -= 8) {
++        chunk.push_back(static_cast<uint8_t>(len >> shift));
++    }
++    chunk.insert(chunk.end(), body.begin(), body.end());
++    for (int shift = 24; shift >= 0; shift -= 8) {
++        chunk.push_back(static_cast<uint8_t>(crc >> shift));
++    }
++    png.insert(png.begin() + at, chunk.begin(), chunk.end());
++    return png;
++}
++
+ std::vector<std::string> save_output_images(const SDSvrParams& svr_params,
+                                             SDImageVec& images,
+                                             const SDContextParams* ctx_params,
+@@ -229,26 +267,35 @@ std::vector<std::string> save_output_images(const SDSvrParams& svr_params,
      std::error_code ec;
      fs::create_directories(dir, ec);
  
--    const bool embed    = ctx_params != nullptr && gen_params != nullptr && gen_params->embed_image_metadata;
--    const int per_batch = embed && gen_params->batch_count > 0 ? std::max(1, images.count() / gen_params->batch_count) : 1;
+-    const bool embed = ctx_params != nullptr && gen_params != nullptr && gen_params->embed_image_metadata;
 +    // Without embed_image_metadata the PNG carries nothing, and the parameters
 +    // go to .thumbs/<name>.txt as a video's do: the gallery still knows what
 +    // made the image, a copy of the file does not.
-+    const bool known    = ctx_params != nullptr && gen_params != nullptr;
-+    const bool embed    = known && gen_params->embed_image_metadata;
-+    const int per_batch = known && gen_params->batch_count > 0 ? std::max(1, images.count() / gen_params->batch_count) : 1;
++    const bool known = ctx_params != nullptr && gen_params != nullptr;
++    const bool embed = known && gen_params->embed_image_metadata;
      for (int i = 0; i < images.count(); ++i) {
          const sd_image_t& image = images[i];
          if (image.data == nullptr) {
              continue;
          }
-         // the seed of image i, as sd.cpp's own routes give it in their PNGs
--        const std::string parameters = embed ? with_preset(get_image_params(*ctx_params, *gen_params, gen_params->seed + i / per_batch)) : "";
-+        const std::string parameters = known ? with_preset(get_image_params(*ctx_params, *gen_params, gen_params->seed + i / per_batch)) : "";
-         std::vector<uint8_t> bytes   = encode_image_to_vector(EncodedImageFormat::PNG,
-                                                             image.data,
-                                                             image.width,
-                                                             image.height,
-                                                             image.channel,
+-        // A1111's text of the image's own generation info (its seed, its LoRAs)
+-        const std::string parameters = embed ? with_preset(generation_info_to_webui(images.generation_info(i))) : "";
+-        std::vector<uint8_t> bytes   = encode_image_to_vector(EncodedImageFormat::PNG,
+-                                                            image.data,
+-                                                            image.width,
+-                                                            image.height,
+-                                                            image.channel,
 -                                                            parameters);
-+                                                            embed ? parameters : "");
++        // A1111's text of the image's own generation info (its seed, its LoRAs), sd.cpp's JSON of it at the end
++        const std::string parameters = known ? with_preset(generation_info_to_image_metadata(images.generation_info(i))) : "";
++        std::vector<uint8_t> bytes   = png_with_parameters(encode_image_to_vector(EncodedImageFormat::PNG,
++                                                                                image.data,
++                                                                                image.width,
++                                                                                image.height,
++                                                                                image.channel),
++                                                         embed ? parameters : "");
          if (bytes.empty()) {
              LOG_ERROR("could not encode the image for --output-dir");
              continue;
@@ -65,7 +117,7 @@ index 1862457..646fff6
          std::ofstream file(path, std::ios::binary);
          file.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
          file.close();
-@@ -352,10 +362,14 @@ std::string png_parameters(const fs::path& path) {
+@@ -352,10 +399,14 @@ std::string png_parameters(const fs::path& path) {
      return "";
  }
  
@@ -83,7 +135,7 @@ index 1862457..646fff6
      std::ifstream file(thumbs_dir(dir) / (name + ".txt"), std::ios::binary);
      return std::string((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
 diff --git a/examples/server/gallery.h b/examples/server/gallery.h
-index f2a3a4b..3d68f68
+index f2a3a4b..3d68f68 100644
 --- a/examples/server/gallery.h
 +++ b/examples/server/gallery.h
 @@ -12,8 +12,9 @@

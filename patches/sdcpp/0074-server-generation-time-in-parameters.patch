@@ -12,11 +12,16 @@ of the run gets the time of the whole run. A model of several files (FLUX,
 Z-Image, Wan) leaves A1111's "Model: " empty: it gets the diffusion model's
 name, which other tools read.
 ---
+ examples/server/gallery.cpp       | 52 ++++++++++++++++++++++++++-----
+ examples/server/server_activity.h |  6 ++++
+ examples/server/server_hooks.cpp  | 20 ++++++++++++
+ 3 files changed, 70 insertions(+), 8 deletions(-)
+
 diff --git a/examples/server/gallery.cpp b/examples/server/gallery.cpp
-index 013062e..1862457 100644
+index 0f1e41f..87f5d08 100644
 --- a/examples/server/gallery.cpp
 +++ b/examples/server/gallery.cpp
-@@ -149,12 +149,15 @@ static bool write_thumbnail(const fs::path& dir, const std::string& name, const
+@@ -150,12 +150,15 @@ static bool write_thumbnail(const fs::path& dir, const std::string& name, const
      return !jpeg.empty() && write_whole(thumbs_dir(dir) / (name + ".jpg"), jpeg.data(), jpeg.size());
  }
  
@@ -37,7 +42,7 @@ index 013062e..1862457 100644
          return parameters;
      }
      for (char& c : name) {
-@@ -162,18 +165,51 @@ static std::string with_preset(const std::string& parameters) {
+@@ -163,18 +166,51 @@ static std::string with_preset(const std::string& parameters) {
              c = ' ';
          }
      }

@@ -3,9 +3,13 @@ From: ps5sd <ps5sd@localhost>
 Date: Mon, 19 Oct 2026 15:51:05 +0200
 Subject: [PATCH 3/4] server: SD_SERVER_EMBED_INDEX
 
+---
+ examples/server/CMakeLists.txt | 11 +++++++++--
+ examples/server/main.cpp       | 12 ++++++++++--
+ 2 files changed, 19 insertions(+), 4 deletions(-)
 
 diff --git a/examples/server/CMakeLists.txt b/examples/server/CMakeLists.txt
-index a05631b..0791f9f 100644
+index 684db3d..7cd89bc 100644
 --- a/examples/server/CMakeLists.txt
 +++ b/examples/server/CMakeLists.txt
 @@ -1,6 +1,7 @@
@@ -27,7 +31,7 @@ index a05631b..0791f9f 100644
      if(WIN32)
          find_program(PNPM_EXECUTABLE NAMES pnpm.cmd pnpm)
      else()
-@@ -91,7 +94,11 @@ if(APPLE)
+@@ -95,7 +98,11 @@ if(APPLE)
      sd_set_macos_rpaths(${SD_SERVER_TARGET})
  endif()
  
@@ -41,10 +45,10 @@ index a05631b..0791f9f 100644
      target_sources(${SD_SERVER_TARGET} PRIVATE "${GENERATED_HTML_HEADER}")
      target_include_directories(${SD_SERVER_TARGET} PRIVATE "${FRONTEND_DIR}/dist")
 diff --git a/examples/server/main.cpp b/examples/server/main.cpp
-index b3203cb..6c98059 100644
+index 3d95915..45d785b 100644
 --- a/examples/server/main.cpp
 +++ b/examples/server/main.cpp
-@@ -18,7 +18,13 @@
+@@ -19,7 +19,13 @@
  #include "server_hooks.h"
  #include "runtime.h"
  
@@ -59,7 +63,7 @@ index b3203cb..6c98059 100644
  #include "frontend/dist/gen_index_html.h"
  #endif
  
-@@ -219,7 +225,9 @@ extern "C" int sd_server(int argc, char** argv_in) {
+@@ -241,7 +247,9 @@ extern "C" int sd_server(int argc, char** argv_in) {
      });
  
      std::string index_html;

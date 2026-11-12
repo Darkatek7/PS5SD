@@ -474,14 +474,38 @@ needs no ControlNet and no preprocessor.
 
 ## 1.2.0: the stable-diffusion.cpp of November
 
-`third_party/stable-diffusion.cpp` is at `b13a482`. On 2026-11-04 upstream `master` was 73 commits
-ahead (`58bb3c1`). The numbers below are upstream's pull requests.
+`third_party/stable-diffusion.cpp` was at `b13a482`. On 2026-11-12 it moved to upstream `master`
+`32d516c` (111 commits), its ggml to `d803c23`. The numbers below are upstream's pull requests.
 
-- [ ] **Rebase** `patches/sdcpp` (37 patches, 30 of them in the server) and `patches/ggml` onto upstream.
-  Upstream rebuilt the parts our server patches touch: models managed by recipes (#2176, #2188, #2221),
-  cancelling a running job (#2190, next to our 0055), the generation's metadata in its result (#2206,
-  next to 0074 and 0075). Where upstream now does the same thing, take its version and drop our patch;
-  what `docs/API.md` promises stays as it is. The `host` CI job checks that the series applies.
+- [x] **Rebase** `patches/sdcpp` and `patches/ggml` onto upstream (2026-11-12). The ggml patches and
+  0001 to 0003, 0070 and 0073 applied as they were; the rest was ported:
+  - 0055: upstream cancels a running job itself now (#2190), so the patch keeps only what `docs/API.md`
+    promises on top: `202` for a running job, `/ps5sd/v1/jobs`, A1111's `interrupt` and `skip`.
+  - 0058 is gone: the A1111 routes refresh the LoRA cache themselves (#2176).
+  - 0066 (repeat), 0071 and 0072 (out of memory) run around upstream's new generation API
+    (`sd_image_generation_result_t`, ADetailer, the cancel monitor).
+  - 0067 moved to `execution_engine.cpp`, where upstream put the graph's execution (#2321): the
+    engine says when a whole graph failed before any of it ran, and `GGMLRunner::compute` builds it
+    again and runs it in segments.
+  - 0068 and 0075: a saved image's parameters come from upstream's generation info (#2206), A1111's
+    text with sd.cpp's JSON at the end, as upstream's own PNGs have them. The JSON's schema changed
+    (`sdcpp.generation/v1`); the gallery viewer reads both, so older images keep their info. The
+    gallery writes its text (with `Preset:` and `Time:`) into the PNG itself, since upstream's encoder
+    now takes the JSON and writes its own text.
+  - 0077: upstream counts the jobs' times in milliseconds now; the job routes and the events give
+    seconds, as up to 1.1, so a client keeps working.
+  - 0078: upstream manages models itself now (#2176, recipes), but refuses a switch while a job is
+    queued and answers 503 while one loads. The app keeps loading through `sd_server_load()`; upstream's
+    model routes are not registered, and its model status stays filled for `/sdcpp/v1/capabilities`.
+  - 0082: upstream scales the guide for the hires pass of Z-Image's ControlNet (#2187); the patch
+    keeps it for the others.
+- [x] **Checked on the PC** (2026-11-12): the series gives the tree it was built from, sd-server builds
+  on the CPU, and with SD-Turbo a `repeat` job, the gallery's info, a cancel of a running job, A1111's
+  `interrupt` and `txt2img`, the events and `scripts/check-openapi.py` work. The app's one-shot mode uses
+  upstream's new `generate_image` result (`ps5/app/main.cpp`).
+- [ ] **Build and test the title**: the PS5 build in Docker, then on the console a switch between
+  presets, an image with a LoRA on Klein 9B, a cancel, a repeat job, a video, the hires fix with a guide
+  image, and the gallery viewer's info and Use all on an image from 1.1 and one from 1.2.
 - [ ] **Speed** from upstream, measured on the console, not assumed: Vulkan kernels, graph fusion and
   reused workspaces (#2251, #2252), fused GEGLU and GLU (#2245, #2250; the SDXL and SD 1.5 UNets use
   them), Z-Image fusions and BF16 GEMM (#2265), position embeddings kept between runs (#2211). The

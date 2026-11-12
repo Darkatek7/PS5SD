@@ -12,21 +12,29 @@ q (a search in the prompts) and type, says the total in X-Total-Count and
 gives each file's prompt; GET /ps5sd/v1/gallery/info/<file> gives what
 made it.
 ---
+ examples/server/async_jobs.cpp    |   7 +-
+ examples/server/gallery.cpp       | 329 ++++++++++++++++++++++++++++--
+ examples/server/gallery.h         |  18 +-
+ examples/server/routes_openai.cpp |   3 +-
+ examples/server/routes_sdapi.cpp  |   3 +-
+ 5 files changed, 333 insertions(+), 27 deletions(-)
+
 diff --git a/examples/server/async_jobs.cpp b/examples/server/async_jobs.cpp
-index 69a80de..60d83cb 100644
+index c589561..705568e 100644
 --- a/examples/server/async_jobs.cpp
 +++ b/examples/server/async_jobs.cpp
-@@ -328,7 +328,8 @@ bool execute_img_gen_job(ServerRuntime& runtime,
+@@ -442,7 +442,9 @@ bool execute_img_gen_job(ServerRuntime& runtime,
          }
  
          const int num_results                = results.count();
--        const std::vector<std::string> saved = save_output_images(*runtime.svr_params, results);
-+        const std::vector<std::string> saved = save_output_images(*runtime.svr_params, results, runtime.ctx_params,
-+                                                                  &job.img_gen.gen_params);
-         activity.finish(num_results > 0, saved_paths(saved));
-         if (num_results <= 0) {
+-        const std::vector<std::string> saved = job.cancel_requested.load() ? std::vector<std::string>() : save_output_images(*runtime.svr_params, results);
++        const std::vector<std::string> saved = job.cancel_requested.load() ? std::vector<std::string>()
++                                                                           : save_output_images(*runtime.svr_params, results, runtime.ctx_params,
++                                                                                                &job.img_gen.gen_params);
+         activity.finish(!job.cancel_requested.load() && num_results > 0, saved_paths(saved));
+         if (job.cancel_requested.load() || num_results <= 0) {
              error_message = sd_server_failure_reason("generate_image returned no results");
-@@ -432,7 +433,8 @@ bool execute_vid_gen_job(ServerRuntime& runtime,
+@@ -549,7 +551,8 @@ bool execute_vid_gen_job(ServerRuntime& runtime,
          return false;
      }
      // PS5SD: into --output-dir like an image, so the gallery lists it.
@@ -37,10 +45,10 @@ index 69a80de..60d83cb 100644
      output_media_b64       = base64_encode(video_bytes);
      output_media_mime_type = video_mime_type(job.vid_gen.output_format);
 diff --git a/examples/server/gallery.cpp b/examples/server/gallery.cpp
-index 3ba106e..af765ca 100644
+index b7e69ae..a491d04 100644
 --- a/examples/server/gallery.cpp
 +++ b/examples/server/gallery.cpp
-@@ -1,17 +1,30 @@
+@@ -1,18 +1,32 @@
  // PS5SD: --output-dir, and the gallery endpoints that list and serve what was
  // saved there:
  //   GET /ps5sd/v1/gallery         JSON array, newest first:
@@ -70,9 +78,11 @@ index 3ba106e..af765ca 100644
 +#include <map>
 +#include <mutex>
  
++#include "common/generation_metadata.h"
  #include "common/log.h"
  #include "common/media_io.h"
-@@ -74,7 +87,71 @@ static std::string next_output_name(const fs::path& dir, const char* ext) {
+ #include "gallery.h"
+@@ -74,7 +88,71 @@ static std::string next_output_name(const fs::path& dir, const char* ext) {
      }
  }
  
@@ -145,20 +155,19 @@ index 3ba106e..af765ca 100644
      std::vector<std::string> saved;
      if (svr_params.output_dir.empty()) {
          return saved;
-@@ -84,21 +161,27 @@ std::vector<std::string> save_output_images(const SDSvrParams& svr_params, SDIma
+@@ -84,21 +162,26 @@ std::vector<std::string> save_output_images(const SDSvrParams& svr_params, SDIma
      std::error_code ec;
      fs::create_directories(dir, ec);
  
-+    const bool embed    = ctx_params != nullptr && gen_params != nullptr && gen_params->embed_image_metadata;
-+    const int per_batch = embed && gen_params->batch_count > 0 ? std::max(1, images.count() / gen_params->batch_count) : 1;
++    const bool embed = ctx_params != nullptr && gen_params != nullptr && gen_params->embed_image_metadata;
      for (int i = 0; i < images.count(); ++i) {
          const sd_image_t& image = images[i];
          if (image.data == nullptr) {
              continue;
          }
 -        std::vector<uint8_t> bytes = encode_image_to_vector(EncodedImageFormat::PNG,
-+        // the seed of image i, as sd.cpp's own routes give it in their PNGs
-+        const std::string parameters = embed ? get_image_params(*ctx_params, *gen_params, gen_params->seed + i / per_batch) : "";
++        // A1111's text of the image's own generation info (its seed, its LoRAs)
++        const std::string parameters = embed ? generation_info_to_webui(images.generation_info(i)) : "";
 +        std::vector<uint8_t> bytes   = encode_image_to_vector(EncodedImageFormat::PNG,
                                                              image.data,
                                                              image.width,
@@ -514,12 +523,12 @@ index 851dde1..904a1df 100644
  // PS5SD: the saved paths one a line, in the order of the results, for
  // sd_activity_job_end ("" when nothing was saved).
 diff --git a/examples/server/routes_openai.cpp b/examples/server/routes_openai.cpp
-index f22c2c1..d9d5e02 100644
+index 2e13d75..72370f9 100644
 --- a/examples/server/routes_openai.cpp
 +++ b/examples/server/routes_openai.cpp
-@@ -246,7 +246,8 @@ static bool execute_sync_img_gen_request(ServerRuntime& runtime,
+@@ -239,7 +239,8 @@ static bool execute_sync_img_gen_request(ServerRuntime& runtime,
+             return false;
          }
-         results.adopt(raw_results, num_results);
      }
 -    const std::vector<std::string> saved = save_output_images(*runtime.svr_params, results);
 +    const std::vector<std::string> saved = save_output_images(*runtime.svr_params, results, runtime.ctx_params,
@@ -528,12 +537,12 @@ index f22c2c1..d9d5e02 100644
  
      if (results.empty()) {
 diff --git a/examples/server/routes_sdapi.cpp b/examples/server/routes_sdapi.cpp
-index f207ef7..3eedfa5 100644
+index 30248bf..5ac6c8d 100644
 --- a/examples/server/routes_sdapi.cpp
 +++ b/examples/server/routes_sdapi.cpp
-@@ -428,7 +428,8 @@ void register_sdapi_endpoints(httplib::Server& svr, ServerRuntime& rt) {
+@@ -626,7 +626,8 @@ void register_sdapi_endpoints(httplib::Server& svr, ServerRuntime& rt) {
+                     return;
                  }
-                 results.adopt(raw_results, num_results);
              }
 -            const std::vector<std::string> saved = save_output_images(*runtime->svr_params, results);
 +            const std::vector<std::string> saved = save_output_images(*runtime->svr_params, results, runtime->ctx_params,

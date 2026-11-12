@@ -28,20 +28,26 @@ Measured with the library build and a driver on the PC: the port answered all
 through a load; a load asked for while a job ran waited for it (9.8 s), the job
 queued meanwhile ran on the new model; an event stream stayed open across two
 loads; a load that failed left the server in standby, and the next one worked.
+---
+ examples/server/async_jobs.cpp |  17 +-
+ examples/server/gallery.cpp    |   2 +-
+ examples/server/main.cpp       | 359 +++++++++++++++++++++++++--------
+ examples/server/runtime.h      |   6 +
+ 4 files changed, 297 insertions(+), 87 deletions(-)
 
 diff --git a/examples/server/async_jobs.cpp b/examples/server/async_jobs.cpp
-index 21f4ae1..6c685cc 100644
+index fcd9cb1..119b745 100644
 --- a/examples/server/async_jobs.cpp
 +++ b/examples/server/async_jobs.cpp
-@@ -6,6 +6,7 @@
+@@ -7,6 +7,7 @@
  #include <iomanip>
  #include <new>
  #include <random>
 +#include <shared_mutex>
  #include <sstream>
+ #include <thread>
  
- #include "common/log.h"
-@@ -500,7 +501,16 @@ void async_job_worker(ServerRuntime& runtime) {
+@@ -621,7 +622,16 @@ void async_job_worker(ServerRuntime& runtime) {
              if (manager.stop && manager.queue.empty()) {
                  break;
              }
@@ -59,7 +65,7 @@ index 21f4ae1..6c685cc 100644
              purge_expired_jobs(manager);
              if (manager.queue.empty()) {
                  continue;
-@@ -534,7 +544,10 @@ void async_job_worker(ServerRuntime& runtime) {
+@@ -657,7 +667,10 @@ void async_job_worker(ServerRuntime& runtime) {
          // that needs more throws std::bad_alloc outside the graph code, which catches
          // its own. The job fails with a reason instead, and the server keeps running.
          try {
@@ -68,14 +74,14 @@ index 21f4ae1..6c685cc 100644
 +                error_code    = "standby";
 +                error_message = "no model is loaded; pick or download one in the web UI, tab Models";
 +            } else if (job->kind == AsyncJobKind::ImgGen) {
-                 ok = execute_img_gen_job(runtime, manager, *job, output_images, error_message);
+                 ok = execute_img_gen_job(runtime, manager, *job, output_images, output_info, error_message);
              } else if (job->kind == AsyncJobKind::VidGen) {
                  ok = execute_vid_gen_job(runtime,
 diff --git a/examples/server/gallery.cpp b/examples/server/gallery.cpp
-index 646fff6..fec3661 100644
+index bd1dfd6..a58104d 100644
 --- a/examples/server/gallery.cpp
 +++ b/examples/server/gallery.cpp
-@@ -532,7 +532,7 @@ static bool interrupt_generation(ServerRuntime& rt) {
+@@ -569,7 +569,7 @@ static bool interrupt_generation(ServerRuntime& rt) {
          }
      }
      sd_server_failure_log_cancelled();
@@ -85,7 +91,7 @@ index 646fff6..fec3661 100644
  }
  
 diff --git a/examples/server/main.cpp b/examples/server/main.cpp
-index 7094678..2b6fc05 100644
+index f6fa301..4a08de3 100644
 --- a/examples/server/main.cpp
 +++ b/examples/server/main.cpp
 @@ -1,10 +1,14 @@
@@ -103,7 +109,7 @@ index 7094678..2b6fc05 100644
  #include <string>
  #include <thread>
  #include <vector>
-@@ -166,137 +170,288 @@ static std::string embedded_index_html() {
+@@ -171,118 +175,277 @@ static std::string embedded_index_html() {
      return index_html;
  }
  
@@ -222,6 +228,25 @@ index 7094678..2b6fc05 100644
 -    g_sd_server_svr   = nullptr;
 -    if (!served) {
 -        LOG_ERROR("could not listen on %s:%d\n", svr_params.listen_ip.c_str(), svr_params.listen_port);
++// Upstream's model status (the "runtime" of /sdcpp/v1/capabilities, its generation
++// features) for the model in the slot: as for a model given on the command line,
++// or empty. Its own load and unload routes are not registered: the application
++// loads models (sd_server_load). g_model_mutex is held alone.
++static void note_model_status(ServerRuntime& rt) {
++    ServerModels& models = *rt.models;
++    {
++        std::lock_guard<std::mutex> lock(models.status_mutex);
++        models.active_recipe = nullptr;
++        models.status        = {{"state", "empty"}, {"recipe", nullptr}, {"models", json::object()},
++                                {"error", nullptr}, {"load_elapsed_seconds", nullptr}};
++    }
++    try {
++        initialize_server_models(rt);
++    } catch (const std::exception& e) {
++        LOG_WARN("model catalog: %s", e.what());
++    }
++}
++
 +// Loads the model that ctx_params name into slot, after the one there is freed
 +// (both take from the console's one memory pool). g_model_mutex is held alone.
 +static bool load_model(ServerRuntime& rt,
@@ -234,14 +259,17 @@ index 7094678..2b6fc05 100644
 +    }
 +    slot.ctx.reset();
 +    if (ctx_params == nullptr) {
++        note_model_status(rt);
 +        return true;  // --standby: no model
 +    }
 +    LOG_DEBUG("%s", ctx_params->to_string().c_str());
 +    LOG_DEBUG("%s", gen_params->to_string().c_str());
-+    sd_ctx_params_t sd_ctx_params = ctx_params->to_sd_ctx_params_t(false);
++    sd_ctx_params_t sd_ctx_params = ctx_params->to_sd_ctx_params_t();
++    const auto started            = std::chrono::steady_clock::now();
 +    SDCtxPtr ctx(new_sd_ctx(&sd_ctx_params));
 +    if (ctx == nullptr) {
 +        LOG_ERROR("new_sd_ctx_t failed");
++        note_model_status(rt);
 +        return false;
 +    }
 +    slot.ctx_params      = std::move(ctx_params);
@@ -262,6 +290,15 @@ index 7094678..2b6fc05 100644
 +        std::lock_guard<std::mutex> lock(*rt.upscaler_mutex);
 +        rt.upscaler_cache->clear();
 +    }
++    note_model_status(rt);
++    {
++        std::lock_guard<std::mutex> lock(rt.models->status_mutex);
++        rt.models->status["load_elapsed_seconds"] =
++            std::chrono::duration<double>(std::chrono::steady_clock::now() - started).count();
+     }
+-    g_sd_server_stop = false;
+-    sd_events_stop(false);
+-    return served ? 0 : 1;
 +    return true;
 +}
 +
@@ -291,10 +328,7 @@ index 7094678..2b6fc05 100644
 +        rt   = g_serving;
 +        slot = g_serving_slot;
 +        g_loads_running++;
-     }
--    g_sd_server_stop = false;
--    sd_events_stop(false);
--    return served ? 0 : 1;
++    }
 +    bool ok;
 +    {
 +        std::unique_lock<std::shared_mutex> model(g_model_mutex);
@@ -397,14 +431,19 @@ index 7094678..2b6fc05 100644
  
      LOG_VERBOSE("version: %s", version_string().c_str());
      LOG_VERBOSE("%s", sd_get_system_info());
-     LOG_VERBOSE("%s", svr_params.to_string().c_str());
+     LOG_DEBUG("%s", svr_params.to_string().c_str());
 -    LOG_DEBUG("%s", ctx_params.to_string().c_str());
 -    LOG_DEBUG("%s", default_gen_params.to_string().c_str());
+ 
+-    sd_ctx_params_t sd_ctx_params = ctx_params.to_sd_ctx_params_t();
+     ServerModels models;
+-    if (!ctx_params.model_path.empty() || !ctx_params.diffusion_model_path.empty()) {
+-        const auto started = std::chrono::steady_clock::now();
+-        models.context.reset(new_sd_ctx(&sd_ctx_params));
+-        models.status["load_elapsed_seconds"] = std::chrono::duration<double>(std::chrono::steady_clock::now() - started).count();
+-    }
 -
--    sd_ctx_params_t sd_ctx_params = ctx_params.to_sd_ctx_params_t(false);
--    SDCtxPtr sd_ctx(new_sd_ctx(&sd_ctx_params));
--
--    if (sd_ctx == nullptr) {
+-    if ((!ctx_params.model_path.empty() || !ctx_params.diffusion_model_path.empty()) && !models.context) {
 -        LOG_ERROR("new_sd_ctx_t failed");
 -        sd_set_log_callback(nullptr, nullptr);
 -        g_sd_server_stop = false;
@@ -419,10 +458,11 @@ index 7094678..2b6fc05 100644
      std::vector<LoraEntry> lora_cache;
      std::mutex lora_mutex;
      std::vector<UpscalerEntry> upscaler_cache;
-     std::mutex upscaler_mutex;
-     AsyncJobManager async_job_manager;
+@@ -293,40 +456,59 @@ extern "C" int sd_server(int argc, char** argv_in) {
+     async_job_manager.completed_ttl_seconds =
+         static_cast<int64_t>(svr_params.completed_ttl_seconds);
      ServerRuntime runtime = {
--        sd_ctx.get(),
+-        models.context.get(),
 +        nullptr,
          &sd_ctx_mutex,
          &svr_params,
@@ -435,10 +475,16 @@ index 7094678..2b6fc05 100644
          &upscaler_cache,
          &upscaler_mutex,
          &async_job_manager,
+         &models,
 +        &g_model_mutex,
      };
  
-+    if (!standby) {
+-    try {
+-        initialize_server_models(runtime);
+-    } catch (const std::exception& e) {
+-        LOG_ERROR("model catalog initialization failed: %s", e.what());
+-        return 1;
++    if (!standby && (!runtime.ctx_params->model_path.empty() || !runtime.ctx_params->diffusion_model_path.empty())) {
 +        // the model before the port: a plain sd-server stops at once on a bad one
 +        std::unique_ptr<SDContextParams> ctx_params     = std::move(slot.ctx_params);
 +        std::unique_ptr<SDGenerationParams> gen_params = std::move(slot.gen_params);
@@ -450,8 +496,10 @@ index 7094678..2b6fc05 100644
 +        }
 +    } else {
 +        LOG_INFO("standby, no model\n");
-+    }
-+
++        std::unique_lock<std::shared_mutex> model(g_model_mutex);
++        note_model_status(runtime);
+     }
+ 
 +    sd_set_progress_callback(sd_progress_cb, nullptr);
      std::thread async_worker(async_job_worker, std::ref(runtime));
  
@@ -463,7 +511,9 @@ index 7094678..2b6fc05 100644
      register_index_endpoints(svr, svr_params, embedded_index_html());
      register_openai_api_endpoints(svr, runtime);
      register_sdapi_endpoints(svr, runtime);
-@@ -304,6 +459,13 @@ extern "C" int sd_server(int argc, char** argv_in) {
+     register_sdcpp_api_endpoints(svr, runtime);
+-    register_model_endpoints(svr, runtime);
++    // PS5SD: not register_model_endpoints: the application loads models (sd_server_load)
      register_ps5sd_endpoints(svr, runtime);
      register_event_endpoints(svr, runtime);
  
@@ -477,7 +527,7 @@ index 7094678..2b6fc05 100644
      LOG_INFO("listening on: http://%s:%d\n", svr_params.listen_ip.c_str(), svr_params.listen_port);
      g_sd_server_svr = &svr;
      const bool served = serve_until_terminated(svr, svr_params.listen_ip, svr_params.listen_port);
-@@ -312,17 +474,26 @@ extern "C" int sd_server(int argc, char** argv_in) {
+@@ -335,17 +517,26 @@ extern "C" int sd_server(int argc, char** argv_in) {
          LOG_ERROR("could not listen on %s:%d\n", svr_params.listen_ip.c_str(), svr_params.listen_port);
      }
  
@@ -508,21 +558,8 @@ index 7094678..2b6fc05 100644
  }
  
  #ifndef SD_SERVER_NO_MAIN
-diff --git a/examples/server/routes_sdcpp.cpp b/examples/server/routes_sdcpp.cpp
-index 5e7441e..635fc50 100644
---- a/examples/server/routes_sdcpp.cpp
-+++ b/examples/server/routes_sdcpp.cpp
-@@ -867,7 +867,7 @@ void register_sdcpp_api_endpoints(httplib::Server& svr, ServerRuntime& rt) {
-         if (job.status == AsyncJobStatus::Generating) {
-             job.cancel_requested = true;
-             sd_server_failure_log_cancelled();
--            sd_cancel_generation(runtime->sd_ctx, SD_CANCEL_ALL);
-+            cancel_generation(*runtime);
-             res.status = 202;
-             res.set_content(make_async_job_json(manager, job).dump(), "application/json");
-             return;
 diff --git a/examples/server/runtime.h b/examples/server/runtime.h
-index 2e695b4..fde5007 100644
+index e4bd920..4658e6b 100644
 --- a/examples/server/runtime.h
 +++ b/examples/server/runtime.h
 @@ -4,6 +4,7 @@
@@ -533,12 +570,17 @@ index 2e695b4..fde5007 100644
  #include <string>
  #include <vector>
  
-@@ -62,8 +63,13 @@ struct ServerRuntime {
-     std::vector<UpscalerEntry>* upscaler_cache;
+@@ -69,6 +70,8 @@ struct ServerRuntime {
      std::mutex* upscaler_mutex;
      AsyncJobManager* async_job_manager;
+     ServerModels* models;
 +    // PS5SD: held shared while the model is used, alone while another one loads (main.cpp, ModelSlot)
 +    std::shared_mutex* model_mutex;
+ };
+ 
+ struct ServerADetailerPass {
+@@ -82,6 +85,9 @@ struct ServerADetailerPass {
+     bool automatic_scheduler = false;
  };
  
 +// PS5SD: stops the generation that runs (sd_cancel_generation), without waiting for a model that loads.

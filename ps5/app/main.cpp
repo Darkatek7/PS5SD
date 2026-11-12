@@ -623,15 +623,16 @@ void generate_once() {
         std::free(text);
     }
     set_phase("Generating", options.prompt);
-    sd_image_t * images = nullptr;
-    int          count  = 0;
-    const bool   ok     = generate_image(ctx, &gen_params, &images, &count);
+    // The result owns its images and their generation info (sd.cpp since 1.2.0).
+    sd_image_generation_result_t * result = nullptr;
+    const bool   ok     = generate_image(ctx, &gen_params, &result);
+    const int    count  = ok && result != nullptr ? result->count : 0;
     const auto   t2     = std::chrono::steady_clock::now();
     std::printf("ps5sd: generate_image %s, %d image(s) in %.1f s\n", ok ? "done" : "failed", count,
                 std::chrono::duration<double>(t2 - t1).count());
     log_memory("after generating");
 
-    if (ok && count > 0 && images[0].data != nullptr) {
+    if (count > 0 && result->items[0].image.data != nullptr) {
         mkdir(kOutputs, 0777);
         const std::string path = output_path();
         char parameters[1024];
@@ -640,7 +641,7 @@ void generate_once() {
                       options.prompt.c_str(), options.steps, options.cfg_scale, (long long) options.seed,
                       options.width, options.height, sd_sample_method_name(options.sample_method), model.c_str(),
                       PS5SD_VERSION);
-        const sd_image_t & im = images[0];
+        const sd_image_t & im = result->items[0].image;
         const bool saved = stbi_write_png(path.c_str(), (int) im.width, (int) im.height, (int) im.channel, im.data, 0,
                                           parameters) != 0;
         std::printf("ps5sd: %s %s\n", saved ? "saved" : "could not save", path.c_str());
@@ -653,7 +654,7 @@ void generate_once() {
         set_phase("Generation failed", "See /data/PS5SD/app.log");
         notify_outcome("PS5SD: generation failed, see /data/PS5SD/app.log");
     }
-    free_sd_images(images, count);
+    free_sd_image_generation_result(result);
     free_sd_ctx(ctx);
     log_memory("after freeing the model");
 }

@@ -9,156 +9,149 @@ earlier runs freed is not all usable again): FLUX.2 Klein 4B and FLUX.3
 Klein at 1536x1536, SDXL at 2048x2048 after smaller images. Before
 anything has run, such a graph now is built again and runs in its segments.
 ---
+ src/core/execution_engine.cpp | 24 ++++++++++++++++--------
+ src/core/execution_engine.h   |  5 +++++
+ src/core/ggml_runner.cpp      | 19 +++++++++++++++++++
+ 3 files changed, 40 insertions(+), 8 deletions(-)
+
+diff --git a/src/core/execution_engine.cpp b/src/core/execution_engine.cpp
+index 5ad241a..98972b3 100644
+--- a/src/core/execution_engine.cpp
++++ b/src/core/execution_engine.cpp
+@@ -30,6 +30,7 @@ namespace sd {
+         std::unordered_set<const ggml_tensor*> params_tensor_set_;
+         ggml_status last_compute_status_ = GGML_STATUS_FAILED;
+         Tensor<float> output_;
++        bool retry_segmented_ = false;  // PS5SD: see ComputeResult::retry_segmented
+ 
+         using GraphCutPlan = ggml_graph_cut::Plan;
+         ggml_tensor* canonical_param_tensor(ggml_tensor* tensor);
+@@ -73,7 +74,9 @@ namespace sd {
+ 
+         ComputeResult run() {
+             if (!execute_graph(task_.graph, task_.n_threads, task_.no_return, task_.read_outputs)) {
+-                return {last_compute_status_, {}};
++                ComputeResult failed{last_compute_status_, {}};
++                failed.retry_segmented = retry_segmented_;
++                return failed;
+             }
+             return {GGML_STATUS_SUCCESS, std::move(output_)};
+         }
+@@ -526,7 +529,7 @@ namespace sd {
+                                   manager != nullptr && manager->segmented_compute_enabled() &&
+                                   cached_plan.valid && cached_plan.has_cuts && cached_plan.segments.size() > 1;
+         // An empty workspace request is a lower bound on the full graph's memory demand.
+-        bool segmented = can_segment && !fits(memory_requests({{session_.backend_, 0}}, 0), params);
++        bool segmented = can_segment && (task_.force_segmented || !fits(memory_requests({{session_.backend_, 0}}, 0), params));
+         ComputeWorkspace::Measurement full_measurement;
+         if (!segmented) {
+             full_measurement = measure(graph);
+@@ -591,6 +594,11 @@ namespace sd {
+                           index + 1, plan.segments.size(), segment.group_name.c_str(), phase);
+                 return false;
+             };
++            // PS5SD: nothing of the graph has run yet, so a whole graph can still go in segments.
++            auto fail_before_run = [&](const char* phase) {
++                retry_segmented_ = !segmented && can_segment;
++                return fail_segment(phase);
++            };
+             session_.cut_cache_.prune(segment.live_cut_names);
+             bindings.reset(segment);
+             if (!bindings.bind_cached_inputs(segment, task_.description.c_str())) {
+@@ -629,7 +637,7 @@ namespace sd {
+             auto measurement = segmented ? measure(segment_graph, &cache_outputs) : full_measurement;
+             if (!session_.workspace_.prepare(measurement)) {
+                 last_compute_status_ = GGML_STATUS_ALLOC_FAILED;
+-                return fail_segment("workspace preparation");
++                return fail_before_run("workspace preparation");
+             }
+             const size_t cut_bytes = last ? 0 : session_.cut_cache_.estimate_output_bytes(graph, segment);
+             size_t new_cache_bytes = add_bytes(cut_bytes, session_.cache_.pending_bytes(segment_graph));
+@@ -650,15 +658,15 @@ namespace sd {
+                 return ready;
+             };
+             if (!weights.segment_start(index, ensure_capacity)) {
+-                return fail_segment("weight preparation");
++                return fail_before_run("weight preparation");
+             }
+             // Preparing weights can execute LoRA graphs and reclaim an idle workspace.
+             if (!session_.workspace_.prepare(measurement)) {
+                 last_compute_status_ = GGML_STATUS_ALLOC_FAILED;
+-                return fail_segment("workspace preparation");
++                return fail_before_run("workspace preparation");
+             }
+             if (!ensure_capacity()) {
+-                return fail_segment("workspace capacity check");
++                return fail_before_run("workspace capacity check");
+             }
+             if (!session_.cut_cache_.bind_outputs(cache_outputs)) {
+                 last_compute_status_ = GGML_STATUS_ALLOC_FAILED;
+@@ -669,7 +677,7 @@ namespace sd {
+                     pin_multi_device_nodes(scheduler, current);
+                 })) {
+                 last_compute_status_ = GGML_STATUS_ALLOC_FAILED;
+-                return fail_segment("workspace allocation");
++                return fail_before_run("workspace allocation");
+             }
+             for (const auto& size : measurement.buffers) {
+                 track_compute_buffer(size.backend);
+@@ -678,7 +686,7 @@ namespace sd {
+                 track_compute_buffer(session_.workspace_.cpu_backend());
+             }
+             if (!ensure_capacity()) {
+-                return fail_segment("allocated capacity check");
++                return fail_before_run("allocated capacity check");
+             }
+             copy_data_to_backend_tensor(segment_graph);
+             auto prefetch_requests = memory_requests(measurement.buffers, new_cache_bytes);
+diff --git a/src/core/execution_engine.h b/src/core/execution_engine.h
+index 79ced1d..13dd28f 100644
+--- a/src/core/execution_engine.h
++++ b/src/core/execution_engine.h
+@@ -28,11 +28,16 @@ namespace sd {
+         int n_threads  = 1;
+         bool no_return = false;
+         std::function<bool()> read_outputs;
++        // PS5SD: run in segments even when the plan estimates that the whole graph fits.
++        bool force_segmented = false;
+     };
+ 
+     struct ComputeResult {
+         ggml_status status = GGML_STATUS_FAILED;
+         Tensor<float> output;
++        // PS5SD: the whole graph did not fit after all, before any of it ran; built again, it can run
++        // in segments (GGMLRunner::compute).
++        bool retry_segmented = false;
+     };
+ 
+     class ExecutionSession {
 diff --git a/src/core/ggml_runner.cpp b/src/core/ggml_runner.cpp
-index 4c156ed..e60d352 100644
+index 7a27811..695578b 100644
 --- a/src/core/ggml_runner.cpp
 +++ b/src/core/ggml_runner.cpp
-@@ -638,18 +638,36 @@ std::optional<sd::Tensor<float>> GGMLRunner::compute(get_graph_cb_t get_graph,
-     if (!prepare_compute_graph(get_graph, &graph)) {
-         return std::nullopt;
-     }
--    params_tensor_set_dirty_ = true;
--    rebuild_params_tensor_set();
--    if (auto manager = residency_manager.lock()) {
--        for (int i = 0; i < sd::ggml_graph_cut::leaf_count(graph); ++i) {
--            auto* parameter = manager->resolve_param_tensor(sd::ggml_graph_cut::leaf_tensor(graph, i));
--            if (parameter != nullptr)
--                params_tensor_set_.insert(parameter);
-+    auto collect_params = [&]() {
-+        params_tensor_set_dirty_ = true;
-+        rebuild_params_tensor_set();
-+        if (auto manager = residency_manager.lock()) {
-+            for (int i = 0; i < sd::ggml_graph_cut::leaf_count(graph); ++i) {
-+                auto* parameter = manager->resolve_param_tensor(sd::ggml_graph_cut::leaf_tensor(graph, i));
-+                if (parameter != nullptr)
-+                    params_tensor_set_.insert(parameter);
-+            }
-         }
--    }
-+    };
-+    collect_params();
-     std::optional<sd::Tensor<float>> output;
-     try {
--        output = execute_graph(graph, n_threads, no_return, read_outputs);
-+        bool retry_segmented = false;
-+        output               = execute_graph(graph, n_threads, no_return, read_outputs, false, &retry_segmented);
+@@ -315,6 +315,25 @@ std::optional<sd::Tensor<float>> GGMLRunner::compute(get_graph_cb_t get_graph,
+         task.no_return       = no_return;
+         task.read_outputs    = read_outputs;
+         auto result          = execution_engine_->execute(execution_session_, task);
 +        // PS5SD: the plan runs the whole graph at once when it estimates that it fits next to the weights.
 +        // When the allocation then does not fit after all (on the PS5, GPU memory that earlier runs freed is
 +        // not all usable again), the graph is built again and runs in its segments. Only before anything ran.
-+        if (!output.has_value() && retry_segmented) {
++        if (result.status != GGML_STATUS_SUCCESS && result.retry_segmented) {
 +            LOG_WARN("%s does not fit in one piece; retrying in segments", get_desc().c_str());
-+            workspace_.release();
-+            cut_cache_.clear();
++            execution_engine_->discard_graph(execution_session_);
 +            if (!prepare_compute_graph(get_graph, &graph)) {
 +                return std::nullopt;
 +            }
-+            collect_params();
-+            last_compute_status_ = GGML_STATUS_FAILED;
-+            output               = execute_graph(graph, n_threads, no_return, read_outputs, true, nullptr);
++            params_tensor_set_dirty_ = true;
++            rebuild_params_tensor_set();
++            task.graph           = graph;
++            task.output          = no_return ? nullptr : ggml_get_tensor(compute_ctx, final_result_name.c_str());
++            task.weights         = collect_used_param_tensors(graph);
++            task.inputs          = backend_tensor_data_map;
++            task.debug_tensors   = debug_tensors;
++            task.force_segmented = true;
++            result               = execution_engine_->execute(execution_session_, task);
 +        }
-     } catch (const std::bad_alloc&) {
-         last_compute_status_ = GGML_STATUS_ALLOC_FAILED;
-         LOG_ERROR("%s graph allocation failed", get_desc().c_str());
-@@ -826,7 +844,11 @@ bool GGMLRunner::execute_segment(ggml_cgraph* graph, int n_threads) {
-     return true;
- }
- 
--std::optional<Tensor<float>> GGMLRunner::execute_graph(ggml_cgraph* graph, int n_threads, bool no_return, const std::function<bool()>& read_outputs) {
-+std::optional<Tensor<float>> GGMLRunner::execute_graph(ggml_cgraph* graph, int n_threads, bool no_return, const std::function<bool()>& read_outputs,
-+                                                       bool force_segmented, bool* retry_segmented) {
-+    if (retry_segmented != nullptr) {
-+        *retry_segmented = false;
-+    }
-     if (!assign_graph_cut_layer_split_backends(graph)) {
-         return std::nullopt;
-     }
-@@ -847,10 +869,10 @@ std::optional<Tensor<float>> GGMLRunner::execute_graph(ggml_cgraph* graph, int n
-         return fits(requests, params);
-     };
-     auto manager         = residency_manager.lock();
--    const bool segmented = !is_multi_device() && !sd_backend_is_cpu(runtime_backend) &&
--                           manager != nullptr && manager->segmented_compute_enabled() &&
--                           cached_plan.valid && cached_plan.has_cuts && cached_plan.segments.size() > 1 &&
--                           !fits_monolithic();
-+    const bool can_segment = !is_multi_device() && !sd_backend_is_cpu(runtime_backend) &&
-+                             manager != nullptr && manager->segmented_compute_enabled() &&
-+                             cached_plan.valid && cached_plan.has_cuts && cached_plan.segments.size() > 1;
-+    const bool segmented   = can_segment && (force_segmented || !fits_monolithic());
-     ggml_graph_cut::Plan monolithic_plan;
-     if (!segmented) {
-         monolithic_plan.segments.emplace_back();
-@@ -899,6 +921,13 @@ std::optional<Tensor<float>> GGMLRunner::execute_graph(ggml_cgraph* graph, int n
-                         index + 1, plan.segments.size(), segment.group_name.c_str(), phase);
-             return std::nullopt;
-         };
-+        // PS5SD: nothing of the graph has run yet, so a whole graph can still go in segments (compute()).
-+        auto fail_before_run = [&](const char* phase) {
-+            if (retry_segmented != nullptr) {
-+                *retry_segmented = !segmented && can_segment;
-+            }
-+            return fail_segment(phase);
-+        };
-         cut_cache_.prune(segment.live_cut_names);
-         bindings.reset(segment);
-         if (!bindings.bind_cached_inputs(segment, get_desc().c_str())) {
-@@ -927,7 +956,7 @@ std::optional<Tensor<float>> GGMLRunner::execute_graph(ggml_cgraph* graph, int n
-         auto measurement = segmented ? measure(segment_graph, segment.compute_buffer_size) : full_measurement;
-         if (!workspace_.prepare(measurement)) {
-             last_compute_status_ = GGML_STATUS_ALLOC_FAILED;
--            return fail_segment("workspace preparation");
-+            return fail_before_run("workspace preparation");
-         }
-         const size_t cut_bytes       = last ? 0 : cut_cache_.estimate_output_bytes(graph, segment);
-         const size_t new_cache_bytes = add_bytes(cut_bytes, cache_.pending_bytes(segment_graph));
-@@ -948,7 +977,7 @@ std::optional<Tensor<float>> GGMLRunner::execute_graph(ggml_cgraph* graph, int n
-             return ready;
-         };
-         if (!weights.segment_start(index, ensure_capacity)) {
--            return fail_segment("weight preparation");
-+            return fail_before_run("weight preparation");
-         }
-         // Preparing weights can execute LoRA graphs and reclaim an idle workspace.
-         if (!workspace_.measurement_matches(segment_graph, measurement)) {
-@@ -956,16 +985,16 @@ std::optional<Tensor<float>> GGMLRunner::execute_graph(ggml_cgraph* graph, int n
-         }
-         if (!workspace_.prepare(measurement)) {
-             last_compute_status_ = GGML_STATUS_ALLOC_FAILED;
--            return fail_segment("workspace preparation");
-+            return fail_before_run("workspace preparation");
-         }
-         if (!ensure_capacity()) {
--            return fail_segment("workspace capacity check");
-+            return fail_before_run("workspace capacity check");
-         }
-         if (!workspace_.allocate(segment_graph, [&](ggml_backend_sched_t scheduler, ggml_cgraph* current) {
-                 pin_multi_device_nodes(scheduler, current);
-             })) {
-             last_compute_status_ = GGML_STATUS_ALLOC_FAILED;
--            return fail_segment("workspace allocation");
-+            return fail_before_run("workspace allocation");
-         }
-         for (const auto& size : measurement.buffers) {
-             track_compute_buffer(size.backend);
-@@ -974,7 +1003,7 @@ std::optional<Tensor<float>> GGMLRunner::execute_graph(ggml_cgraph* graph, int n
-             track_compute_buffer(workspace_.cpu_backend());
-         }
-         if (!ensure_capacity()) {
--            return fail_segment("allocated capacity check");
-+            return fail_before_run("allocated capacity check");
-         }
-         copy_data_to_backend_tensor(segment_graph, false);
-         auto prefetch_requests = memory_requests(measurement.buffers, new_cache_bytes);
-diff --git a/src/core/ggml_runner.h b/src/core/ggml_runner.h
-index 02630c0..b49cb3e 100644
---- a/src/core/ggml_runner.h
-+++ b/src/core/ggml_runner.h
-@@ -147,7 +147,8 @@ private:
-     bool fits(const std::vector<DeviceMemoryRequest>& requests,
-               const std::vector<ggml_tensor*>& params) const;
-     bool execute_segment(ggml_cgraph* graph, int n_threads);
--    std::optional<sd::Tensor<float>> execute_graph(ggml_cgraph* graph, int n_threads, bool no_return, const std::function<bool()>& read_outputs);
-+    std::optional<sd::Tensor<float>> execute_graph(ggml_cgraph* graph, int n_threads, bool no_return, const std::function<bool()>& read_outputs,
-+                                                   bool force_segmented = false, bool* retry_segmented = nullptr);
- 
- protected:
-     typedef std::function<ggml_cgraph*()> get_graph_cb_t;
+         last_compute_status_ = result.status;
+         success              = result.status == GGML_STATUS_SUCCESS;
+         if (success) {

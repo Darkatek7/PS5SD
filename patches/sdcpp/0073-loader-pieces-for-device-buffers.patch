@@ -12,11 +12,14 @@ the model fills, and a run that loaded weights again ran out of memory there
 with nothing to convert now goes over in pieces of at most 8 MB, through a
 buffer of its own.
 ---
+ src/model_loader.cpp | 48 ++++++++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 48 insertions(+)
+
 diff --git a/src/model_loader.cpp b/src/model_loader.cpp
-index 6761d3e..950fecb 100644
+index 119be4d..e3b39ac 100644
 --- a/src/model_loader.cpp
 +++ b/src/model_loader.cpp
-@@ -1172,6 +1172,7 @@ bool ModelLoader::load_tensors(on_new_tensor_cb_t on_new_tensor_cb,
+@@ -1224,6 +1224,7 @@ bool ModelLoader::load_tensors(on_new_tensor_cb_t on_new_tensor_cb,
                  std::vector<uint8_t> read_buffer;
                  std::vector<uint8_t> convert_buffer;
                  std::vector<uint8_t> zip_entry_buffer;
@@ -24,7 +27,7 @@ index 6761d3e..950fecb 100644
  
                  while (true) {
                      int64_t t0, t1;
-@@ -1271,6 +1272,53 @@ bool ModelLoader::load_tensors(on_new_tensor_cb_t on_new_tensor_cb,
+@@ -1323,6 +1324,53 @@ bool ModelLoader::load_tensors(on_new_tensor_cb_t on_new_tensor_cb,
                          return true;
                      };
  
@@ -78,6 +81,3 @@ index 6761d3e..950fecb 100644
                      char* read_buf    = nullptr;
                      char* target_buf  = nullptr;
                      char* convert_buf = nullptr;
--- 
-2.47.0
-

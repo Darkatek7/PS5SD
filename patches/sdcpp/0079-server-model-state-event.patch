@@ -11,9 +11,13 @@ sd_server_set_model_state() takes the model's state from the embedding
 application as a JSON object (PS5SD: active, loaded, switching, standby,
 load_error); GET /ps5sd/v1/events sends it as a "model" event when the
 stream opens and whenever it changes (not with ?job=).
+---
+ examples/server/events.cpp | 32 ++++++++++++++++++++++++++++++--
+ examples/server/events.h   | 10 ++++++++++
+ 2 files changed, 40 insertions(+), 2 deletions(-)
 
 diff --git a/examples/server/events.cpp b/examples/server/events.cpp
-index 51e5eca..762103b 100644
+index c4d77d4..0343ba0 100644
 --- a/examples/server/events.cpp
 +++ b/examples/server/events.cpp
 @@ -39,6 +39,7 @@ struct Progress {

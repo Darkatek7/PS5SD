@@ -729,7 +729,9 @@ and `"ps5sd": {"preset": "<name>"}` in sd.cpp's JSON. Since 0.9.12 it also says 
 took, from its start to the saved image (with a batch, the whole run): `Time: 52.3 s` and
 `"ps5sd": {"seconds": 52.3}`, and a model of several files (FLUX, Z-Image, Wan) fills A1111's empty
 `Model:` with its diffusion model's name. A video's parameters and the thumbnails are in
-`/data/PS5SD/outputs/.thumbs`.
+`/data/PS5SD/outputs/.thumbs`. Since 1.2.0 the text and the JSON are the ones stable-diffusion.cpp writes
+from what the run used: A1111's sampler names (`Sampler: Euler a, Schedule type: Normal`), and the JSON's
+`schema` is `sdcpp.generation/v1` (before, `sdcpp.image.params/v1`).
 
 | Route | |
 |---|---|

@@ -7,6 +7,10 @@ GET /ps5sd/v1/app/openapi.json, the application's description of every
 route, answers without the key, as /ps5sd/v1/health does: a client reads it
 before it knows that the server wants one, and it says nothing a client
 could misuse.
+---
+ examples/server/auth.cpp | 2 +-
+ examples/server/auth.h   | 4 +++-
+ 2 files changed, 4 insertions(+), 2 deletions(-)
 
 diff --git a/examples/server/auth.cpp b/examples/server/auth.cpp
 index e6b0b96..222a34a 100644

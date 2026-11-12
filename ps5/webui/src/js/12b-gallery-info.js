@@ -7,6 +7,24 @@
 
   function baseName(path) { return String(path || '').split('/').pop(); }
 
+  // sd.cpp's JSON of an image in the shape this page reads. Since 1.2.0 sd.cpp writes
+  // "sdcpp.generation/v1": the prompt a string next to negative_prompt, sample_params, LoRAs by path,
+  // video_frames and fps. Images made before keep "sdcpp.image.params/v1": prompt.positive and
+  // .negative, sampling, LoRAs by name, video.
+  function infoShape(j) {
+    if (!j || j.schema !== 'sdcpp.generation/v1') return j;
+    var out = {}, k, s = j.sample_params || {}, ls = j.loras || [];
+    for (k in j) if (j.hasOwnProperty(k)) out[k] = j[k];
+    out.prompt = { positive: j.prompt || '', negative: j.negative_prompt || '' };
+    out.sampling = { steps: s.sample_steps, method: s.sample_method, scheduler: s.scheduler, guidance: s.guidance || {} };
+    out.loras = [];
+    for (k = 0; k < ls.length; k++) {
+      out.loras.push({ name: baseName(ls[k].path), multiplier: ls[k].multiplier, is_high_noise: !!ls[k].is_high_noise });
+    }
+    if (j.kind === 'video') out.video = { frame_count: j.video_frames, fps: j.fps };
+    return out;
+  }
+
   // The model file of a request: the diffusion model (FLUX, Wan, Z-Image), else the checkpoint.
   function infoModel(j) {
     var m = j.models || {};
@@ -61,6 +79,7 @@
       show('lb-info', false);
       lbClass(false);
       req('GET', '/ps5sd/v1/gallery/info/' + encodeURIComponent(it.name), null, function (code, d) {
+        if (code === 200 && d) d.sdcpp = infoShape(d.sdcpp);
         infoCache[it.name] = code === 200 && d ? d : {};
         var cur = st.lb >= 0 ? lbItem() : null;
         if (cur && cur.name === it.name) drawLbInfo(cur);

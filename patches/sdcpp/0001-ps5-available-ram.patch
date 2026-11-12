@@ -1,5 +1,5 @@
 diff --git a/src/core/backend_fit.cpp b/src/core/backend_fit.cpp
-index 84667ef..82411b6 100644
+index 120cbe4..738c7ae 100644
 --- a/src/core/backend_fit.cpp
 +++ b/src/core/backend_fit.cpp
 @@ -15,6 +15,13 @@
@@ -16,7 +16,7 @@ index 84667ef..82411b6 100644
  #endif
  
  #include "core/ggml_extend_backend.h"
-@@ -188,6 +195,12 @@ namespace sd::backend_fit {
+@@ -190,6 +197,12 @@ namespace sd::backend_fit {
          if (ok) {
              return ((int64_t)stats.free_count + stats.inactive_count) * page_size;
          }

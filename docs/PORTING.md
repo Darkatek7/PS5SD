@@ -3,7 +3,7 @@
 What it takes to run stable-diffusion.cpp as a PS5 title, and why. Much of it is
 [PS5LM](https://github.com/cobanov/PS5LM)'s native app (GPL-3.0), whose recipe PS5SD follows
 and whose files it adapts; each adapted file says so in its header. Upstream is pinned as
-submodules: stable-diffusion.cpp `b13a482` (2026-10-18) and its ggml, leejet/ggml `dc99877`.
+submodules: stable-diffusion.cpp `32d516c` (2026-11-11) and its ggml, leejet/ggml `d803c23`.
 
 Nothing here has run on a console yet. What is marked *unverified* is reasoning from PS5LM's
 measurements and the SDK's code, not a measurement of PS5SD.
@@ -206,6 +206,10 @@ instead of trapping, so `main.cpp` reports an out-of-memory load or generation a
   pre-request and post-routing handlers, `install_model_gate`), the job worker holds it for each job,
   and a load holds it alone. So a load waits for the generation that runs, and those requests wait for
   the load. Without a model they answer 503 `standby`; the separate standby server of `0056` is gone.
+  Upstream manages models itself since #2176 (recipes, `/sdcpp/v1/models/load` and `unload`), but it
+  refuses a switch while a job is queued and answers 503 during the load. The server keeps upstream's
+  model status for `/sdcpp/v1/capabilities` (`note_model_status`) and does not register its model
+  routes, so the app's `sd_server_load()` stays the one way a model loads.
   `patches/sdcpp/0079` adds the `model` event: the app gives the switch's state with
   `sd_server_set_model_state()` (`publish_model_state` in `main.cpp`, whenever it changes).
   `patches/sdcpp/0080` asks the app (`compat/model`) for the `model` of an OpenAI request, in the model
@@ -267,9 +271,9 @@ instead of trapping, so `main.cpp` reports an out-of-memory load or generation a
 - LoRAs: `--lora-model-dir /data/PS5SD/loras`; `GET /ps5sd/v1/app/loras` (`loras_json` in
   `models.cpp`) lists the files with their sizes, `DELETE .../loras/<path>` deletes one. Downloads
   carry a `kind` (`models` or `loras`, `download_core.cpp`); a Civitai version whose model type is
-  LORA, LoCon or DoRA gets `loras` by itself. `patches/sdcpp/0058` makes the A1111 routes refresh
-  sd-server's LoRA cache before they look a `lora` path up, as its sdcpp routes do; before, a LoRA
-  added after the start failed there with "invalid lora path" until a client listed the LoRAs.
+  LORA, LoCon or DoRA gets `loras` by itself. The A1111 routes refresh sd-server's LoRA cache before
+  they look a `lora` path up, as its sdcpp routes do, so a LoRA added after the start is found. Up to
+  1.1 `patches/sdcpp/0058` did that; upstream does it since #2176.
 - Without a display (`PS5SD_NO_DISPLAY`): no `Display`, no renderer. Every phase (`set_phase`)
   goes to `app.log` as `ps5sd: status: ...`, to the kernel log through `sceKernelDebugOutText`
   (klogsrv, `scripts/ps5sd-app.sh log -f`) and to a system notification; the sampling progress

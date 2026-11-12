@@ -33,12 +33,15 @@ def server_routes(directory):
         if not name.endswith(".cpp"):
             continue
         text = open(os.path.join(directory, name), encoding="utf-8").read()
-        for m in re.finditer(r'svr\.(Get|Post|Delete|Put)\(\s*(R"\((.*?)\)"|"([^"]*)")', text):
-            method = m.group(1).upper()
-            if m.group(3) is not None:
-                routes.append((method, "regex", m.group(3)))
+        if name == "routes_models.cpp":
+            continue  # upstream's model routes, not registered: the app loads models (patches/sdcpp/0078)
+        # svr.Get(...), and upstream's routes.get(...) (RuntimeRoutes, the same routes behind its model lock)
+        for m in re.finditer(r'(?:svr\.(Get|Post|Delete|Put)|routes\.(get|post))\(\s*(R"\((.*?)\)"|"([^"]*)")', text):
+            method = (m.group(1) or m.group(2)).upper()
+            if m.group(4) is not None:
+                routes.append((method, "regex", m.group(4)))
             else:
-                routes.append((method, "exact", m.group(4)))
+                routes.append((method, "exact", m.group(5)))
         for m in re.finditer(r'for \(const char\* (\w+) : \{([^}]*)\}\)\s*\{\s*svr\.(Get|Post|Delete|Put)\(\1\b', text):
             for path in re.findall(r'"([^"]+)"', m.group(2)):
                 routes.append((m.group(3).upper(), "exact", path))

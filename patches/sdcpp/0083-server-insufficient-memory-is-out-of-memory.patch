@@ -10,6 +10,9 @@ instead of the title; but the failure log did not take the line as a memory
 failure, and the run failed as generation_failed with ggml's text. It is one
 of the memory markers now: the run gets its one more try (0072), and fails
 as out_of_memory with the message that says what to lower.
+---
+ examples/server/server_hooks.cpp | 3 +++
+ 1 file changed, 3 insertions(+)
 
 diff --git a/examples/server/server_hooks.cpp b/examples/server/server_hooks.cpp
 index d0c6abb..7724df2 100644

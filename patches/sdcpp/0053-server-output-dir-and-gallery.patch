@@ -3,13 +3,27 @@ From: ps5sd <ps5sd@localhost>
 Date: Mon, 19 Oct 2026 15:51:55 +0200
 Subject: [PATCH 4/4] server: --output-dir and gallery endpoints
 
+---
+ examples/server/CMakeLists.txt    |   1 +
+ examples/server/async_jobs.cpp    |   4 +-
+ examples/server/gallery.cpp       | 168 ++++++++++++++++++++++++++++++
+ examples/server/gallery.h         |  12 +++
+ examples/server/main.cpp          |   1 +
+ examples/server/routes.h          |   1 +
+ examples/server/routes_openai.cpp |   4 +-
+ examples/server/routes_sdapi.cpp  |   4 +-
+ examples/server/runtime.cpp       |  11 ++
+ examples/server/runtime.h         |   1 +
+ 10 files changed, 204 insertions(+), 3 deletions(-)
+ create mode 100644 examples/server/gallery.cpp
+ create mode 100644 examples/server/gallery.h
 
 diff --git a/examples/server/CMakeLists.txt b/examples/server/CMakeLists.txt
-index 0791f9f..5a383c9 100644
+index 7cd89bc..de86a9c 100644
 --- a/examples/server/CMakeLists.txt
 +++ b/examples/server/CMakeLists.txt
-@@ -74,6 +74,7 @@ set(SD_SERVER_SOURCES
-     runtime.cpp
+@@ -78,6 +78,7 @@ set(SD_SERVER_SOURCES
+     routes_models.cpp
      async_jobs.cpp
      server_hooks.cpp
 +    gallery.cpp
@@ -17,25 +31,25 @@ index 0791f9f..5a383c9 100644
      routes_openai.cpp
      routes_sdapi.cpp
 diff --git a/examples/server/async_jobs.cpp b/examples/server/async_jobs.cpp
-index bb9f304..2234905 100644
+index a82c4ff..4f0587b 100644
 --- a/examples/server/async_jobs.cpp
 +++ b/examples/server/async_jobs.cpp
-@@ -9,6 +9,7 @@
+@@ -11,6 +11,7 @@
  #include "common/log.h"
  #include "common/media_io.h"
  #include "common/resource_owners.hpp"
 +#include "gallery.h"
  #include "server_activity.h"
  
- static void preview_callback(int step, int frame_count, sd_image_t* frames, bool is_noisy, void* data) {
-@@ -254,7 +255,8 @@ bool execute_img_gen_job(ServerRuntime& runtime,
+ class JobCancellationMonitor {
+@@ -378,7 +379,8 @@ bool execute_img_gen_job(ServerRuntime& runtime,
      }
  
      const int num_results = results.count();
--    activity.finish(num_results > 0, "");
-+    const std::vector<std::string> saved = save_output_images(*runtime.svr_params, results);
-+    activity.finish(num_results > 0, saved.empty() ? "" : saved[0]);
-     if (num_results <= 0) {
+-    activity.finish(!job.cancel_requested.load() && num_results > 0, "");
++    const std::vector<std::string> saved = job.cancel_requested.load() ? std::vector<std::string>() : save_output_images(*runtime.svr_params, results);
++    activity.finish(!job.cancel_requested.load() && num_results > 0, saved.empty() ? "" : saved[0]);
+     if (job.cancel_requested.load() || num_results <= 0) {
          error_message = "generate_image returned no results";
          return false;
 diff --git a/examples/server/gallery.cpp b/examples/server/gallery.cpp
@@ -231,28 +245,31 @@ index 0000000..775f8bf
 +// Does nothing, and returns an empty list, when --output-dir is not set.
 +std::vector<std::string> save_output_images(const SDSvrParams& svr_params, SDImageVec& images);
 diff --git a/examples/server/main.cpp b/examples/server/main.cpp
-index 6c98059..a64ef9d 100644
+index 45d785b..2aba58c 100644
 --- a/examples/server/main.cpp
 +++ b/examples/server/main.cpp
-@@ -236,6 +236,7 @@ extern "C" int sd_server(int argc, char** argv_in) {
-     register_openai_api_endpoints(svr, runtime);
+@@ -259,6 +259,7 @@ extern "C" int sd_server(int argc, char** argv_in) {
      register_sdapi_endpoints(svr, runtime);
      register_sdcpp_api_endpoints(svr, runtime);
+     register_model_endpoints(svr, runtime);
 +    register_ps5sd_endpoints(svr, runtime);
  
      LOG_INFO("listening on: http://%s:%d\n", svr_params.listen_ip.c_str(), svr_params.listen_port);
      g_sd_server_svr = &svr;
 diff --git a/examples/server/routes.h b/examples/server/routes.h
-index 1a4efb5..340eb6e 100644
+index f779391..d6d9a30 100644
 --- a/examples/server/routes.h
 +++ b/examples/server/routes.h
-@@ -9,3 +9,4 @@ void register_index_endpoints(httplib::Server& svr, const SDSvrParams& svr_param
- void register_openai_api_endpoints(httplib::Server& svr, ServerRuntime& rt);
+@@ -10,6 +10,7 @@ void register_openai_api_endpoints(httplib::Server& svr, ServerRuntime& rt);
  void register_sdapi_endpoints(httplib::Server& svr, ServerRuntime& rt);
  void register_sdcpp_api_endpoints(httplib::Server& svr, ServerRuntime& rt);
+ void register_model_endpoints(httplib::Server& svr, ServerRuntime& rt);
 +void register_ps5sd_endpoints(httplib::Server& svr, ServerRuntime& rt);  // gallery.cpp
+ 
+ class RuntimeRoutes {
+     httplib::Server& server_;
 diff --git a/examples/server/routes_openai.cpp b/examples/server/routes_openai.cpp
-index cb962cb..165b568 100644
+index d4e5819..f936a54 100644
 --- a/examples/server/routes_openai.cpp
 +++ b/examples/server/routes_openai.cpp
 @@ -7,6 +7,7 @@
@@ -263,9 +280,9 @@ index cb962cb..165b568 100644
  #include "server_activity.h"
  
  static std::string extract_and_remove_sd_cpp_extra_args(std::string& text) {
-@@ -243,7 +244,8 @@ static bool execute_sync_img_gen_request(ServerRuntime& runtime,
+@@ -236,7 +237,8 @@ static bool execute_sync_img_gen_request(ServerRuntime& runtime,
+             return false;
          }
-         results.adopt(raw_results, num_results);
      }
 -    activity.finish(!results.empty(), "");
 +    const std::vector<std::string> saved = save_output_images(*runtime.svr_params, results);
@@ -274,20 +291,20 @@ index cb962cb..165b568 100644
      if (results.empty()) {
          error_message = "generate_image returned no results";
 diff --git a/examples/server/routes_sdapi.cpp b/examples/server/routes_sdapi.cpp
-index 076a359..0dac424 100644
+index a27dada..60eef34 100644
 --- a/examples/server/routes_sdapi.cpp
 +++ b/examples/server/routes_sdapi.cpp
-@@ -10,6 +10,7 @@
+@@ -13,6 +13,7 @@
  #include "common/common.h"
  #include "common/media_io.h"
  #include "common/resource_owners.hpp"
 +#include "gallery.h"
+ #include "model_catalog.h"
  #include "server_activity.h"
  
- namespace fs = std::filesystem;
-@@ -421,7 +422,8 @@ void register_sdapi_endpoints(httplib::Server& svr, ServerRuntime& rt) {
+@@ -621,7 +622,8 @@ void register_sdapi_endpoints(httplib::Server& svr, ServerRuntime& rt) {
+                     return;
                  }
-                 results.adopt(raw_results, num_results);
              }
 -            activity.finish(!results.empty(), "");
 +            const std::vector<std::string> saved = save_output_images(*runtime->svr_params, results);
@@ -296,10 +313,10 @@ index 076a359..0dac424 100644
              if (results.empty()) {
                  res.status = 500;
 diff --git a/examples/server/runtime.cpp b/examples/server/runtime.cpp
-index 76d89d3..d72fec2 100644
+index 5d08bba..3196c9e 100644
 --- a/examples/server/runtime.cpp
 +++ b/examples/server/runtime.cpp
-@@ -192,6 +192,7 @@ ArgOptions SDSvrParams::get_options() {
+@@ -347,6 +347,7 @@ ArgOptions SDSvrParams::get_options() {
      options.string_options = {
          {"-l", "--listen-ip", "server listen ip (default: 127.0.0.1)", 0, &listen_ip},
          {"", "--serve-html-path", "path to HTML file to serve at root (optional)", 0, &serve_html_path},
@@ -307,7 +324,7 @@ index 76d89d3..d72fec2 100644
      };
  
      options.int_options = {
-@@ -230,6 +231,15 @@ bool SDSvrParams::validate() {
+@@ -408,6 +409,15 @@ bool SDSvrParams::validate() {
          LOG_ERROR("error: serve_html_path file does not exist: %s", serve_html_path.c_str());
          return false;
      }
@@ -323,23 +340,23 @@ index 76d89d3..d72fec2 100644
      return true;
  }
  
-@@ -247,6 +257,7 @@ std::string SDSvrParams::to_string() const {
-         << "  listen_ip: " << listen_ip << ",\n"
-         << "  listen_port: \"" << listen_port << "\",\n"
+@@ -427,6 +437,7 @@ std::string SDSvrParams::to_string() const {
+         << "  max_pending_jobs: " << max_pending_jobs << ",\n"
+         << "  completed_ttl_seconds: " << completed_ttl_seconds << ",\n"
          << "  serve_html_path: \"" << serve_html_path << "\",\n"
 +        << "  output_dir: \"" << output_dir << "\",\n"
          << "}";
      return oss.str();
  }
 diff --git a/examples/server/runtime.h b/examples/server/runtime.h
-index 5baa633..3d47021 100644
+index ba9ddc4..8b47635 100644
 --- a/examples/server/runtime.h
 +++ b/examples/server/runtime.h
-@@ -22,6 +22,7 @@ struct SDSvrParams {
-     std::string listen_ip = "127.0.0.1";
-     int listen_port       = 1234;
+@@ -26,6 +26,7 @@ struct SDSvrParams {
+     int completed_ttl_seconds = 600;
      std::string serve_html_path;
+     std::vector<std::string> model_dirs;
 +    std::string output_dir;  // --output-dir: every generated image is also saved here as PNG
-     bool normal_exit = false;
+     bool normal_exit         = false;
      sd_log_level_t log_level = SD_LOG_INFO;
-     bool color       = false;
+     bool color               = false;
