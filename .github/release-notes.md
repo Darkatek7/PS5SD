@@ -38,7 +38,7 @@ Machete AI Studio 1.2.4 introduces an interactive on-screen virtual pointer curs
 
 Install from the homebrew store (Machete AI Studio, PPSA99699), or unpack PPSA99699.zip into /data/homebrew/ on the console and let ShadowMountPlus scan. Requirements: kstuff-lite, ShadowMountPlus, elfldr; ftpsrv on 2121 optional.
 
-Credits: PS5SD by Darkatek7 (Heel Tobias), stable-diffusion.cpp (ggerganov / leejet), ps5-exporter (Marice), Machete Studio additions by VenezuelanBiggie24.
+Credits: PS5SD by Darkatek7, stable-diffusion.cpp (ggerganov / leejet), ps5-exporter (Marice), Machete Studio additions by VenezuelanBiggie24.
 
 ----
 
@@ -82,4 +82,4 @@ Machete AI Studio 1.2.4 presenta un cursor de puntero virtual en pantalla y gale
 
 Instala desde la tienda homebrew (Machete AI Studio, PPSA99699) o descomprime PPSA99699.zip en /data/homebrew/ en la consola y permite que ShadowMountPlus escanee. Requisitos: kstuff-lite, ShadowMountPlus, elfldr; ftpsrv en 2121 opcional.
 
-Creditos: PS5SD por Darkatek7 (Heel Tobias), stable-diffusion.cpp (ggerganov / leejet), ps5-exporter (Marice), adiciones de Machete Studio por VenezuelanBiggie24.
+Creditos: PS5SD por Darkatek7, stable-diffusion.cpp (ggerganov / leejet), ps5-exporter (Marice), adiciones de Machete Studio por VenezuelanBiggie24.

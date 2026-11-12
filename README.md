@@ -43,7 +43,7 @@
 
 Machete PS5SD is a complete generative artificial intelligence suite designed specifically to leverage the unified memory architecture of jailbroken PlayStation 5 consoles.
 
-Building on the foundation created by Darkatek7 / Heel Tobias in [PS5SD](https://github.com/Darkatek7/PS5SD), this Machete release integrates full video generation (Text-to-Video and Image-to-Video), hardware telemetry, memory defragmentation, accelerated decoding, and automated crash diagnostics.
+Building on the foundation created by Darkatek7 in [PS5SD](https://github.com/Darkatek7/PS5SD), this Machete release integrates full video generation (Text-to-Video and Image-to-Video), hardware telemetry, memory defragmentation, accelerated decoding, and automated crash diagnostics.
 
 ---
 
@@ -199,7 +199,7 @@ Machete PS5SD exposes standard endpoints compatible with AUTOMATIC1111 WebUI and
 
 ## Credits and Acknowledgments
 
-- **Darkatek7 / Heel Tobias**: Creator of [PS5SD](https://github.com/Darkatek7/PS5SD).
+- **Darkatek7**: Creator of [PS5SD](https://github.com/Darkatek7/PS5SD).
 - **ggerganov & leejet**: Authors of [stable-diffusion.cpp](https://github.com/leejet/stable-diffusion.cpp).
 - **Marice**: Author of [ps5-exporter](https://github.com/Marice/ps5-exporter).
 - **cobanov**: Author of [PS5LM](https://github.com/cobanov/PS5LM).
@@ -247,7 +247,7 @@ This project is licensed under the GNU General Public License v3.0 (GPL-3.0). Se
 
 Machete PS5SD es una suite completa de inteligencia artificial generativa disenada especificamente para aprovechar la arquitectura de memoria unificada en consolas PlayStation 5 liberadas.
 
-Construido sobre las bases creadas por Darkatek7 / Heel Tobias en [PS5SD](https://github.com/Darkatek7/PS5SD), esta version de Machete integra generacion de video completa (Texto a Video e Imagen a Video), telemetria de hardware, desfragmentacion de memoria, decodificacion acelerada y diagnostico automatico de fallos.
+Construido sobre las bases creadas por Darkatek7 en [PS5SD](https://github.com/Darkatek7/PS5SD), esta version de Machete integra generacion de video completa (Texto a Video e Imagen a Video), telemetria de hardware, desfragmentacion de memoria, decodificacion acelerada y diagnostico automatico de fallos.
 
 ---
 
@@ -403,7 +403,7 @@ Machete PS5SD expone rutas compatibles con AUTOMATIC1111 y OpenAI:
 
 ## Creditos y Agradecimientos
 
-- **Darkatek7 / Heel Tobias**: Autor y creador de [PS5SD](https://github.com/Darkatek7/PS5SD).
+- **Darkatek7**: Autor y creador de [PS5SD](https://github.com/Darkatek7/PS5SD).
 - **ggerganov y leejet**: Desarrolladores de [stable-diffusion.cpp](https://github.com/leejet/stable-diffusion.cpp).
 - **Marice**: Autor de [ps5-exporter](https://github.com/Marice/ps5-exporter).
 - **cobanov**: Creador de [PS5LM](https://github.com/cobanov/PS5LM).
