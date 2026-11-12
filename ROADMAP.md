@@ -506,9 +506,11 @@ needs no ControlNet and no preprocessor.
   on the CPU, and with SD-Turbo a `repeat` job, the gallery's info, a cancel of a running job, A1111's
   `interrupt` and `txt2img`, the events and `scripts/check-openapi.py` work. The app's one-shot mode uses
   upstream's new `generate_image` result (`ps5/app/main.cpp`).
-- [ ] **Build and test the title**: the PS5 build in Docker, then on the console a switch between
-  presets, an image with a LoRA on Klein 9B, a cancel, a repeat job, a video, the hires fix with a guide
-  image, and the gallery viewer's info and Use all on an image from 1.1 and one from 1.2.
+- [x] **Build and test the title** (2026-11-12, CI's build of `sdcpp-november`): switches between presets,
+  an image with a LoRA on Klein 9B, a cancel, a repeat job, a video, the hires fix with a guide image, the
+  gallery's info of an image from 1.0 and one from 1.2, and a soak test of 25 minutes with no failure
+  (`docs/CONSOLE.md`). It found 0084 (no LoRA was listed) and a job's `created` in milliseconds.
+- [ ] In a browser: the gallery viewer's info and Use all on an image from 1.0 and one from 1.2.
 - [ ] **Speed** from upstream, measured on the console, not assumed: Vulkan kernels, graph fusion and
   reused workspaces (#2251, #2252), fused GEGLU and GLU (#2245, #2250; the SDXL and SD 1.5 UNets use
   them), Z-Image fusions and BF16 GEMM (#2265), position embeddings kept between runs (#2211). The

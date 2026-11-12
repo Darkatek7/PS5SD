@@ -1075,3 +1075,27 @@ while it ran; FLUX.2 Klein 9B with `lenovo_flux_klein9b` at 4 steps; Wan 2.1 T2V
 - The download that was to run alongside did not: the catalog entry's file was on the console already, so
   the request only wrote its preset. The script now downloads, and deletes, only what the console does not
   have. Downloads while generating were measured before ("Close" above).
+
+## The stable-diffusion.cpp of November on the console (2026-11-12)
+
+CI's build of branch `sdcpp-november` (`9a9411b`: stable-diffusion.cpp `32d516c`, ggml `d803c23`), still
+version 1.0.0, deployed with `scripts/ps5sd-app.sh`.
+
+- The first build listed no LoRA: upstream checks each LoRA path with `fs::canonical` now, and `realpath()`
+  fails on the PS5. `patches/sdcpp/0084` takes an absolute path that exists as it is then; after it,
+  sd-server lists the console's 26 LoRAs.
+- By hand, before the soak test: a `repeat` job of 2 on FLUX.3 Klein Q4 (2 images in the gallery, A1111's
+  text with `Preset:` and `Time:`, sd.cpp's JSON as `sdcpp.generation/v1`), a cancel of a running job (`202`,
+  then `cancelled`), A1111's `interrupt` and `txt2img`, the events. SDXL Canny with a guide image and the
+  hires fix (768 to 1152, 12 steps) 104 s, and the result follows the guide. Wan 2.1 1.3B, 9 frames at
+  832x480 and 20 steps, 160 s with the load. An image from 1.0 keeps its info (`sdcpp.image.params/v1`).
+- `scripts/soak-test.py --minutes 25`: 4 rounds as in the soak test before 1.0 (below), 28 requests,
+  0 failures. Health answered 1679 times with no gap, the event stream gave 1262 events and never ended.
+- The times are those of 1.0: Z-Image Turbo 88 s, SDXL Base 28 to 30 s, Klein 9B with
+  `lenovo_flux_klein9b` 136 s (139 to 141 s before), the video 86 to 88 s. Every switch 0 to 9 s.
+- Memory: the CPU heap after a request was 0.50 GiB after the first, then 0.59 to 0.73 GiB, and the same in
+  the last two rounds (before: 0.63 to 0.66 GiB). Its peak was 1.19 GiB (before 0.87). After a Klein 9B image
+  the pool's largest part was 0.88 GiB each round (before 0.78).
+- New in `app.log`, without effect: `model catalog: ... current_path` at each load (upstream's model
+  catalog looks for a relative `models` directory; its routes are not registered), and upstream's probe
+  turns direct conv2d and conv3d off on Vulkan0 ("probe output check failed").
