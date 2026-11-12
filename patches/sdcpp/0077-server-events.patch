@@ -28,8 +28,8 @@ returned 1 ms after terminate with a stream open.
  examples/server/events.cpp       | 291 +++++++++++++++++++++++++++++++
  examples/server/events.h         |  39 +++++
  examples/server/main.cpp         |   8 +
- examples/server/routes_sdcpp.cpp |   3 +
- 6 files changed, 349 insertions(+), 3 deletions(-)
+ examples/server/routes_sdcpp.cpp |   7 +-
+ 6 files changed, 351 insertions(+), 5 deletions(-)
  create mode 100644 examples/server/events.cpp
  create mode 100644 examples/server/events.h
 
@@ -495,7 +495,7 @@ index 3e4c10c..f6fa301 100644
  }
  
 diff --git a/examples/server/routes_sdcpp.cpp b/examples/server/routes_sdcpp.cpp
-index 197cc0f..efd96a3 100644
+index 197cc0f..f72545a 100644
 --- a/examples/server/routes_sdcpp.cpp
 +++ b/examples/server/routes_sdcpp.cpp
 @@ -6,6 +6,7 @@
@@ -506,7 +506,7 @@ index 197cc0f..efd96a3 100644
  #include "common/common.h"
  #include "common/media_io.h"
  #include "common/resource_owners.hpp"
-@@ -768,6 +769,7 @@ void register_sdcpp_api_endpoints(httplib::Server& svr, ServerRuntime& rt) {
+@@ -768,12 +769,13 @@ void register_sdcpp_api_endpoints(httplib::Server& svr, ServerRuntime& rt) {
              }
  
              manager.cv.notify_one();
@@ -514,7 +514,14 @@ index 197cc0f..efd96a3 100644
  
              json out;
              out["id"]       = job->id;
-@@ -825,6 +827,7 @@ void register_sdcpp_api_endpoints(httplib::Server& svr, ServerRuntime& rt) {
+             out["kind"]     = async_job_kind_name(job->kind);
+             out["status"]   = async_job_status_name(job->status);
+-            out["created"]  = job->created_at;
++            out["created"]  = job->created_at / 1000;  // PS5SD: seconds, as the job routes give them
+             out["poll_url"] = "/sdcpp/v1/jobs/" + job->id;
+ 
+             res.status = 202;
+@@ -825,12 +827,13 @@ void register_sdcpp_api_endpoints(httplib::Server& svr, ServerRuntime& rt) {
              }
  
              manager.cv.notify_one();
@@ -522,3 +529,10 @@ index 197cc0f..efd96a3 100644
  
              json out;
              out["id"]       = job->id;
+             out["kind"]     = async_job_kind_name(job->kind);
+             out["status"]   = async_job_status_name(job->status);
+-            out["created"]  = job->created_at;
++            out["created"]  = job->created_at / 1000;  // PS5SD: seconds, as the job routes give them
+             out["poll_url"] = "/sdcpp/v1/jobs/" + job->id;
+ 
+             res.status = 202;
