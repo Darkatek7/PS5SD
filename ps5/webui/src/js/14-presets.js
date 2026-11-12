@@ -8,17 +8,14 @@
     if (f.scheduler && f.scheduler !== 'default') d.scheduler = f.scheduler;
     if (f.clip > 0) d.clip_skip = String(f.clip);
     var ls = [], fl = f.loras || [];
-    for (var i = 0; i < fl.length; i++) if (fl[i].m !== 0 && !fl[i].off) ls.push(fl[i].path + ':' + fl[i].m);
+    for (var i = 0; i < fl.length; i++) if (fl[i].m !== 0 && !fl[i].off) ls.push(pctEncode(fl[i].path) + ':' + fl[i].m);
     if (ls.length) d.loras = ls.join(',');
     if (f.hr && f.hr.on) {
       d.hires_scale = String(f.hr.scale);
       d.hires_steps = String(f.hr.steps);
       d.hires_denoise = String(f.hr.den);
       // "Latent (nearest-exact)": a default is one word, so the name goes percent-encoded
-      d.hires_upscaler = f.hr.up.replace(/[^A-Za-z0-9._-]/g, function (c) {
-        var h = c.charCodeAt(0).toString(16).toUpperCase();
-        return '%' + (h.length < 2 ? '0' : '') + h;
-      });
+      d.hires_upscaler = pctEncode(f.hr.up);
     }
     return d;
   }
@@ -172,11 +169,11 @@
       if (w.indexOf(':') >= 0 || !loras) return null;
       var lw = w.toLowerCase(), have = ',' + m[1], later = [];
       for (i = 0; i < loras.length; i++) {
-        var p = loras[i] && loras[i].path;
+        var p = loras[i] && loras[i].path && pctEncode(loras[i].path);
         if (!p || have.indexOf(',' + p + ':') >= 0) continue;
         var at = p.toLowerCase().indexOf(lw);
         if (at < 0) continue;
-        var h = { label: p, insert: p + ':1', sel: [p.length + 1, p.length + 2] };
+        var h = { label: loras[i].path, insert: p + ':1', sel: [p.length + 1, p.length + 2] };
         // the ones that start with the word first, then the ones with it inside (a LoRA in a folder)
         if (at === 0) hits.push(h); else later.push(h);
       }

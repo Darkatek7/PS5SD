@@ -467,7 +467,7 @@ int main() {
                                                 { "cfg", "." },
                                                 { "sampler", "Euler A" },
                                                 { "scheduler", "default" },
-                                                { "width", "100" },
+                                                { "width", "48" },
                                                 { "height", "70000" } })
                   .empty(),
               "values that cannot be options are left out");
@@ -478,6 +478,9 @@ int main() {
               "the last valid value wins; an invalid one does not replace it");
         check(ps5sd::defaults_to_args({}).empty(), "no defaults, no options");
         check(ps5sd::defaults_to_args(Defaults{ { "clip_skip", "2" } }) == Args{ "--clip-skip", "2" }, "clip_skip");
+        check(ps5sd::defaults_to_args(Defaults{ { "width", "1001" }, { "height", "4096" } }) ==
+                  Args{ "--width", "1001", "--height", "4096" },
+              "any size from 64 to 4096 (sd.cpp rounds it up; issue 15)");
         check(ps5sd::defaults_to_args(Defaults{ { "clip_skip", "0" }, { "clip_skip", "13" }, { "clip_skip", "-1" } }).empty(),
               "clip_skip from 1 to 12");
 

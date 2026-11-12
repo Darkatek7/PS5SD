@@ -177,9 +177,9 @@ std::vector<std::string> defaults_to_args(const std::vector<std::pair<std::strin
             sampler = kv.second;
         } else if (kv.first == "scheduler" && valid_name(kv.second)) {
             scheduler = kv.second;
-        } else if (kv.first == "width" && whole_int(kv.second, 64, 4096, n) && n % 8 == 0) {
+        } else if (kv.first == "width" && whole_int(kv.second, 64, 4096, n)) {  // sd.cpp rounds it up
             width = kv.second;
-        } else if (kv.first == "height" && whole_int(kv.second, 64, 4096, n) && n % 8 == 0) {
+        } else if (kv.first == "height" && whole_int(kv.second, 64, 4096, n)) {
             height = kv.second;
         } else if (kv.first == "clip_skip" && whole_int(kv.second, 1, 12, n)) {
             clip_skip = kv.second;

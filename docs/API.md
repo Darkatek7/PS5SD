@@ -330,7 +330,7 @@ apart, and still silent) or `no ELF loader`. Without it those
   and 1 for SD 1.5. A `clip_skip` of 1 counts only for an SD 1.x model: any other keeps its own, because
   with 1 an SDXL model makes noise. They win
   over the same options in `server-args.txt`, which stay the defaults of a model without settings. A value
-  that cannot be an option (not a number, a size that is not a multiple of 8, ...) is left out.
+  that cannot be an option (not a number, a size below 64 or above 4096, ...) is left out.
 
 `POST /ps5sd/v1/app/models/active` answers:
 
@@ -363,7 +363,7 @@ A saved preset is a model with other settings: a preset file with `# base: <id>`
 
 | Route | |
 |---|---|
-| `POST /ps5sd/v1/app/presets` | `{"name": "Portrait fast", "base": "<model id>", "defaults": {"width": "832", "height": "1216", "steps": "10", "cfg": "6", "sampler": "dpm++2m", "scheduler": "ays", "clip_skip": "2", "loras": "detail.safetensors:0.8", "hires_scale": "1.5", "hires_steps": "0", "hires_denoise": "0.5", "hires_upscaler": "Latent"}}`: `201`, the library plus `"id"` of the new preset. It takes the model's arguments and its prompt starters from `base` (the loaded model when it is left out; the base's own base when that is a saved preset too). The id comes from the name. `400` for a name of more than one line or 100 characters, a key that is not one of these, or a value with a space |
+| `POST /ps5sd/v1/app/presets` | `{"name": "Portrait fast", "base": "<model id>", "defaults": {"width": "832", "height": "1216", "steps": "10", "cfg": "6", "sampler": "dpm++2m", "scheduler": "ays", "clip_skip": "2", "loras": "detail.safetensors:0.8", "hires_scale": "1.5", "hires_steps": "0", "hires_denoise": "0.5", "hires_upscaler": "Latent"}}`: `201`, the library plus `"id"` of the new preset. It takes the model's arguments and its prompt starters from `base` (the loaded model when it is left out; the base's own base when that is a saved preset too). The id comes from the name. `400` for a name of more than one line or 100 characters, a key that is not one of these, or a value with a space or another character than letters, digits and `. _ + - : , / %`. A name with others goes in percent-encoded (`"loras": "my%20style.safetensors:0.8"`; [MODELS.md](MODELS.md#presets-models-of-several-files-and-options)) |
 | `GET /ps5sd/v1/app/presets/<id>` | `{"id", "text"}`: the preset file as it is |
 | `POST /ps5sd/v1/app/presets/<id>` | `{"text": "..."}`: replaces the file (at most 64 KB, it must name a model); the answer is the library. Changed options count from the next load of that preset. Since 0.9.13 `{"defaults": {"steps": "8", ...}}` (the keys of `POST presets`) replaces only the preset's `# defaults:` line, and the rest of the file stays; `{}` removes the line. For the loaded preset the new settings are the API's defaults at once. `400` for a key or value a preset cannot keep, `404` for no such preset |
 | `DELETE /ps5sd/v1/app/presets/<id>` | deletes a saved preset's file, never a model file. `409` when it is in use, or when the preset is a model itself (no `base`; delete it with `DELETE models/<id>`) |

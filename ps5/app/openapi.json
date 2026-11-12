@@ -1338,7 +1338,7 @@
         ],
         "operationId": "createPreset",
         "summary": "Save a preset",
-        "description": "Saves a model with other settings. It takes the model's arguments and its prompt starters from `base` (the loaded model when it is left out; the base's own base when that is a saved preset too). The id comes from the name. A key that is not one of the `defaults` keys, or a value with a space, is a `400`.",
+        "description": "Saves a model with other settings. It takes the model's arguments and its prompt starters from `base` (the loaded model when it is left out; the base's own base when that is a saved preset too). The id comes from the name. A key that is not one of the `defaults` keys, or a value with a space or another character than letters, digits and `. _ + - : , / %`, is a `400`; a name with others goes in percent-encoded.",
         "requestBody": {
           "required": true,
           "content": {

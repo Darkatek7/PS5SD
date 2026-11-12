@@ -1,6 +1,6 @@
   // ---------- controls ----------
   // Size buttons: the built-in sizes, then the user's own (saved in this browser, for every model).
-  function okSize(v) { return typeof v === 'number' && v >= 64 && v <= 2048 && v % 8 === 0; }
+  function okSize(v) { return typeof v === 'number' && v >= 64 && v <= 4096 && v % 1 === 0; }
 
   function hasSize(list, w, h) {
     for (var i = 0; i < list.length; i++) if (list[i][0] === w && list[i][1] === h) return true;
@@ -62,7 +62,7 @@
   }
 
   function saveSize() {
-    var w = size8('w', 512), h = size8('h', 512);
+    var w = sizePx('w', 512), h = sizePx('h', 512);
     var mine = ownSizes();
     if (hasSize(PRESETS, w, h) || hasSize(mine, w, h)) { toast(w + '×' + h + ' is already a size button.'); return; }
     mine.push([w, h]);

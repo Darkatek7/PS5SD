@@ -43,7 +43,7 @@
     if (d.loras) { p.loras = parseLoras(d.loras); any = true; }
     n = parseFloat(d.hires_scale);
     if (n >= 1) {
-      p.hr = { on: true, scale: n, up: d.hires_upscaler ? decodeURIComponent(d.hires_upscaler) : 'Latent',
+      p.hr = { on: true, scale: n, up: d.hires_upscaler ? pctDecode(d.hires_upscaler) : 'Latent',
         steps: parseInt(d.hires_steps, 10) || 0, den: parseFloat(d.hires_denoise) || 0.5 };
       any = true;
     }
@@ -51,12 +51,27 @@
     return p;
   }
 
+  // A value in "# defaults:" is one word of letters, digits and . _ + - : , / %, so a name with other
+  // characters (a LoRA "my style [v2].safetensors", the upscaler "Latent (nearest-exact)") goes in
+  // percent-encoded, folders kept (issue 16). pctDecode leaves a value that is not encoded as it is.
+  function pctEncode(s) {
+    return String(s).replace(/[^A-Za-z0-9._\/-]+/g, function (run) {
+      return encodeURIComponent(run).replace(/[!'()*~]/g, function (c) {
+        return '%' + c.charCodeAt(0).toString(16).toUpperCase();
+      });
+    });
+  }
+
+  function pctDecode(s) {
+    try { return decodeURIComponent(s); } catch (e) { return s; }
+  }
+
   // "loras=styles/ink.gguf:0.8,detail.safetensors:1" in a preset's defaults.
   function parseLoras(v) {
     var out = [], parts = String(v).split(',');
     for (var i = 0; i < parts.length; i++) {
       var at = parts[i].lastIndexOf(':');
-      if (at > 0) out.push({ path: parts[i].substring(0, at), m: Number(parts[i].substring(at + 1)) || 0 });
+      if (at > 0) out.push({ path: pctDecode(parts[i].substring(0, at)), m: Number(parts[i].substring(at + 1)) || 0 });
     }
     return out;
   }

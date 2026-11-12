@@ -152,7 +152,11 @@ The options that matter on the PS5:
 | `--cache-mode ucache --cache-option threshold=1.5` | Skips steps that change little: SDXL at 25 steps runs about 40% faster, with small changes in detail. |
 
 The `# defaults:` keys are `steps`, `cfg`, `width`, `height`, `sampler`, `scheduler`, `clip_skip` and `loras`
-(`path:strength`, several with commas: `loras=detail.safetensors:0.8,styles/ink.gguf:1`). The samplers
+(`path:strength`, several with commas: `loras=detail.safetensors:0.8,styles/ink.gguf:1`). A value is one word,
+so a LoRA whose name has other characters than letters, digits and `. _ - /` goes in percent-encoded, as in a
+URL: `loras=my%20style%20%5Bv2%5D.safetensors:0.8` for `my style [v2].safetensors`. **Save as preset** does
+that itself. `width` and `height` take any whole number from 64 to 4096, as the web UI's fields do; sd.cpp
+rounds a size up to the multiple the model works in and logs it. The samplers
 are listed by `GET /sdapi/v1/samplers`, for example `euler`, `euler_a`, `dpm++2m` or `lcm`.
 
 The web UI also keeps the hires fix (see Upscalers) there, and **Save as preset** writes it: `hires_scale`

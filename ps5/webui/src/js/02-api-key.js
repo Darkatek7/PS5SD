@@ -153,8 +153,10 @@
     return v;
   }
 
-  function size8(id, fallback) {
-    var v = Math.round(num(id, fallback, 64, 2048) / 8) * 8;
+  // A width or height: any whole number from 64 to 4096. sd.cpp rounds it up to the multiple the model
+  // works in (issue 15); the arrows of the field still step by 64.
+  function sizePx(id, fallback) {
+    var v = Math.round(num(id, fallback, 64, 4096));
     $(id).value = v;
     return v;
   }

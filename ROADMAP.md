@@ -468,6 +468,15 @@ No large features; 1.0 is the version that keeps its promises. It is out when al
   gallery's info of an image from 1.0 and a new one, and a soak test of 25 minutes with no failure
   (`docs/CONSOLE.md`). It found 0084 (no LoRA was listed) and a job's `created` in milliseconds.
 
+## 1.1.1: any LoRA name in a preset, any size ([issue 15](https://github.com/Darkatek7/PS5SD/issues/15), [issue 16](https://github.com/Darkatek7/PS5SD/issues/16))
+
+- [x] **A preset keeps a LoRA of any name** (issue 16): a value in `# defaults:` is one word of letters,
+  digits and `. _ + - : , / %`, so **Save as preset** failed for a LoRA with a space, `[`, `]` or `@` in its
+  name. The web UI writes the LoRA's path percent-encoded now, as it did the upscaler's name, and reads both.
+- [x] **Any width and height** (issue 15): the fields take any whole number from 64 to 4096 typed in; their
+  arrows still step by 64. Before, a size was rounded to a multiple of 8 and kept to 2048. sd.cpp rounds it up
+  to the multiple the model works in. A preset's `width` and `height` take the same.
+
 ## After 1.0
 
 1.x adds what does not break a client of the API; a change that breaks one (a route, a field, an error

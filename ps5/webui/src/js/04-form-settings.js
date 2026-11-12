@@ -1,7 +1,7 @@
   // ---------- form <-> settings ----------
   function getForm() {
     return {
-      w: size8('w', 512), h: size8('h', 512),
+      w: sizePx('w', 512), h: sizePx('h', 512),
       steps: Math.round(num('steps', 20, 1, 150)), cfg: num('cfg', 7, 0, 30),
       sampler: $('sampler').value, scheduler: $('scheduler').value,
       clip: clipSkipShown() ? clipValue() : -1,
