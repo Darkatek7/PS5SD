@@ -11,7 +11,7 @@ can rely on.
 ## Done
 
 - **1.1.1**: a preset keeps a LoRA whose name has spaces or signs in it; width and height take any size from
-  64 to 4096.
+  64 to 4096; the home screen background is back (1.1.0 had a plain gradient).
 - **1.1.0**: the stable-diffusion.cpp of November (upstream `32d516c`); images carry its new generation info,
   which the gallery reads beside the old; the times and memory are those of 1.0.
 - **1.0.0**: an update keeps everything (tested from 0.5.0 on), a soak test, the docs read against the
@@ -478,6 +478,10 @@ No large features; 1.0 is the version that keeps its promises. It is out when al
 - [x] **Any width and height** (issue 15): the fields take any whole number from 64 to 4096 typed in; their
   arrows still step by 64. Before, a size was rounded to a multiple of 8 and kept to 2048. sd.cpp rounds it up
   to the multiple the model works in. A preset's `width` and `height` take the same.
+- [x] **The home screen background is back**: 1.1.0 shipped a plain dark gradient as `pic0.dds` and
+  `pic1.dds`. CI built PS5_Vulkan's asset tools fresh in that run, and the picture came out plain; nothing
+  checked it. `scripts/build-app.sh` now counts the different BC7 blocks of each background (a few dozen for a
+  gradient, about 400,000 for the picture), makes a plain one again once, and then stops the build.
 
 ## After 1.0
 

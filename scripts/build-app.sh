@@ -452,13 +452,34 @@ cp "$param" "$app/sce_sys/param.json"
 # PS5_Vulkan's asset tools, and only when it changes. Both pictures were made
 # on the console (docs/PORTING.md); ShadowMountPlus copies them at registration.
 assets="$out/assets"
-if [ ! -f "$assets/pic0.dds" ] || [ "$sce_sys/source/background.png" -nt "$assets/pic0.dds" ] ||
-    [ "$sce_sys/icon0.png" -nt "$assets/pic0.dds" ]; then
+make_backgrounds() {
     mkdir -p "$assets"
     (cd "$vk" && bash tools/setup-asset-dependencies.sh > /dev/null &&
         bash tools/prepare-assets.sh --icon "$sce_sys/icon0.png" --background "$sce_sys/source/background.png" \
             --output-directory "$assets" > /dev/null)
+}
+# The number of different 4x4 blocks in a BC7 DDS: hundreds of thousands for the
+# picture, a few dozen for a plain gradient. 1.1.0 shipped such a gradient
+# instead of the picture (a CI run that built the asset tools fresh), and nothing
+# noticed; now a plain background is made again once, and then stops the build.
+background_blocks() {
+    python3 -c 'import sys; b = open(sys.argv[1], "rb").read(); print(len({b[i:i + 16] for i in range(148, len(b), 16)}))' "$1"
+}
+if [ ! -f "$assets/pic0.dds" ] || [ "$sce_sys/source/background.png" -nt "$assets/pic0.dds" ] ||
+    [ "$sce_sys/icon0.png" -nt "$assets/pic0.dds" ]; then
+    make_backgrounds
 fi
+for pic in pic0 pic1; do
+    if [ "$(background_blocks "$assets/$pic.dds")" -lt 10000 ]; then
+        echo "build-app: $pic.dds is a plain picture, not sce_sys/source/background.png; making it again" >&2
+        rm -f "$assets/pic0.dds" "$assets/pic1.dds"
+        make_backgrounds
+        if [ "$(background_blocks "$assets/$pic.dds")" -lt 10000 ]; then
+            echo "build-app: $pic.dds is still a plain picture; see tools/prepare-assets.sh in PS5_Vulkan" >&2
+            exit 2
+        fi
+    fi
+done
 # icon0.dds (BC7, 512x512, one mip) is what the home screen draws; icon0.png
 # is the package's. Both are committed; after a new icon0.png, make the .dds
 # again on Windows: texconv -f BC7_UNORM -m 1 -y -o ps5/app/sce_sys ps5/app/sce_sys/icon0.png
