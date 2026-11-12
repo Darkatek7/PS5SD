@@ -10,6 +10,8 @@ can rely on.
 
 ## Done
 
+- **1.1.1**: a preset keeps a LoRA whose name has spaces or signs in it; width and height take any size from
+  64 to 4096.
 - **1.1.0**: the stable-diffusion.cpp of November (upstream `32d516c`); images carry its new generation info,
   which the gallery reads beside the old; the times and memory are those of 1.0.
 - **1.0.0**: an update keeps everything (tested from 0.5.0 on), a soak test, the docs read against the
@@ -468,7 +470,7 @@ No large features; 1.0 is the version that keeps its promises. It is out when al
   gallery's info of an image from 1.0 and a new one, and a soak test of 25 minutes with no failure
   (`docs/CONSOLE.md`). It found 0084 (no LoRA was listed) and a job's `created` in milliseconds.
 
-## 1.1.1: any LoRA name in a preset, any size ([issue 15](https://github.com/Darkatek7/PS5SD/issues/15), [issue 16](https://github.com/Darkatek7/PS5SD/issues/16))
+## 1.1.1: any LoRA name in a preset, any size ([issue 15](https://github.com/Darkatek7/PS5SD/issues/15), [issue 16](https://github.com/Darkatek7/PS5SD/issues/16)), done
 
 - [x] **A preset keeps a LoRA of any name** (issue 16): a value in `# defaults:` is one word of letters,
   digits and `. _ + - : , / %`, so **Save as preset** failed for a LoRA with a space, `[`, `]` or `@` in its
@@ -578,6 +580,12 @@ and the PS5's own browser, which needs ES5.
 
 ## 1.x, no version yet
 
+- [ ] **Image to text** ([issue 14](https://github.com/Darkatek7/PS5SD/issues/14)): a description or a prompt
+  from a picture, with a button that writes it into the image's metadata and one that copies it.
+  stable-diffusion.cpp only encodes text, so this needs a vision-language model that generates text, run with
+  llama.cpp's multimodal code on the same ggml-vulkan. Qwen3-VL 4B, which FLUX.3 Klein already loads as its
+  text encoder, could be that model. First measure on the console whether it fits next to an image model,
+  or only when none is loaded, and how long a caption takes.
 - [ ] **React, TypeScript and Tailwind** (as in [issue 7](https://github.com/Darkatek7/PS5SD/issues/7)'s
   fork): only built down to ES5 in one page, so the PS5's browser keeps working, and with every feature of
   the current page. Not started; first a word with the people who would work on it.
