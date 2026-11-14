@@ -10,6 +10,7 @@ can rely on.
 
 ## Done
 
+- **1.2.1**: a LoRA's strength from -100 to 100, not -2 to 2 (issue 18).
 - **1.2.0**: models load about five times faster (one reader with `pread()`); Spectrum in the FLUX.3
   Klein, Z-Image Turbo and Wan 2.1 presets (FLUX.3 Klein 73 s instead of 114); Mesa's shader cache kept.
 - **1.1.1**: a preset keeps a LoRA whose name has spaces or signs in it; width and height take any size from
@@ -503,6 +504,11 @@ Measured on the console on 2026-11-13 ([CONSOLE.md](docs/CONSOLE.md#faster-loadi
   saves about a second a start.
 - [x] Looked at and left: ggml's 8-bit dot products (the PS5's GPU has no working `v_dot4`), direct
   convolution (slower on the console).
+
+## 1.2.1: LoRA strengths past 2 ([issue 18](https://github.com/Darkatek7/PS5SD/issues/18)), done
+
+- [x] **A LoRA's strength from -100 to 100**: the web UI kept it to -2..2, and slider LoRAs are made for
+  -8 to 8 and more. The range is ComfyUI's; sd-server and sd.cpp take any strength.
 
 ## After 1.0
 
