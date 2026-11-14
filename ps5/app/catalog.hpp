@@ -106,6 +106,87 @@ inline std::vector<std::pair<const char *, const char *>> old_presets() {
           "--vae-tiling\n"
           "--vae-tile-size\n"
           "512\n" },
+        // up to 1.1.1: without Spectrum, which predicts the steps it can and skips them. With it FLUX.3 Klein
+        // takes 73 s instead of 114, Z-Image Turbo 55 s instead of 71, Wan 2.1 at 20 steps 86 s instead of 140,
+        // with the same picture (docs/CONSOLE.md, "Faster loading and fewer steps"). It computes the first four
+        // steps in full, so 4-step LoRAs such as CausVid are not changed.
+        { "flux3-klein-q4",
+          "# name: FLUX.3 Image Klein (Q4_K)\n"
+          "# defaults: steps=16 cfg=1 width=1024 height=1024 sampler=euler\n"
+          "--diffusion-model\n"
+          "diffusion_models/flux3-image-klein-Q4_K.gguf\n"
+          "--llm\n"
+          "text_encoders/Qwen3VL-4B-Instruct-Q4_K_M.gguf\n"
+          "--vae\n"
+          "vae/flux2-vae.safetensors\n"
+          "--vae-tiling\n"
+          "--vae-tile-size\n"
+          "512\n" },
+        { "z-image-turbo",
+          "# name: Z-Image Turbo (Q4_K)\n"
+          "# defaults: steps=8 cfg=1 width=1024 height=1024 sampler=euler\n"
+          "--diffusion-model\n"
+          "diffusion_models/z_image_turbo-Q4_K.gguf\n"
+          "--llm\n"
+          "text_encoders/Qwen3-4B-Instruct-2507-Q4_K_M.gguf\n"
+          "--vae\n"
+          "vae/flux1-ae.safetensors\n"
+          "--vae-tiling\n"
+          "--vae-tile-size\n"
+          "512\n" },
+        { "flux3-klein-q6",
+          "# name: FLUX.3 Image Klein (Q6_K)\n"
+          "# defaults: steps=16 cfg=1 width=896 height=896 sampler=euler\n"
+          "--diffusion-model\n"
+          "diffusion_models/flux3-image-klein-Q6_K.gguf\n"
+          "--llm\n"
+          "text_encoders/Qwen3VL-4B-Instruct-Q4_K_M.gguf\n"
+          "--vae\n"
+          "vae/flux2-vae.safetensors\n"
+          "--vae-tiling\n"
+          "--vae-tile-size\n"
+          "512\n" },
+        { "wan21-t2v-1.3b",
+          "# name: Wan 2.1 T2V 1.3B (video)\n"
+          "# defaults: steps=20 cfg=6 width=832 height=480 sampler=euler\n"
+          "--diffusion-model\n"
+          "diffusion_models/wan2.1_t2v_1.3B_fp16.safetensors\n"
+          "--t5xxl\n"
+          "text_encoders/umt5-xxl-encoder-Q4_K_M.gguf\n"
+          "--vae\n"
+          "vae/wan_2.1_vae.safetensors\n"
+          "--vae-tiling\n"
+          "--vae-tile-size\n"
+          "256\n"
+          "--vae-tile-overlap\n"
+          "0.25\n"
+          "--flow-shift\n"
+          "3\n"
+          "--video-frames\n"
+          "33\n"
+          "--fps\n"
+          "16\n" },
+        { "wan21-t2v-1.3b-tae",
+          "# name: Wan 2.1 T2V 1.3B, fast decoder (video)\n"
+          "# defaults: steps=20 cfg=6 width=832 height=480 sampler=euler\n"
+          "--diffusion-model\n"
+          "diffusion_models/wan2.1_t2v_1.3B_fp16.safetensors\n"
+          "--t5xxl\n"
+          "text_encoders/umt5-xxl-encoder-Q4_K_M.gguf\n"
+          "--taesd\n"
+          "vae/taew2_1.safetensors\n"
+          "--vae-tiling\n"
+          "--temporal-tiling\n"
+          "--vae-tile-size\n"
+          "256\n"
+          "--vae-tile-overlap\n"
+          "0.25\n"
+          "--flow-shift\n"
+          "3\n"
+          "--video-frames\n"
+          "33\n"
+          "--fps\n"
+          "16\n" },
     };
 }
 
@@ -139,7 +220,7 @@ inline std::vector<CatalogEntry> entries() {
         {
             "flux3-klein-q4",
             "FLUX.3 Image Klein (Q4_K)",
-            "Best quality, writes text, slower: about 2 min an image.",
+            "Best quality, writes text: about 75 s an image.",
             {
                 { "https://huggingface.co/leejet/flux-3-image-klein-GGUF/resolve/main/flux3-image-klein-Q4_K.gguf",
                   "diffusion_models/flux3-image-klein-Q4_K.gguf", 3514023104ull, 0 },
@@ -156,14 +237,16 @@ inline std::vector<CatalogEntry> entries() {
             "vae/flux2-vae.safetensors\n"
             "--vae-tiling\n"
             "--vae-tile-size\n"
-            "512\n",
+            "512\n"
+            "--cache-mode\n"
+            "spectrum\n",
             true,
             "best detail and text in images",
         },
         {
             "z-image-turbo",
             "Z-Image Turbo (Q4_K)",
-            "Photoreal in 8 steps, about 75 s an image.",
+            "Photoreal in 8 steps, about 55 s an image.",
             {
                 { "https://huggingface.co/leejet/Z-Image-Turbo-GGUF/resolve/main/z_image_turbo-Q4_K.gguf",
                   "diffusion_models/z_image_turbo-Q4_K.gguf", 3864250304ull, 0 },
@@ -182,7 +265,9 @@ inline std::vector<CatalogEntry> entries() {
             "vae/flux1-ae.safetensors\n"
             "--vae-tiling\n"
             "--vae-tile-size\n"
-            "512\n",
+            "512\n"
+            "--cache-mode\n"
+            "spectrum\n",
             true,
             "fast photoreal images",
         },
@@ -241,7 +326,7 @@ inline std::vector<CatalogEntry> entries() {
         {
             "flux3-klein-q6",
             "FLUX.3 Image Klein (Q6_K)",
-            "FLUX.3 Klein in Q6_K: closer to the original than Q4_K, with the same text encoder and VAE. 896x896 in about 2 min; 1024x1024 fits right after a start of PS5SD, 1536x1536 does not. 7.7 GB.",
+            "FLUX.3 Klein in Q6_K: closer to the original than Q4_K, with the same text encoder and VAE. 896x896 in about 1 min; 1024x1024 fits right after a start of PS5SD, 1536x1536 does not. 7.7 GB.",
             {
                 { "https://huggingface.co/leejet/flux-3-image-klein-GGUF/resolve/main/flux3-image-klein-Q6_K.gguf",
                   "diffusion_models/flux3-image-klein-Q6_K.gguf", 4874083520ull, 0 },
@@ -258,7 +343,9 @@ inline std::vector<CatalogEntry> entries() {
             "vae/flux2-vae.safetensors\n"
             "--vae-tiling\n"
             "--vae-tile-size\n"
-            "512\n",
+            "512\n"
+            "--cache-mode\n"
+            "spectrum\n",
             false,
             "",
         },
@@ -416,7 +503,9 @@ inline std::vector<CatalogEntry> entries() {
             "--video-frames\n"
             "33\n"
             "--fps\n"
-            "16\n",
+            "16\n"
+            "--cache-mode\n"
+            "spectrum\n",
             true,
             "short videos",
         },
@@ -456,7 +545,9 @@ inline std::vector<CatalogEntry> entries() {
             "--video-frames\n"
             "33\n"
             "--fps\n"
-            "16\n",
+            "16\n"
+            "--cache-mode\n"
+            "spectrum\n",
             false,
             "",
         },

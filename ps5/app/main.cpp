@@ -36,6 +36,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include <arpa/inet.h>
+#include <fcntl.h>
 #include <netinet/in.h>
 #include <pthread.h>
 #include <sys/socket.h>
@@ -70,6 +71,7 @@
 #include "console_stats.hpp"
 #include "gen_args.hpp"
 #include "ggml-backend.h"
+#include "ggml-vulkan.h"
 #include "download_core.hpp"
 #include "gallery_labels.hpp"
 #include "prompt_tags.hpp"
@@ -568,6 +570,106 @@ void log_devices() {
     }
 }
 
+// PS5SD_READTEST in env.txt: disk read tests before the server loads a model,
+// separated by ';', each "path:offset_mb:mb:threads:block_kb:dest". The threads
+// read neighbouring parts of the range with pread, block after block, into a
+// destination of up to 256 MiB, each into its own slice from the start again
+// when the slice is full. dest "heap" is malloc's memory; "vk" is ggml-vulkan's
+// pinned host buffer, GPU-visible memory as the weights get. A part of the file
+// read before comes from the cache, so each test should name a range no
+// earlier one read.
+void read_test(const std::string & spec) {
+    std::vector<std::string> f;
+    for (size_t at = 0;;) {
+        const size_t c = spec.find(':', at);
+        f.push_back(spec.substr(at, c == std::string::npos ? std::string::npos : c - at));
+        if (c == std::string::npos) {
+            break;
+        }
+        at = c + 1;
+    }
+    if (f.size() < 6) {
+        std::printf("ps5sd: read test \"%s\": want path:offset_mb:mb:threads:block_kb:heap|vk\n", spec.c_str());
+        return;
+    }
+    const uint64_t    offset  = std::strtoull(f[1].c_str(), nullptr, 10) * 1000000;
+    const uint64_t    total   = std::max<uint64_t>(1, std::strtoull(f[2].c_str(), nullptr, 10)) * 1000000;
+    const int         threads = std::max(1, std::atoi(f[3].c_str()));
+    const size_t      block   = static_cast<size_t>(std::max(4, std::atoi(f[4].c_str()))) * 1024;
+    const std::string dest    = f[5];
+    const int         fd      = ::open(f[0].c_str(), O_RDONLY);
+    if (fd < 0) {
+        std::printf("ps5sd: read test %s: %s\n", f[0].c_str(), std::strerror(errno));
+        return;
+    }
+    const size_t slice = std::max(block, std::min<size_t>(256u << 20, static_cast<size_t>(total)) / threads / block * block);
+    std::vector<char>     heap;
+    ggml_backend_buffer_t buffer = nullptr;
+    char *                base   = nullptr;
+    if (dest == "vk") {
+        buffer = ggml_backend_buft_alloc_buffer(ggml_backend_vk_host_buffer_type(), slice * threads);
+        base   = buffer != nullptr ? static_cast<char *>(ggml_backend_buffer_get_base(buffer)) : nullptr;
+    } else {
+        heap.resize(slice * threads);
+        base = heap.data();
+    }
+    if (base == nullptr) {
+        std::printf("ps5sd: read test: no %s buffer of %zu MiB\n", dest.c_str(), (slice * threads) >> 20);
+        ::close(fd);
+        return;
+    }
+    const uint64_t           part = total / threads;
+    std::atomic<uint64_t>    got{ 0 };
+    std::atomic<bool>        failed{ false };
+    std::vector<std::thread> pool;
+    const auto               t0 = std::chrono::steady_clock::now();
+    for (int i = 0; i < threads; i++) {
+        pool.emplace_back([&, i] {
+            uint64_t   at  = offset + part * i;
+            const auto end = at + part;
+            size_t     pos = 0;
+            while (at < end && !failed) {
+                const size_t n = static_cast<size_t>(std::min<uint64_t>(block, end - at));
+                if (pos + n > slice) {
+                    pos = 0;
+                }
+                const ssize_t r = ::pread(fd, base + slice * i + pos, n, static_cast<off_t>(at));
+                if (r <= 0) {
+                    failed = true;
+                    break;
+                }
+                at += static_cast<uint64_t>(r);
+                pos += static_cast<size_t>(r);
+                got += static_cast<uint64_t>(r);
+            }
+        });
+    }
+    for (auto & t : pool) {
+        t.join();
+    }
+    const double s = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+    std::printf("ps5sd: read test %s at %.0f MB: %.0f MB, %d thread(s), %zu KiB blocks into %s: %.2f s, %.0f MB/s%s\n",
+                f[0].c_str(), offset / 1e6, got / 1e6, threads, block / 1024, dest.c_str(), s,
+                s > 0 ? got / 1e6 / s : 0.0, failed ? " (a read failed)" : "");
+    ::close(fd);
+    if (buffer != nullptr) {
+        ggml_backend_buffer_free(buffer);
+    }
+}
+
+void read_tests(const std::string & specs) {
+    for (size_t at = 0; at <= specs.size();) {
+        size_t end = specs.find(';', at);
+        if (end == std::string::npos) {
+            end = specs.size();
+        }
+        if (end > at) {
+            read_test(specs.substr(at, end - at));
+        }
+        at = end + 1;
+    }
+}
+
 // The one-shot generation (PS5SD_ONESHOT=1), on the worker thread: open the
 // GPU, load the model, make one image, save it, free the model.
 void generate_once() {
@@ -880,6 +982,9 @@ void run_server() {
         ~NotBusy() { g_worker_busy = false; }
     } not_busy;
     log_devices();
+    if (const char * v = std::getenv("PS5SD_READTEST"); v != nullptr && *v != '\0') {
+        read_tests(v);
+    }
     log_memory("before loading");
 
     // The server's address, port and options: those of the model's arguments,
@@ -1941,6 +2046,10 @@ int main(int, char **) {
     // 1/3), and a HOME, which a title lacks and libraries look up.
     setenv("radv_enable_unified_heap_on_apu", "true", 1);
     setenv("HOME", kDir, 0);
+    // Mesa's shader cache in the app's folder. Mesa looks under $HOME/.cache,
+    // and on the console it kept none there: every start compiled every
+    // shader again. With the folder named it does (docs/CONSOLE.md).
+    setenv("MESA_SHADER_CACHE_DIR", (std::string(kDir) + "/.cache/mesa").c_str(), 0);
     // Driver and backend switches to measure with, one NAME=value a line in
     // env.txt, set before the GPU opens; only the driver's, ggml's, sd's and
     // the app's own (PS5SD_VIDEOOUT).

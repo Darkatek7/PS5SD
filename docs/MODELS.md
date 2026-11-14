@@ -141,6 +141,8 @@ vae/flux2-vae.safetensors
 --vae-tiling
 --vae-tile-size
 512
+--cache-mode
+spectrum
 ```
 
 The options that matter on the PS5:
@@ -149,6 +151,7 @@ The options that matter on the PS5:
 |---|---|
 | `--type q8_0` | For an f16 or f32 SDXL `.safetensors` (6–7 GB). The weights are converted to 8 bits as they load. Without it, the model does not fit beside the VAE and is streamed in for every image, at about 30 s more per image. A `.gguf` is already quantized and doesn't need it. |
 | `--vae-tiling --vae-tile-size 512` | Decodes the image in tiles. At 1024×1024 the VAE otherwise needs about 6 GB at once and pushes the model out of memory. |
+| `--cache-mode spectrum` | Predicts the steps it can and skips them, from the fifth step on. The catalog's FLUX.3 Klein, Z-Image Turbo and Wan 2.1 presets have it: FLUX.3 Klein takes about 75 s instead of 115, Z-Image Turbo 55 s instead of 71, a Wan video at 20 steps 86 s instead of 140, with the same picture. A request turns it off with `"cache_mode": "disabled"` (`/sdcpp/v1/img_gen` and `vid_gen`). |
 | `--cache-mode ucache --cache-option threshold=1.5` | Skips steps that change little: SDXL at 25 steps runs about 40% faster, with small changes in detail. |
 
 The `# defaults:` keys are `steps`, `cfg`, `width`, `height`, `sampler`, `scheduler`, `clip_skip` and `loras`

@@ -513,17 +513,14 @@ needs no ControlNet and no preprocessor.
 - [ ] **Pictures in by drag and drop and by paste**: a file dropped on a picture slot (Edit, Guide, the
   references), or Ctrl+V of a picture, fills it. The `paste` event carries the picture over plain HTTP;
   only `navigator.clipboard.read` needs HTTPS.
-- [ ] **Where a model's load time goes**: Klein 9B takes 49 s warm but 102 s as the first image after a
-  start, and 139 s with a LoRA after a switch (the soak test). That is about 11 GB in 53 s, some 210 MB/s.
-  A switch to `sdxl-base` (`--eager-load`) reads its 5.4 GB in 8.6 s, about 630 MB/s. So the disk is not
-  the whole story: Klein loads its weights during the first step, and its text encoder is Q4_K. Measure
-  it: sd.cpp's "loading tensors completed" line splits reading, converting and copying; a plain read of a
-  large file in the title gives the disk's side; and Klein with `--eager-load`. If the title's reads slow
-  down the way its writes do after 1.4 GB, try what helped there (another process on loopback), or
-  larger reads in several threads. Then `--eager-load` for the presets where it pays, and the result in
-  CONSOLE.md either way.
+- [x] **Where a model's load time goes**: sd.cpp's loader read with `std::ifstream` from 11 threads, about
+  320 MB/s. On the console `std::ifstream` splits a large read into small ones, and large reads from several
+  threads at once are many times slower than one stream (a read test in the title: one thread with 8 MiB
+  reads 1.7 GB/s, four threads 0.3 to 0.4). `patches/sdcpp/0085` reads with one thread and `pread()`, in the
+  file's order: 1.4 to 2.7 GB/s. Klein 9B's first image after a start takes 55 s instead of 102, a switch to
+  `sdxl-base` 4.4 s instead of 9.1 ([CONSOLE.md](docs/CONSOLE.md#faster-loading-and-fewer-steps-2026-11-13)).
 - [ ] **`sdxl-full` converted once**: the f16 checkpoint (6.9 GB) is converted to Q8_0 at every load, so a
-  switch takes 17.7 s against 8.6 s for `sdxl-base`. Convert it once after the download and load the GGUF.
+  switch takes 9.8 s against 4.4 s for `sdxl-base` (17.7 s and 8.6 s before `0085`). Convert it once after the download and load the GGUF.
   sd.cpp's own conversion holds the whole model in CPU memory, which the title does not have (about
   2 GB), and the title's writes slow down after 1.4 GB, so it has to go tensor by tensor and through
   `ftp_writer.cpp`, with a host test. If that turns out too large, point the entry at a ready Q8_0 GGUF
@@ -533,6 +530,14 @@ needs no ControlNet and no preprocessor.
 
 1.1.0 moved PS5SD onto it with the times of 1.0. This release uses what is new in it.
 
+- [x] **Spectrum** in the catalog's FLUX.3 Klein, Z-Image Turbo and Wan 2.1 presets (`--cache-mode spectrum`):
+  it predicts the steps it can and skips them, with the same picture. FLUX.3 Klein 73 s instead of 114,
+  Z-Image Turbo 55 s instead of 71, a Wan video at 20 steps 86 s instead of 140. `cache-dit` was faster on
+  FLUX.3 Klein but broke the text in the picture. A preset that 1.1.1 wrote gets it at the next start.
+- [x] **The shader cache** in `/data/PS5SD/.cache/mesa`: Mesa kept none under the title's own `HOME`. It
+  saves about a second a start.
+- [x] Looked at and left: ggml's 8-bit dot products (the PS5's GPU has no working `v_dot4`), direct
+  convolution (slower on the console).
 - [ ] **Speed** from upstream, measured on the console, not assumed: Vulkan kernels, graph fusion and
   reused workspaces (#2251, #2252), fused GEGLU and GLU (#2245, #2250; the SDXL and SD 1.5 UNets use
   them), Z-Image fusions and BF16 GEMM (#2265), position embeddings kept between runs (#2211). The

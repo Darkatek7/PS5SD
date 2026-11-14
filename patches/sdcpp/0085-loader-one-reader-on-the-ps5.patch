@@ -1,0 +1,134 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: ps5sd <ps5sd@localhost>
+Date: Sat, 14 Nov 2026 00:45:00 +0100
+Subject: [PATCH] loader: on the PS5 one thread reads the file with pread(), in
+ the file's order
+
+sd.cpp loaded weights at about 320 MB/s on the console (FLUX.3 Klein's
+3.5 GB in 10 s). A plain read of a model file in the title gave 1.7 GB/s
+with one thread and 8 MiB pread()s, 0.74 GB/s with 1 MiB reads, and 0.2 to
+0.4 GB/s with four or eight threads at once. The loader reads with
+std::ifstream, which splits a large read into reads of a few KiB, each
+about as slow there as a large one: one thread with it loaded at about
+100 MB/s, and eleven threads side by side made up 320 MB/s.
+
+On the PS5 each loader thread now reads with pread() straight into the
+tensor's memory or the 8 MiB piece (patch 0073), one thread reads, and
+the tensors of a file go in the order they lie in it (a safetensors
+header lists them by name). SD_LOAD_THREADS sets another thread count,
+for measuring. Elsewhere nothing changes.
+---
+ src/model_loader.cpp | 61 +++++++++++++++++++++++++++++++++++++++++++++++++++++++------
+ 1 file changed, 55 insertions(+), 6 deletions(-)
+
+diff --git a/src/model_loader.cpp b/src/model_loader.cpp
+--- a/src/model_loader.cpp
++++ b/src/model_loader.cpp
+@@ -30,6 +30,11 @@
+ #include "ggml-alloc.h"
+ #include "ggml-backend.h"
+ #include "ggml.h"
++
++#if defined(__PROSPERO__)
++#include <fcntl.h>
++#include <unistd.h>
++#endif
+ #include "json.hpp"
+ #include "zip.h"
+ 
+@@ -1126,6 +1131,16 @@
+     std::atomic<uint64_t> bytes_processed(0);
+ 
+     int num_threads_to_use = n_threads_;
++#if defined(__PROSPERO__)
++    // PS5SD: one thread reads the file on the PS5, tensor after tensor in the file's order, with pread()
++    // (below). Large reads from several threads at once are many times slower there than one stream
++    // (docs/CONSOLE.md: 8 MiB reads, one thread 1.7 GB/s, four 0.3 to 0.4, eight 0.2). SD_LOAD_THREADS sets
++    // another count, for measuring.
++    num_threads_to_use = 1;
++    if (const char* v = std::getenv("SD_LOAD_THREADS"); v != nullptr && std::atoi(v) > 0) {
++        num_threads_to_use = std::atoi(v);
++    }
++#endif
+ 
+     int64_t start_time = ggml_time_ms();
+ 
+@@ -1172,6 +1187,14 @@
+                 }
+             }
+         }
++#if defined(__PROSPERO__)
++        // PS5SD: in the order they lie in the file, so that the one thread above reads it as one stream
++        // (a safetensors header lists the tensors by name).
++        if (!fdata.is_zip) {
++            std::stable_sort(tensors_to_process.begin(), tensors_to_process.end(),
++                             [](const TensorStorage* x, const TensorStorage* y) { return x->offset < y->offset; });
++        }
++#endif
+         if (tensors_to_process.empty()) {
+             continue;
+         }
+@@ -1226,6 +1249,38 @@
+                 std::vector<uint8_t> zip_entry_buffer;
+                 std::vector<uint8_t> staging_buffer;
+ 
++                // PS5SD: on the PS5 the file is read with pread() into the tensor's memory. std::ifstream
++                // splits a large read into reads of a few KiB, and each costs about as long there as a large
++                // one: a single thread loaded at about 100 MB/s, where pread() of 8 MiB gives 1.7 GB/s.
++#if defined(__PROSPERO__)
++                int fd = (zip == nullptr && !mmapped) ? ::open(file_path.c_str(), O_RDONLY) : -1;
++                struct CloseFd {
++                    int& fd;
++                    ~CloseFd() {
++                        if (fd >= 0) {
++                            ::close(fd);
++                        }
++                    }
++                } close_fd{fd};
++#endif
++                auto read_file_at = [&](char* buf, size_t n, uint64_t offset) -> bool {
++#if defined(__PROSPERO__)
++                    if (fd >= 0) {
++                        for (size_t done = 0; done < n;) {
++                            const ssize_t got = ::pread(fd, buf + done, n - done, (off_t)(offset + done));
++                            if (got <= 0) {
++                                return false;
++                            }
++                            done += (size_t)got;
++                        }
++                        return true;
++                    }
++#endif
++                    file.seekg(offset);
++                    file.read(buf, n);
++                    return (bool)file;
++                };
++
+                 while (true) {
+                     int64_t t0, t1;
+                     size_t idx = tensor_idx.fetch_add(1);
+@@ -1314,9 +1369,7 @@
+                                 return false;
+                             }
+                         } else {
+-                            file.seekg(tensor_storage.offset);
+-                            file.read(buf, n);
+-                            if (!file) {
++                            if (!read_file_at(buf, n, tensor_storage.offset)) {
+                                 LOG_ERROR("read tensor data failed: '%s'", file_path.c_str());
+                                 return false;
+                             }
+@@ -1344,9 +1397,7 @@
+                             if (mmapped) {
+                                 piece_failed = !mmapped->copy_data(buf, n, tensor_storage.offset + done);
+                             } else {
+-                                file.seekg(tensor_storage.offset + done);
+-                                file.read(buf, n);
+-                                piece_failed = !file;
++                                piece_failed = !read_file_at(buf, n, tensor_storage.offset + done);
+                             }
+                             t1 = ggml_time_ms();
+                             read_time_ms.fetch_add(t1 - t0);
+-- 
+2.43.0
+

@@ -190,8 +190,13 @@ int main() {
         const std::string tiles = "--vae-tile-size\n256\n--vae-tile-overlap\n0.25\n";
         const size_t      at    = wan.find(tiles);
         check(at != std::string::npos, "Wan decodes in 256 px tiles at 0.25");
-        // 0.9.0's, as the console has it
-        const std::string old = wan.substr(0, at) + "--vae-tile-size\n128\n" + wan.substr(at + tiles.size());
+        // 0.9.0's, as the console has it: 128 px tiles, and no cache mode (that came after 1.1.1)
+        const std::string spectrum = "--cache-mode\nspectrum\n";
+        check(wan.size() > spectrum.size() &&
+                  wan.compare(wan.size() - spectrum.size(), spectrum.size(), spectrum) == 0,
+              "Wan skips steps with Spectrum");
+        const std::string old = wan.substr(0, at) + "--vae-tile-size\n128\n" +
+                                wan.substr(at + tiles.size(), wan.size() - spectrum.size() - at - tiles.size());
         check(update_catalog_presets(presets.u8string()).empty(), "nothing to update without the file");
         write(presets / "wan21-t2v-1.3b.txt", old);
         const auto updated = update_catalog_presets(presets.u8string());
@@ -204,6 +209,16 @@ int main() {
         check(update_catalog_presets(presets.u8string()).empty() && read(presets / "wan21-t2v-1.3b.txt") == changed,
               "a preset someone changed stays");
         check(read(presets / "sdxl-base.txt") == sdxl.preset, "other presets stay");
+        // 1.1.1's FLUX.3 Klein, without Spectrum, gets it
+        const std::string klein = find_catalog("flux3-klein-q4")->preset;
+        check(klein.size() > spectrum.size() &&
+                  klein.compare(klein.size() - spectrum.size(), spectrum.size(), spectrum) == 0,
+              "FLUX.3 Klein skips steps with Spectrum");
+        write(presets / "flux3-klein-q4.txt", klein.substr(0, klein.size() - spectrum.size()));
+        const auto klein_updated = update_catalog_presets(presets.u8string());
+        check(klein_updated.size() == 1 && klein_updated[0] == "flux3-klein-q4" &&
+                  read(presets / "flux3-klein-q4.txt") == klein,
+              "1.1.1's FLUX.3 Klein preset becomes the current one");
         const CatalogEntry * tae = find_catalog("wan21-t2v-1.3b-tae");
         check(tae != nullptr && !tae->featured && tae->files.size() == 3 &&
                   std::string(tae->files[0].dest) == find_catalog("wan21-t2v-1.3b")->files[0].dest &&

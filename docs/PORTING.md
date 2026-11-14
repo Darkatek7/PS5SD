@@ -124,6 +124,13 @@ embedded page, the gallery), described with that work.
    Whether the console reports times on every file system it mounts (`/data`, exFAT USB drives) is
    not known; on `__PROSPERO__`, when the time cannot be read but the file exists, the stamp falls
    back to the size alone. A missing file still fails the same way.
+4. **`0085-loader-one-reader-on-the-ps5.patch`.** The model loader reads a file from `n_threads`
+   threads with `std::ifstream`. On the console that came to about 320 MB/s: `std::ifstream` splits a
+   large read into reads of a few KiB, each about as slow there as a large one, and large reads from
+   several threads at once are slower again (docs/CONSOLE.md, "Faster loading and fewer steps"). On
+   `__PROSPERO__` one thread reads, with `pread()` of up to 8 MiB straight into the tensor's memory,
+   and a file's tensors go in the order they lie in it. That loads at 1.4 to 2.7 GB/s.
+   `SD_LOAD_THREADS` in `env.txt` sets another thread count, for measuring.
 
 Checked and left alone: sd.cpp's `mmap` path (`enable_mmap` is off by default and the app keeps it
 off; PS5SX2 found `mmap` failing in the app sandbox), `posix_fadvise`, `MAP_POPULATE` and
@@ -160,7 +167,8 @@ instead of trapping, so `main.cpp` reports an out-of-memory load or generation a
 
 - `main.cpp`: PS5LM's boot order: log to `/data/PS5SD/app.log` (stdout and stderr both appending, or
   stdout writes over the start of the error lines), `radv_enable_unified_heap_on_apu`
-  and `HOME`, `env.txt` switches (`RADV_`, `MESA_`, `ACO_`, `GGML_`, `SD_`, `PS5SD_`) before the GPU opens,
+  `HOME` and `MESA_SHADER_CACHE_DIR` (`/data/PS5SD/.cache/mesa`: under `$HOME/.cache` Mesa kept no shader
+  cache on the console), `env.txt` switches (`RADV_`, `MESA_`, `ACO_`, `GGML_`, `SD_`, `PS5SD_`) before the GPU opens,
   the screen first (it takes from the same memory as the model), splash hidden, then the work on
   a 16 MiB-stack thread while the main thread draws and polls for `quit`. The work is the HTTP server
   (below), or with `PS5SD_ONESHOT=1` in `env.txt` one image:

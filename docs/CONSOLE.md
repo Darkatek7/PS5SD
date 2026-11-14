@@ -1099,3 +1099,88 @@ version 1.0.0, deployed with `scripts/ps5sd-app.sh`.
 - New in `app.log`, without effect: `model catalog: ... current_path` at each load (upstream's model
   catalog looks for a relative `models` directory; its routes are not registered), and upstream's probe
   turns direct conv2d and conv3d off on Vulkan0 ("probe output check failed").
+
+## Faster loading and fewer steps (2026-11-13)
+
+Local Docker builds of branch `speed` (1.1.1 with `patches/sdcpp/0085` and the shader cache folder), FW 13.00.
+Each time is a request's `generate_image` from `app.log`, 1024x1024 unless named, the prompt
+`a lighthouse on a cliff at dusk, ...` with seed 42. "Warm" is the second request on a loaded model.
+
+### Reading a model file
+
+`PS5SD_READTEST` in `env.txt` (`read_test` in `main.cpp`) read 500 MB parts of a model file that had not
+been read since the console started, with `pread()`:
+
+| Threads | Block | Into | MB/s |
+|---|---|---|---|
+| 1 | 8 MiB | the heap | 1698 |
+| 1 | 8 MiB | a pinned Vulkan host buffer | 1646 |
+| 1 | 1 MiB | the Vulkan buffer | 737 |
+| 4 | 8 MiB | the heap | 294 |
+| 4 | 8 MiB | the Vulkan buffer | 442 |
+| 8 | 8 MiB | the Vulkan buffer | 198 |
+| 4 | 64 MiB | the Vulkan buffer | 173 |
+
+- One thread with large reads is fast. Reads from several threads at once are many times slower, and where
+  the data goes makes no difference.
+- sd.cpp's loader read with `std::ifstream` from 11 threads: about 320 MB/s (FLUX.3 Klein's 3.5 GB in
+  10 s, its text encoder's 2.5 GB in 7.8 s). With one thread and the same `std::ifstream` it was about
+  100 MB/s: `std::ifstream` splits a large read into small ones. Threads that took turns reading (a mutex)
+  came to about 100 MB/s too.
+- `patches/sdcpp/0085`: on the PS5 one thread reads, with `pread()` of up to 8 MiB, in the order the tensors
+  lie in the file. Each file now loads at 1.4 to 2.7 GB/s.
+
+| | 1.1.1 | With `0085` |
+|---|---|---|
+| Z-Image Turbo, the weights | 16.0 s | 4.8 s |
+| Z-Image Turbo, the first image after a start | 87 s | 76 s |
+| FLUX.3 Klein Q4, the weights | 19.2 s | 3.9 s |
+| FLUX.3 Klein Q4, the first image after a start | 134 s | 118 s |
+| FLUX.2 Klein 9B, the first image after a start, 4 steps | 102 s (0.9.6) | 55 s |
+| A switch to `sdxl-base` (`--eager-load`) | 9.1 s | 4.4 s |
+| A switch to `sdxl-full` (converted to Q8_0 while it loads) | 17.7 s (0.9.2) | 9.8 s |
+
+The images are the same, pixel for pixel. `sdxl-full` converts its f16 weights on the one thread now, and
+its switch is faster all the same.
+
+### Spectrum and the other caches
+
+stable-diffusion.cpp's cache modes, set per request (`cache_mode`):
+
+| Model, steps | None | `cache-dit` | `dbcache` | `taylorseer` | `spectrum` |
+|---|---|---|---|---|---|
+| FLUX.3 Klein Q4, 16 | 114.1 s | 66.9 s | 66.8 s | 67.0 s | 73.4 s |
+| FLUX.3 Klein Q6, 16, 896x896 | 93.1 s | | | | 59.1 s |
+| Z-Image Turbo, 8 | 70.9 s | 70.8 s | | 70.9 s | 54.6 s |
+| Wan 2.1 1.3B, 20, 9 frames at 832x480 | 140 s (sampling 121 s) | 110 s | | | 86 s (sampling 67 s) |
+| FLUX.2 Klein 9B, 8 with dpm2 | about 157 s | | | | 144 s |
+
+- `spectrum` keeps the picture: the same composition as without a cache, and the text of
+  `a neon sign that says 'PS5SD'` stays right on FLUX.3 Klein and Z-Image. It skipped 6 of 16 steps on FLUX.3
+  Klein, 2 of 8 on Z-Image and 9 of 20 on Wan. It computes the first four steps in full, so a run of 4 steps
+  (CausVid, DMD2, Klein 4B) is not changed.
+- `cache-dit`, `dbcache` and `taylorseer` change the composition on FLUX.3 Klein, and `cache-dit` broke the
+  sign's text ("PS≈SD"). On Z-Image's 8 steps they skip nothing.
+- On Klein 9B with dpm2 Spectrum saves too little to be worth a change (157 s is the first image less its
+  6.6 s load).
+- The catalog's FLUX.3 Klein (Q4_K, Q6_K), Z-Image Turbo and both Wan 2.1 presets have `--cache-mode
+  spectrum` now. sd-server takes it as the default of every request, the A1111 route's too (`txt2img` on
+  Z-Image skipped 2 of 8 steps), and `"cache_mode": "disabled"` in a request turns it off (114.3 s again).
+  At its start the title gave the five presets that 1.1.1 had written the new text.
+- Both together, FLUX.3 Klein Q4 from its preset: the first image after a start 77.6 s (1.1.1: 133.9 s), the
+  next ones 73.5 s (114.1 s).
+
+### Smaller findings
+
+- **Shader cache.** Mesa kept no shader cache: the title has a `HOME` of its own, which the app does not
+  overwrite, and `/data/PS5SD/.cache` never appeared. With `MESA_SHADER_CACHE_DIR=/data/PS5SD/.cache/mesa`
+  it does (about 350 KB of shaders after five models). The first Z-Image image after a start took 77.0 s with
+  an empty cache and 75.8 s with a full one: ACO compiles fast, so it saves about a second a start.
+- **No integer dot products.** ggml-vulkan reports `int dot: 0`. PS5_Mesa takes the GPU's traits from GFX1013,
+  where `v_dot4` does not compute (`radv_ps5_winsys.c`), so ggml's quantized matrix path with 8-bit dot
+  products is not there to turn on.
+- **Direct convolution stays off.** With `--conv-direct on` SDXL Base took 25.9 s to sample instead of 24.1 s
+  and 3.96 s to decode instead of 3.45 s. sd.cpp's probe turns it off by itself.
+- **Polling too fast.** A client that asked for its job's state every 0.5 s found the title refusing new
+  connections for about two minutes, several times in an hour (`Connection timed out` on the PC). At one
+  request every 2 s, as the soak test asks, it did not happen.
