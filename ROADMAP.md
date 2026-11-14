@@ -10,6 +10,8 @@ can rely on.
 
 ## Done
 
+- **1.2.0**: models load about five times faster (one reader with `pread()`); Spectrum in the FLUX.3
+  Klein, Z-Image Turbo and Wan 2.1 presets (FLUX.3 Klein 73 s instead of 114); Mesa's shader cache kept.
 - **1.1.1**: a preset keeps a LoRA whose name has spaces or signs in it; width and height take any size from
   64 to 4096; the home screen background is back (1.1.0 had a plain gradient).
 - **1.1.0**: the stable-diffusion.cpp of November (upstream `32d516c`); images carry its new generation info,
@@ -483,17 +485,37 @@ No large features; 1.0 is the version that keeps its promises. It is out when al
   checked it. `scripts/build-app.sh` now counts the different BC7 blocks of each background (a few dozen for a
   gradient, about 400,000 for the picture), makes a plain one again once, and then stops the build.
 
+## 1.2.0: faster loading and fewer steps, done
+
+Measured on the console on 2026-11-13 ([CONSOLE.md](docs/CONSOLE.md#faster-loading-and-fewer-steps-2026-11-13)).
+
+- [x] **Where a model's load time goes**: sd.cpp's loader read with `std::ifstream` from 11 threads, about
+  320 MB/s. On the console `std::ifstream` splits a large read into small ones, and large reads from several
+  threads at once are many times slower than one stream (a read test in the title: one thread with 8 MiB
+  reads 1.7 GB/s, four threads 0.3 to 0.4). `patches/sdcpp/0085` reads with one thread and `pread()`, in the
+  file's order: 1.4 to 2.7 GB/s. Klein 9B's first image after a start takes 55 s instead of 102, a switch to
+  `sdxl-base` 4.4 s instead of 9.1 ([CONSOLE.md](docs/CONSOLE.md#faster-loading-and-fewer-steps-2026-11-13)).
+- [x] **Spectrum** in the catalog's FLUX.3 Klein, Z-Image Turbo and Wan 2.1 presets (`--cache-mode spectrum`):
+  it predicts the steps it can and skips them, with the same picture. FLUX.3 Klein 73 s instead of 114,
+  Z-Image Turbo 55 s instead of 71, a Wan video at 20 steps 86 s instead of 140. `cache-dit` was faster on
+  FLUX.3 Klein but broke the text in the picture. A preset that 1.1.1 wrote gets it at the next start.
+- [x] **The shader cache** in `/data/PS5SD/.cache/mesa`: Mesa kept none under the title's own `HOME`. It
+  saves about a second a start.
+- [x] Looked at and left: ggml's 8-bit dot products (the PS5's GPU has no working `v_dot4`), direct
+  convolution (slower on the console).
+
 ## After 1.0
 
 1.x adds what does not break a client of the API; a change that breaks one (a route, a field, an error
 code that goes away or changes its meaning) waits for 2.0.
 
 The plan as of 2026-11-04, in order (1.1.0 was taken by the stable-diffusion.cpp of November on
-2026-11-12, so the rest moved up one number). 1.4.0 only touches the web UI and the app's own routes, so it
-can be worked on next to 1.2.0 and 1.3.0. The times below are those of 1.0.0 on the console
-([CONSOLE.md](docs/CONSOLE.md)); every new number goes there with its date and build.
+2026-11-12 and 1.2.0 by faster loading on 2026-11-14, so the rest moved up two numbers). 1.5.0 only touches
+the web UI and the app's own routes, so it can be worked on next to 1.3.0 and 1.4.0. The times below are
+those of 1.0.0 on the console ([CONSOLE.md](docs/CONSOLE.md)); every new number goes there with its date and
+build.
 
-## 1.2.0: two pictures for Edit, and how fast a model loads ([issue 13](https://github.com/Darkatek7/PS5SD/issues/13))
+## 1.3.0: two pictures for Edit, and sdxl-full converted once ([issue 13](https://github.com/Darkatek7/PS5SD/issues/13))
 
 Issue 13 asks for a pose (a skeleton of one or more people, for sprite sheets) and a character from a
 reference picture, with a prompt and no setup. FLUX.2 Klein takes several reference pictures, so this
@@ -513,12 +535,6 @@ needs no ControlNet and no preprocessor.
 - [ ] **Pictures in by drag and drop and by paste**: a file dropped on a picture slot (Edit, Guide, the
   references), or Ctrl+V of a picture, fills it. The `paste` event carries the picture over plain HTTP;
   only `navigator.clipboard.read` needs HTTPS.
-- [x] **Where a model's load time goes**: sd.cpp's loader read with `std::ifstream` from 11 threads, about
-  320 MB/s. On the console `std::ifstream` splits a large read into small ones, and large reads from several
-  threads at once are many times slower than one stream (a read test in the title: one thread with 8 MiB
-  reads 1.7 GB/s, four threads 0.3 to 0.4). `patches/sdcpp/0085` reads with one thread and `pread()`, in the
-  file's order: 1.4 to 2.7 GB/s. Klein 9B's first image after a start takes 55 s instead of 102, a switch to
-  `sdxl-base` 4.4 s instead of 9.1 ([CONSOLE.md](docs/CONSOLE.md#faster-loading-and-fewer-steps-2026-11-13)).
 - [ ] **`sdxl-full` converted once**: the f16 checkpoint (6.9 GB) is converted to Q8_0 at every load, so a
   switch takes 9.8 s against 4.4 s for `sdxl-base` (17.7 s and 8.6 s before `0085`). Convert it once after the download and load the GGUF.
   sd.cpp's own conversion holds the whole model in CPU memory, which the title does not have (about
@@ -526,18 +542,11 @@ needs no ControlNet and no preprocessor.
   `ftp_writer.cpp`, with a host test. If that turns out too large, point the entry at a ready Q8_0 GGUF
   instead.
 
-## 1.3.0: what the stable-diffusion.cpp of November brings
+## 1.4.0: what the stable-diffusion.cpp of November brings
 
-1.1.0 moved PS5SD onto it with the times of 1.0. This release uses what is new in it.
+1.1.0 moved PS5SD onto it with the times of 1.0, and 1.2.0 took Spectrum from it. This release uses
+the rest.
 
-- [x] **Spectrum** in the catalog's FLUX.3 Klein, Z-Image Turbo and Wan 2.1 presets (`--cache-mode spectrum`):
-  it predicts the steps it can and skips them, with the same picture. FLUX.3 Klein 73 s instead of 114,
-  Z-Image Turbo 55 s instead of 71, a Wan video at 20 steps 86 s instead of 140. `cache-dit` was faster on
-  FLUX.3 Klein but broke the text in the picture. A preset that 1.1.1 wrote gets it at the next start.
-- [x] **The shader cache** in `/data/PS5SD/.cache/mesa`: Mesa kept none under the title's own `HOME`. It
-  saves about a second a start.
-- [x] Looked at and left: ggml's 8-bit dot products (the PS5's GPU has no working `v_dot4`), direct
-  convolution (slower on the console).
 - [ ] **Speed** from upstream, measured on the console, not assumed: Vulkan kernels, graph fusion and
   reused workspaces (#2251, #2252), fused GEGLU and GLU (#2245, #2250; the SDXL and SD 1.5 UNets use
   them), Z-Image fusions and BF16 GEMM (#2265), position embeddings kept between runs (#2211). The
@@ -555,7 +564,7 @@ needs no ControlNet and no preprocessor.
 - [ ] Soak test and update test again; the new times into CONSOLE.md and, where they changed, into the
   catalog and `docs/MODELS.md`.
 
-## 1.4.0: the web UI, smaller steps
+## 1.5.0: the web UI, smaller steps
 
 Each one tested in a browser with `scripts/webui-dev.py` (`--mock-*` without a console) on a PC, a phone
 and the PS5's own browser, which needs ES5.
@@ -579,7 +588,7 @@ and the PS5's own browser, which needs ES5.
   keeps the expanded prompt.
 - [ ] `docs/API.md` for the new routes and fields; the Help tab shows it.
 
-## 1.5.0: the gallery on the TV
+## 1.6.0: the gallery on the TV
 
 - [ ] **A slideshow with the DualSense**: the gallery in full screen on the TV. Left and right step
   through it, Options starts and stops it, Circle goes back to the dashboard; new images join it while it
@@ -599,7 +608,7 @@ and the PS5's own browser, which needs ES5.
   fork): only built down to ES5 in one page, so the PS5's browser keeps working, and with every feature of
   the current page. Not started; first a word with the people who would work on it.
 - [ ] **More ControlNets**: OpenPose and depth for SDXL. Without a preprocessor on the console they need
-  a pose or depth image, so only if people ask for them (1.3.0 brings one for Z-Image).
+  a pose or depth image, so only if people ask for them (1.4.0 brings one for Z-Image).
 - [ ] **Tighter OpenAPI schemas**: some answers are described loosely (the download routes, the A1111
   lists, `capabilities`); each gets its fields as API.md names them.
 
