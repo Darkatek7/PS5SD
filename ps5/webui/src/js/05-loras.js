@@ -110,14 +110,16 @@
         row.appendChild(el('span', 'lname', readable(loraName(s.path)) + (gone ? ' (not on the console)' : '')));
         var inp = document.createElement('input');
         inp.type = 'number';
-        inp.min = '-2';
-        inp.max = '2';
+        // -100 to 100, as ComfyUI's LoRA loader: some LoRAs are made for strengths far past 1 (sliders
+        // that go from -8 to 8, issue 18). sd.cpp takes any strength.
+        inp.min = '-100';
+        inp.max = '100';
         inp.step = '0.05';
         inp.value = s.m;
         inp.setAttribute('aria-label', 'Strength of ' + loraName(s.path));
         inp.onchange = function () {
           var v = parseFloat(inp.value);
-          s.m = isNaN(v) ? 1 : Math.max(-2, Math.min(2, v));
+          s.m = isNaN(v) ? 1 : Math.max(-100, Math.min(100, v));
           inp.value = s.m;
           persist();
         };

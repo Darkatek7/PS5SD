@@ -281,8 +281,9 @@ and flat at CFG 1, and clean only at CFG 1.5 and 8 steps, 26 s instead of 32 wit
 The Models tab lists the LoRAs under **Installed**, with their size and Delete in the **⋯** menu.
 
 Using them: on the Create tab, open **Style** and pick them there, each with a strength.
-1 is the full effect, 0.5 half of it, and a negative strength works against the LoRA. Several LoRAs
-work together. The web UI keeps the picks per model, with the model's other settings. Many LoRAs also
+1 is the full effect, 0.5 half of it, and a negative strength works against the LoRA. The field takes
+-100 to 100: most LoRAs are made for about 0 to 1, but some, such as slider LoRAs, for -8 to 8 or more (the
+LoRA's page says). Several LoRAs work together. The web UI keeps the picks per model, with the model's other settings. Many LoRAs also
 need their trigger words in the prompt (the LoRA's page names them), for example `pixel art` for
 pixel-art-xl.
 
