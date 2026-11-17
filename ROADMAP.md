@@ -10,6 +10,8 @@ can rely on.
 
 ## Done
 
+- **1.3.1**: larger matrix tiles on the GPU: FLUX.3 Klein 56 s instead of 67, Klein 9B's preset 137 s instead
+  of 165, Z-Image Turbo 48 s instead of 55, with the same images.
 - **1.3.0**: the gallery as one ZIP (issue 20); FLUX.3 Klein's Spectrum from the fourth step (67 s instead
   of 74); how to run Krea 2 Turbo, which is not in the catalog for its licence (issue 19).
 - **1.2.1**: a LoRA's strength from -100 to 100, not -2 to 2 (issue 18).
@@ -529,6 +531,18 @@ Measured on the console on 2026-11-17 ([CONSOLE.md](docs/CONSOLE.md#spectrum-fro
 - [x] Looked at and left: VAE tiles of 768 instead of 512 (0.3 s), flash attention (on already), Klein 9B's
   preset (dpm2 at 8 steps stays; Euler at 4 steps takes 48 s instead of 165, and the catalog says so).
 
+## 1.3.1: larger matrix tiles, done
+
+Measured on the console on 2026-11-17 ([CONSOLE.md](docs/CONSOLE.md#larger-matrix-tiles-2026-11-17)).
+
+- [x] **FLUX.3 Klein's slow matrix product**: the MLP's output layer (`k=9216`) ran at 5.4 TFLOPS, the other
+  Q4_K products at 9.6 to 9.8. ggml-vulkan left its large tile (128x128) out on the PS5, so every large product
+  ran in 64x64 tiles. `patches/ggml/0003` turns it on for products that accumulate in f16; in f32 it took about
+  four times as long, so those stay in the medium tile.
+- [x] The catalog's presets, 1.3.0 against 1.3.1: FLUX.3 Klein Q4 56 s instead of 67, Klein 9B (dpm2, 8 steps)
+  137 s instead of 165, Klein 4B 22 s instead of 25, Z-Image Turbo 48 s instead of 55, SDXL 27 s instead of 28,
+  a Wan clip of 9 frames 80 s instead of 84. The images are the same; SDXL's differ in small details.
+
 ## After 1.0
 
 1.x adds what does not break a client of the API; a change that breaks one (a route, a field, an error
@@ -577,10 +591,6 @@ the rest.
   them), Z-Image fusions and BF16 GEMM (#2265), position embeddings kept between runs (#2211). The
   baseline: Z-Image Turbo 1024x1024 89 s, SDXL Base 29 s, Klein 9B 49 s warm, Wan 2.1 1.3B (9 frames at
   832x480) 87 s.
-- [x] **FLUX.3 Klein's slow matrix product**: the MLP's output layer (`k=9216`) ran at 5.4 TFLOPS, the
-  other Q4_K products at 9.6 to 9.8. ggml-vulkan left its large tile out on the PS5; `patches/ggml/0003` turns it
-  on for products that accumulate in f16. A FLUX.3 Klein image takes 56 s instead of 67, Klein 9B's preset 137 s
-  instead of 165, Z-Image Turbo 48 s instead of 55 ([CONSOLE.md](docs/CONSOLE.md#larger-matrix-tiles-2026-11-17)).
 - [ ] **Fixes** that come with it: the hires fix keeps the step count it was given (#2227), Vulkan's free
   memory checked again after a reclaim (#2256), small-BAR heaps (#2181), Wan's VAE decode plans (#2197).
 - [ ] **Face and detail fix**: upstream's server does ADetailer now (#2164). A face detector in the
