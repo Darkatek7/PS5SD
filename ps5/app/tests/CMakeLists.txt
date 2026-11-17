@@ -102,6 +102,15 @@ if(EXISTS "${SD_DIR}/examples/server/api_error.cpp")
     add_test(NAME api_error COMMAND test_api_error)
 endif()
 
+# The gallery's archive, streamed as a ZIP (patches/sdcpp/0086), when SD_DIR is patched.
+if(EXISTS "${SD_DIR}/examples/server/zip_stream.cpp")
+    find_package(Threads REQUIRED)
+    add_executable(test_zip_stream test_zip_stream.cpp "${SD_DIR}/examples/server/zip_stream.cpp")
+    target_include_directories(test_zip_stream PRIVATE "${SD_DIR}/examples/server" "${SD_DIR}/thirdparty")
+    target_link_libraries(test_zip_stream PRIVATE Threads::Threads)
+    add_test(NAME zip_stream COMMAND test_zip_stream)
+endif()
+
 # Tag completion from the user's tag files (prompt_tags.hpp).
 add_executable(test_prompt_tags test_prompt_tags.cpp ../prompt_tags.cpp)
 target_include_directories(test_prompt_tags PRIVATE .. "${SD_DIR}/thirdparty")

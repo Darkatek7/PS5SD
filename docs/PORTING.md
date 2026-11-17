@@ -227,6 +227,12 @@ instead of trapping, so `main.cpp` reports an out-of-memory load or generation a
   `ps5/app/openapi.json` there (the title carries it in `docs/`); `scripts/check-openapi.py` compares it
   with the routes it reads from the patched server's sources and from `main.cpp` and `downloader.cpp`,
   in CI's `host` job.
+  `patches/sdcpp/0086` serves the gallery as one ZIP (`GET` and `POST /ps5sd/v1/gallery/archive`),
+  streamed by `zip_stream.cpp`: stored entries with data descriptors, the CRC-32 made while a file is read,
+  ZIP64 records when they are needed, so the title holds one 128 KiB piece of a file whatever the
+  gallery's size. The form's `POST` with only the login cookie needs no `X-PS5SD-Request` header (a form
+  cannot add one); the route only reads. `ps5/app/tests/test_zip_stream.cpp` tests it when `SD_DIR` is
+  patched.
   The request's own settings (steps, CFG, size) win over the server's defaults, which are sd.cpp's, not
   the one-shot's SD-Turbo ones. `main.cpp` defines the activity hooks of `server_hooks.h` (in its own
   object: from an archive, lld could take the weak no-ops instead), which feed the status and the

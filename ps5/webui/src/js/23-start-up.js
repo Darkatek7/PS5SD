@@ -200,6 +200,7 @@
     $('gsel').onclick = function () { setSelecting(!gsel); };
     $('gsel-all').onclick = selectAll;
     $('gsel-dl').onclick = downloadSelected;
+    $('gdlall').onclick = function () { downloadAll(); return false; };
     $('gsel-del').onclick = askDeleteSelected;
     $('lb-use').onclick = useSettings;
     $('lb-infobtn').onclick = toggleLbInfo;

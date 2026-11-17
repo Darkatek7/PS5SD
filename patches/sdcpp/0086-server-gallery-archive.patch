@@ -1,0 +1,654 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: ps5sd <ps5sd@localhost>
+Date: Tue, 17 Nov 2026 16:00:00 +0100
+Subject: [PATCH] server: the gallery as one ZIP, streamed
+
+GET /ps5sd/v1/gallery/archive sends every kept file of --output-dir as a ZIP,
+and a POST with names=<file names> (a form a page submits) or a GET with
+?names= sends the ones named. The names are checked as the route of a single
+file checks them, and an image that is not kept (tmp_) is left out. A file
+with parameters in .thumbs/<name>.txt (a video's, a PNG saved without
+metadata) brings them as <name>.txt.
+
+The archive is made while it is sent (zip_stream.cpp, chunked): one piece of
+a file is in memory, whatever the gallery's size. The entries are stored, with
+data descriptors, so the CRC-32 is made while the file is read; ZIP64 records
+come with a file of 4 GiB or more, 65535 files or more, or an offset past
+4 GiB. A file that vanished after the listing is left out.
+
+The form's POST with only the login cookie needs no X-PS5SD-Request header (a
+form cannot add it): the route only reads, and the cookie is SameSite=Strict.
+---
+ examples/server/CMakeLists.txt |   1 +
+ examples/server/auth.cpp       |   6 +-
+ examples/server/auth.h         |   3 +-
+ examples/server/gallery.cpp    |  74 +++++++++
+ examples/server/zip_stream.cpp | 352 +++++++++++++++++++++++++++++++++++++++++
+ examples/server/zip_stream.h   | 102 ++++++++++++
+ 6 files changed, 536 insertions(+), 2 deletions(-)
+
+diff --git a/examples/server/CMakeLists.txt b/examples/server/CMakeLists.txt
+index c95a00d..37939f2 100644
+--- a/examples/server/CMakeLists.txt
++++ b/examples/server/CMakeLists.txt
+@@ -82,6 +82,7 @@ set(SD_SERVER_SOURCES
+     events.cpp
+     server_hooks.cpp
+     gallery.cpp
++    zip_stream.cpp
+     routes_index.cpp
+     routes_openai.cpp
+     routes_sdapi.cpp
+diff --git a/examples/server/auth.cpp b/examples/server/auth.cpp
+index 222a34a..65d01af 100644
+--- a/examples/server/auth.cpp
++++ b/examples/server/auth.cpp
+@@ -312,7 +312,11 @@ httplib::Server::HandlerResponse guard(const httplib::Request& req, httplib::Res
+     if (check_key(req, res, key, given.key) != 0) {
+         return HR::Handled;
+     }
+-    if (given.via_cookie && req.method != "GET" && req.method != "HEAD" && !req.has_header("X-PS5SD-Request")) {
++    // The gallery's archive is a form a page submits (it cannot add the header); it only reads, and the
++    // cookie is SameSite=Strict.
++    const bool form_download = req.method == "POST" && req.path == "/ps5sd/v1/gallery/archive";
++    if (given.via_cookie && req.method != "GET" && req.method != "HEAD" && !form_download &&
++        !req.has_header("X-PS5SD-Request")) {
+         json_reply(res, 403, api_error("forbidden", "a request with the login cookie needs the header X-PS5SD-Request"));
+         return HR::Handled;
+     }
+diff --git a/examples/server/auth.h b/examples/server/auth.h
+index c07b903..222682d 100644
+--- a/examples/server/auth.h
++++ b/examples/server/auth.h
+@@ -10,7 +10,8 @@
+ //   the cookie ps5sd_key, which POST /ps5sd/v1/auth/login sets (the web UI;
+ //   an <img> cannot send a header). A POST, PUT or DELETE that only has the
+ //   cookie also needs the header X-PS5SD-Request, which a page of another
+-//   origin cannot add, so another site cannot use the cookie.
++//   origin cannot add, so another site cannot use the cookie. Except the form
++//   POST /ps5sd/v1/gallery/archive: a download, which a page's form submits.
+ // Without it: 401. Five wrong keys in a row from one client lock it out for
+ // 1 s, then 2, 4, ... up to 60 s (429); each wrong key is logged.
+ //
+diff --git a/examples/server/gallery.cpp b/examples/server/gallery.cpp
+index a58104d..27df0bf 100644
+--- a/examples/server/gallery.cpp
++++ b/examples/server/gallery.cpp
+@@ -10,6 +10,10 @@
+ //   GET /ps5sd/v1/gallery/thumb/<file>  its thumbnail, a JPEG at most 320 px a side (made when the
+ //                                 file was saved, or now for a PNG saved before)
+ //   GET /ps5sd/v1/gallery/info/<file>   {"name","type","parameters","prompt","sdcpp"}: what made it
++//   GET /ps5sd/v1/gallery/archive       every kept file as a ZIP, streamed (zip_stream.h); names=a.png,b.webm
++//                                 (a list, or several) picks some of them
++//   POST /ps5sd/v1/gallery/archive      the same for a form: names=<file names, one a line> (a plain
++//                                 <form method="post"> downloads it, with the login cookie too)
+ //
+ // What made a file: a PNG's tEXt "parameters" chunk (A1111's text; sd.cpp ends
+ // it with ", SDCPP: " and a JSON of the request), else .thumbs/<name>.txt: a
+@@ -17,6 +21,7 @@
+ 
+ #include <algorithm>
+ #include <atomic>
++#include <cctype>
+ #include <chrono>
+ #include <cstdio>
+ #include <cstdlib>
+@@ -36,6 +41,7 @@
+ #include "async_jobs.h"
+ #include "server_activity.h"
+ #include "server_hooks.h"
++#include "zip_stream.h"
+ 
+ namespace fs = std::filesystem;
+ 
+@@ -90,6 +96,20 @@ static std::string next_output_name(const fs::path& dir, const char* ext, bool t
+     }
+ }
+ 
++// A name the gallery serves: its characters (what the routes below match), a gallery type, and kept
++// (an image that is not kept, tmp_, is served but not listed).
++static bool gallery_name_ok(const std::string& name) {
++    if (gallery_type(name) == nullptr || name.compare(0, 4, "tmp_") == 0) {
++        return false;
++    }
++    for (unsigned char c : name) {
++        if (!std::isalnum(c) && c != '_' && c != '.' && c != '-') {
++            return false;
++        }
++    }
++    return true;
++}
++
+ // ---- thumbnails: <output-dir>/.thumbs/<name>.jpg; the listing skips the folder (no gallery type)
+ 
+ static const int kThumbSide = 320;
+@@ -725,6 +745,60 @@ void register_ps5sd_endpoints(httplib::Server& svr, ServerRuntime& rt) {
+         res.set_content(list.dump(-1, ' ', false, json::error_handler_t::replace), "application/json");
+     });
+ 
++    // The kept files as one ZIP, streamed: all of them, or the names given (the web UI's selection,
++    // sent as a form). Each file with its parameters' text (<name>.txt) when it has one next to it.
++    // Before the route of a single file, which would take "archive" for a name.
++    auto archive = [svr_params](const httplib::Request& req, httplib::Response& res) {
++        const fs::path dir = fs::u8path(svr_params->output_dir);
++        std::error_code ec;
++        std::vector<std::string> names = zip_names_of(req);
++        const bool selection           = req.method == "POST" || req.has_param("names");
++        if (svr_params->output_dir.empty() || !fs::is_directory(dir, ec)) {
++            res.status = 404;
++            res.set_content(R"({"error":"not found"})", "application/json");
++            return;
++        }
++        if (selection && names.empty()) {
++            res.status = 400;
++            res.set_content(R"({"error":"names: the files to download, one a line"})", "application/json");
++            return;
++        }
++        if (!selection) {
++            for (fs::directory_iterator it(dir, ec), end; !ec && it != end; it.increment(ec)) {
++                names.push_back(it->path().filename().u8string());
++            }
++            std::sort(names.begin(), names.end());
++        }
++        std::vector<ZipSource> sources;
++        for (const std::string& name : names) {
++            if (!gallery_name_ok(name) || !fs::is_regular_file(dir / name, ec)) {
++                continue;
++            }
++            sources.push_back({name, (dir / name).u8string()});
++            const fs::path text = thumbs_dir(dir) / (name + ".txt");
++            if (fs::is_regular_file(text, ec)) {
++                sources.push_back({name + ".txt", text.u8string()});
++            }
++        }
++        if (sources.empty()) {
++            res.status = 404;
++            res.set_content(R"({"error":"no files to download"})", "application/json");
++            return;
++        }
++        const std::time_t now = std::time(nullptr);
++        std::tm tm_now{};
++#ifdef _WIN32
++        localtime_s(&tm_now, &now);
++#else
++        localtime_r(&now, &tm_now);
++#endif
++        char day[16];
++        std::strftime(day, sizeof(day), "%Y%m%d", &tm_now);
++        zip_respond(res, std::move(sources), std::string("ps5sd-gallery-") + day + ".zip");
++    };
++    svr.Get("/ps5sd/v1/gallery/archive", archive);
++    svr.Post("/ps5sd/v1/gallery/archive", archive);
++
+     // The thumbnail, made now when a PNG has none (saved before 0.9.0, or by the web UI).
+     svr.Get(R"(/ps5sd/v1/gallery/thumb/([A-Za-z0-9_.\-]+))", [svr_params](const httplib::Request& req, httplib::Response& res) {
+         static std::mutex making;  // one at a time: a 4096 px image is 50 MB as pixels
+diff --git a/examples/server/zip_stream.cpp b/examples/server/zip_stream.cpp
+new file mode 100644
+index 0000000..ea00097
+--- /dev/null
++++ b/examples/server/zip_stream.cpp
+@@ -0,0 +1,352 @@
++// PS5SD: a ZIP archive written as a stream (zip_stream.h).
++#include "zip_stream.h"
++
++#include <algorithm>
++#include <chrono>
++#include <cstring>
++#include <ctime>
++#include <filesystem>
++#include <memory>
++#include <set>
++
++#include "httplib.h"
++
++namespace fs = std::filesystem;
++
++namespace {
++
++constexpr size_t kPiece     = 64 * 1024;   // a call of next() makes at least this much, when there is that much
++constexpr size_t kFileChunk = 128 * 1024;  // read from a file at once
++
++constexpr uint32_t kLocalSig   = 0x04034b50;
++constexpr uint32_t kDirSig     = 0x02014b50;
++constexpr uint32_t kEndSig     = 0x06054b50;
++constexpr uint32_t kEnd64Sig   = 0x06064b50;
++constexpr uint32_t kLoc64Sig   = 0x07064b50;
++constexpr uint32_t kDescSig    = 0x08074b50;
++constexpr uint16_t kFlagDesc   = 0x0008;  // sizes and CRC follow the data
++constexpr uint16_t kVer20      = 20;
++constexpr uint16_t kVer45      = 45;
++constexpr uint16_t kMadeByUnix = 3 << 8;
++constexpr uint32_t kRegular644 = (0100000u | 0644u) << 16;  // external attributes: -rw-r--r--
++
++void put16(std::string& out, uint32_t v) {
++    out.push_back(static_cast<char>(v & 0xff));
++    out.push_back(static_cast<char>((v >> 8) & 0xff));
++}
++
++void put32(std::string& out, uint32_t v) {
++    put16(out, v & 0xffff);
++    put16(out, v >> 16);
++}
++
++void put64(std::string& out, uint64_t v) {
++    put32(out, static_cast<uint32_t>(v & 0xffffffffu));
++    put32(out, static_cast<uint32_t>(v >> 32));
++}
++
++const uint32_t* crc_table() {
++    static const std::vector<uint32_t> table = [] {
++        std::vector<uint32_t> t(256);
++        for (uint32_t i = 0; i < 256; ++i) {
++            uint32_t c = i;
++            for (int k = 0; k < 8; ++k) {
++                c = (c >> 1) ^ (0xedb88320u & (0u - (c & 1u)));
++            }
++            t[i] = c;
++        }
++        return t;
++    }();
++    return table.data();
++}
++
++// A file's modification time as the DOS time and date a ZIP entry has (local
++// time, 2 s steps, 1980 to 2107). A clock that was never set gives 1980-01-01.
++void dos_time_of(const std::string& path, uint16_t& time, uint16_t& date) {
++    time = 0;
++    date = (0 << 9) | (1 << 5) | 1;
++    std::error_code ec;
++    const auto ftime = fs::last_write_time(fs::u8path(path), ec);
++    if (ec) {
++        return;
++    }
++    // file_time_type -> unix seconds, without C++20 clock_cast
++    const auto stime = std::chrono::system_clock::now() +
++                       std::chrono::duration_cast<std::chrono::system_clock::duration>(
++                           ftime - fs::file_time_type::clock::now());
++    const std::time_t t = std::chrono::system_clock::to_time_t(stime);
++    std::tm lt{};
++#ifdef _WIN32
++    localtime_s(&lt, &t);
++#else
++    localtime_r(&t, &lt);
++#endif
++    const int year = lt.tm_year + 1900;
++    if (year < 1980) {
++        return;
++    }
++    const int y = std::min(year, 2107) - 1980;
++    time        = static_cast<uint16_t>((lt.tm_hour << 11) | (lt.tm_min << 5) | (lt.tm_sec / 2));
++    date        = static_cast<uint16_t>((y << 9) | ((lt.tm_mon + 1) << 5) | lt.tm_mday);
++}
++
++}  // namespace
++
++uint32_t zip_crc32(uint32_t crc, const void* data, size_t size) {
++    const uint32_t* table = crc_table();
++    const auto* p         = static_cast<const uint8_t*>(data);
++    crc                   = ~crc;
++    for (size_t i = 0; i < size; ++i) {
++        crc = table[(crc ^ p[i]) & 0xff] ^ (crc >> 8);
++    }
++    return ~crc;
++}
++
++ZipStream::ZipStream(std::vector<ZipSource> sources, ZipLimits limits)
++    : sources_(std::move(sources)), limits_(limits) {}
++
++bool ZipStream::next(std::string& out) {
++    const size_t first = out.size();
++    while (out.size() - first < kPiece && step(out)) {
++    }
++    return out.size() > first;
++}
++
++bool ZipStream::step(std::string& out) {
++    switch (state_) {
++        case State::Entry:
++            if (index_ >= sources_.size()) {
++                state_ = State::Directory;
++                return true;
++            }
++            return begin_entry(out);
++        case State::Data: {
++            const size_t want = static_cast<size_t>(std::min<uint64_t>(remaining_, kFileChunk));
++            size_t got        = 0;
++            if (want > 0) {
++                const size_t at = out.size();
++                out.resize(at + want);
++                file_.read(&out[at], static_cast<std::streamsize>(want));
++                got = static_cast<size_t>(std::max<std::streamsize>(file_.gcount(), 0));
++                out.resize(at + got);
++                crc_ = zip_crc32(crc_, out.data() + at, got);
++                pos_ += got;
++                read_ += got;
++                remaining_ -= got;
++            }
++            if (got == 0) {
++                remaining_ = 0;  // all of it, or the file got shorter
++            }
++            if (remaining_ == 0) {
++                end_entry(out);
++            }
++            return true;
++        }
++        case State::Directory:
++            directory(out);
++            return true;
++        case State::Finished:
++            break;
++    }
++    return false;
++}
++
++// Opens the next file and writes its local header; a file that cannot be opened is left out.
++bool ZipStream::begin_entry(std::string& out) {
++    const ZipSource& source = sources_[index_++];
++    if (source.name.empty() || source.name.size() > 0xffff) {
++        ++skipped_;
++        return true;
++    }
++    file_.close();
++    file_.clear();
++    file_.open(fs::u8path(source.path), std::ios::binary);
++    uint64_t size = 0;
++    if (file_) {
++        file_.seekg(0, std::ios::end);
++        const std::streamoff end = file_.tellg();
++        file_.seekg(0, std::ios::beg);
++        if (end < 0 || !file_) {
++            file_.close();
++        } else {
++            size = static_cast<uint64_t>(end);
++        }
++    }
++    if (!file_.is_open()) {
++        ++skipped_;
++        return true;
++    }
++
++    cur_        = Done();
++    cur_.name   = source.name;
++    cur_.offset = pos_;
++    cur_.zip64  = size >= limits_.size;
++    dos_time_of(source.path, cur_.time, cur_.date);
++    remaining_ = size;  // never more than the size now: the header is written for it
++    read_      = 0;
++    crc_       = 0;
++
++    const size_t before = out.size();
++    put32(out, kLocalSig);
++    put16(out, cur_.zip64 ? kVer45 : kVer20);
++    put16(out, kFlagDesc);
++    put16(out, 0);  // stored
++    put16(out, cur_.time);
++    put16(out, cur_.date);
++    put32(out, 0);  // CRC and sizes follow the data
++    put32(out, cur_.zip64 ? 0xffffffffu : 0);
++    put32(out, cur_.zip64 ? 0xffffffffu : 0);
++    put16(out, static_cast<uint32_t>(cur_.name.size()));
++    put16(out, cur_.zip64 ? 20 : 0);
++    out += cur_.name;
++    if (cur_.zip64) {
++        put16(out, 1);  // the ZIP64 field, sizes still unknown
++        put16(out, 16);
++        put64(out, 0);
++        put64(out, 0);
++    }
++    pos_ += out.size() - before;
++    state_ = State::Data;
++    return true;
++}
++
++// The data descriptor, and the entry is kept for the central directory.
++void ZipStream::end_entry(std::string& out) {
++    cur_.crc  = crc_;
++    cur_.size = read_;
++    const size_t before = out.size();
++    put32(out, kDescSig);
++    put32(out, cur_.crc);
++    if (cur_.zip64) {
++        put64(out, cur_.size);
++        put64(out, cur_.size);
++    } else {
++        put32(out, static_cast<uint32_t>(cur_.size));
++        put32(out, static_cast<uint32_t>(cur_.size));
++    }
++    pos_ += out.size() - before;
++    done_.push_back(std::move(cur_));
++    cur_ = Done();
++    file_.close();
++    state_ = State::Entry;
++}
++
++// The central directory (some records a call), then the end records.
++void ZipStream::directory(std::string& out) {
++    const size_t first = out.size();
++    if (!dir_begun_) {
++        dir_begun_  = true;
++        dir_offset_ = pos_;
++    }
++    while (listed_ < done_.size() && out.size() - first < kPiece) {
++        const Done& e         = done_[listed_++];
++        const bool big_offset = e.offset >= limits_.offset;
++        const bool zip64      = e.zip64 || big_offset;
++        const uint16_t extra  = static_cast<uint16_t>(4 + (e.zip64 ? 16 : 0) + (big_offset ? 8 : 0));
++        put32(out, kDirSig);
++        put16(out, kMadeByUnix | kVer45);
++        put16(out, zip64 ? kVer45 : kVer20);
++        put16(out, kFlagDesc);
++        put16(out, 0);  // stored
++        put16(out, e.time);
++        put16(out, e.date);
++        put32(out, e.crc);
++        put32(out, e.zip64 ? 0xffffffffu : static_cast<uint32_t>(e.size));
++        put32(out, e.zip64 ? 0xffffffffu : static_cast<uint32_t>(e.size));
++        put16(out, static_cast<uint32_t>(e.name.size()));
++        put16(out, zip64 ? extra : 0);
++        put16(out, 0);  // no comment
++        put16(out, 0);  // disk
++        put16(out, 0);  // internal attributes
++        put32(out, kRegular644);
++        put32(out, big_offset ? 0xffffffffu : static_cast<uint32_t>(e.offset));
++        out += e.name;
++        if (zip64) {
++            put16(out, 1);
++            put16(out, extra - 4);
++            if (e.zip64) {
++                put64(out, e.size);
++                put64(out, e.size);
++            }
++            if (big_offset) {
++                put64(out, e.offset);
++            }
++        }
++    }
++    pos_ += out.size() - first;
++    if (listed_ < done_.size()) {
++        return;
++    }
++
++    // every record is out: the end
++    dir_size_       = pos_ - dir_offset_;
++    const size_t at = out.size();
++    const bool wide = done_.size() >= limits_.entries || dir_offset_ >= limits_.offset || dir_size_ >= limits_.offset;
++    if (wide) {
++        const uint64_t end64 = pos_;
++        put32(out, kEnd64Sig);
++        put64(out, 44);
++        put16(out, kMadeByUnix | kVer45);
++        put16(out, kVer45);
++        put32(out, 0);
++        put32(out, 0);
++        put64(out, done_.size());
++        put64(out, done_.size());
++        put64(out, dir_size_);
++        put64(out, dir_offset_);
++        put32(out, kLoc64Sig);
++        put32(out, 0);
++        put64(out, end64);
++        put32(out, 1);
++    }
++    put32(out, kEndSig);
++    put16(out, 0);
++    put16(out, 0);
++    put16(out, wide ? 0xffff : static_cast<uint32_t>(done_.size()));
++    put16(out, wide ? 0xffff : static_cast<uint32_t>(done_.size()));
++    put32(out, wide ? 0xffffffffu : static_cast<uint32_t>(dir_size_));
++    put32(out, wide ? 0xffffffffu : static_cast<uint32_t>(dir_offset_));
++    put16(out, 0);  // no comment
++    pos_ += out.size() - at;
++    state_ = State::Finished;
++}
++
++std::vector<std::string> zip_names_of(const httplib::Request& req) {
++    std::vector<std::string> names;
++    std::set<std::string> seen;
++    const auto range = req.params.equal_range("names");
++    for (auto it = range.first; it != range.second; ++it) {
++        const std::string& value = it->second;
++        size_t start             = 0;
++        for (size_t i = 0; i <= value.size(); ++i) {
++            const bool end = i == value.size();
++            const char c   = end ? ',' : value[i];
++            if (end || c == ',' || c == ' ' || c == '\n' || c == '\r' || c == '\t') {
++                if (i > start) {
++                    const std::string name = value.substr(start, i - start);
++                    if (seen.insert(name).second) {
++                        names.push_back(name);
++                    }
++                }
++                start = i + 1;
++            }
++        }
++    }
++    return names;
++}
++
++void zip_respond(httplib::Response& res, std::vector<ZipSource> sources, const std::string& filename,
++                 ZipLimits limits) {
++    auto zip = std::make_shared<ZipStream>(std::move(sources), limits);
++    res.status = 200;
++    res.set_header("Content-Disposition", "attachment; filename=\"" + filename + "\"");
++    res.set_header("Cache-Control", "no-store");
++    res.set_chunked_content_provider("application/zip", [zip](size_t, httplib::DataSink& sink) {
++        std::string piece;
++        if (zip->next(piece)) {
++            return sink.write(piece.data(), piece.size());
++        }
++        sink.done();
++        return true;
++    });
++}
+diff --git a/examples/server/zip_stream.h b/examples/server/zip_stream.h
+new file mode 100644
+index 0000000..35ce7e1
+--- /dev/null
++++ b/examples/server/zip_stream.h
+@@ -0,0 +1,102 @@
++// PS5SD: a ZIP archive written as a stream, for the gallery's download
++// (GET and POST /ps5sd/v1/gallery/archive).
++//
++// Nothing is held in memory but one piece of a file: the archive is made while
++// it is sent. The entries are stored, not compressed (a PNG or a WebM is
++// compressed already). The size and the CRC-32 of a file are not known before
++// it is read, so each entry has a data descriptor (general purpose bit 3), as
++// `zip -fd` and Go's archive/zip write them.
++//
++// ZIP64: an entry gets the ZIP64 records when its file is 4 GiB or more (the
++// size is read when the file is opened, and the file is read no further than
++// that), the end of the archive gets them with 65535 entries or more or when
++// the central directory is past 4 GiB. The limits are a parameter so a test
++// can reach the records with small files.
++//
++// A file that cannot be opened is left out (it vanished after the listing); a
++// file that is shorter than it was ends where it ends, and the descriptor and
++// the central directory say what was written.
++#pragma once
++
++#include <cstdint>
++#include <fstream>
++#include <string>
++#include <vector>
++
++namespace httplib {
++struct Request;
++struct Response;
++}  // namespace httplib
++
++struct ZipSource {
++    std::string name;  // the path inside the archive
++    std::string path;  // the file to read
++};
++
++struct ZipLimits {
++    uint64_t size    = 0xFFFFFFFFull;  // an entry this big (or more) is ZIP64
++    uint64_t offset  = 0xFFFFFFFFull;  // an offset (an entry's, the central directory's) this big or more is ZIP64
++    uint64_t entries = 0xFFFFull;      // this many entries or more end the archive with the ZIP64 records
++};
++
++class ZipStream {
++public:
++    explicit ZipStream(std::vector<ZipSource> sources, ZipLimits limits = ZipLimits());
++
++    // Appends the next piece of the archive (about 64 KiB or more) to out.
++    // False when the archive is complete and nothing was appended.
++    bool next(std::string& out);
++
++    uint64_t written() const { return pos_; }  // bytes made so far
++    size_t entries() const { return done_.size(); }  // files in the archive so far
++    size_t skipped() const { return skipped_; }      // files that could not be opened
++
++private:
++    struct Done {
++        std::string name;
++        uint32_t crc = 0;
++        uint64_t size = 0;
++        uint64_t offset = 0;
++        uint16_t time = 0;
++        uint16_t date = 0;
++        bool zip64 = false;
++    };
++    enum class State { Entry, Data, Directory, Finished };
++
++    bool step(std::string& out);
++    bool begin_entry(std::string& out);
++    void end_entry(std::string& out);
++    void directory(std::string& out);
++
++    std::vector<ZipSource> sources_;
++    ZipLimits limits_;
++    size_t index_ = 0;
++    State state_  = State::Entry;
++    uint64_t pos_ = 0;  // the archive's size so far
++    size_t skipped_ = 0;
++
++    std::ifstream file_;
++    Done cur_;
++    uint64_t remaining_ = 0;
++    uint64_t read_      = 0;
++    uint32_t crc_       = 0;
++
++    std::vector<Done> done_;
++    size_t listed_        = 0;  // central directory records written
++    uint64_t dir_offset_  = 0;
++    uint64_t dir_size_    = 0;
++    bool dir_begun_       = false;
++};
++
++// CRC-32 (the ZIP and PNG polynomial) of data, continuing from crc (0 to start).
++uint32_t zip_crc32(uint32_t crc, const void* data, size_t size);
++
++// The names of a request: every value of "names" (the query of a GET, the form
++// of a POST), each split at commas, spaces and line breaks; without repeats,
++// in the order given.
++std::vector<std::string> zip_names_of(const httplib::Request& req);
++
++// Answers with the archive of sources, streamed (chunked, no length known
++// before), as a download named filename.
++void zip_respond(httplib::Response& res, std::vector<ZipSource> sources, const std::string& filename,
++                 ZipLimits limits = ZipLimits());
+-- 
+2.43.0
+

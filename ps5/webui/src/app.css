@@ -267,6 +267,10 @@
   .gal { max-width: 90rem; margin: 0 auto; padding: 0.5rem 2rem 3rem; }
   .galbar { display: flex; align-items: center; margin-bottom: 0.75rem; }
   .galbar h2 { flex: 1; color: var(--text); font-size: 1.3rem; font-weight: 500; margin: 0; }
+  .galbar a.btn { flex: none; box-sizing: border-box; min-height: 3.25rem; line-height: 3.25rem; margin-right: 0.6rem;
+    padding: 0 1.2rem; color: var(--text); background: var(--raised); border: 1px solid var(--border); border-radius: 10px;
+    text-decoration: none; }
+  .galbar a.btn:hover { background: var(--raised-hi); }
   .thumbs { display: flex; flex-wrap: wrap; margin: 0 -0.4rem; }
   .thumbs .t { box-sizing: border-box; flex: 0 0 16.666%; padding: 0.4rem; }
   .thumbs a { display: block; position: relative; padding-bottom: 100%; background: var(--field);
@@ -571,6 +575,7 @@
   button:hover { background: var(--raised-hi); }
   button:active:not(:disabled) { transform: scale(0.97); transition-duration: 0.05s; }
   button.on { border: 0; }
+  .galbar a.btn { min-height: var(--ctl); line-height: var(--ctl); padding: 0 1rem; border: 0; font-weight: 500; }
   button.danger { color: var(--bad); background: var(--danger-bg); }
   button.danger:hover { background: var(--danger-line); }
   button.danger.armed { color: #fff; background: var(--bad); }

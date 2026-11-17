@@ -2748,6 +2748,129 @@
         }
       }
     },
+    "/ps5sd/v1/gallery/archive": {
+      "get": {
+        "tags": [
+          "gallery"
+        ],
+        "operationId": "getGalleryArchive",
+        "summary": "The gallery as one ZIP",
+        "description": "Every kept file (images and videos, not the `tmp_*` ones), sorted by name, or the ones `names` gives.",
+        "parameters": [
+          {
+            "name": "names",
+            "in": "query",
+            "required": false,
+            "description": "Only these files: names separated by commas (several `names` may be given).",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The archive, made while it is sent (chunked, no Content-Length), with Content-Disposition attachment; filename=\"ps5sd-gallery-<date>.zip\". The files are stored, not compressed; a file's parameters from .thumbs/<name>.txt come as <name>.txt. A file of 4 GiB or more, or 65535 files or more, make a ZIP64 archive.",
+            "content": {
+              "application/zip": {
+                "schema": {
+                  "type": "string",
+                  "contentMediaType": "application/zip"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key is needed, or it is wrong (code `unauthorized`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "None of the files is in the gallery (code `not_found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "gallery"
+        ],
+        "operationId": "postGalleryArchive",
+        "summary": "Some files of the gallery as one ZIP",
+        "description": "For a form: the files named in the field `names`, separated by commas, spaces or line breaks (the field may come more than once). With only the login cookie it needs no `X-PS5SD-Request` header, which a form cannot add.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "names": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "names"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The archive, made while it is sent (chunked, no Content-Length), with Content-Disposition attachment; filename=\"ps5sd-gallery-<date>.zip\". The files are stored, not compressed; a file's parameters from .thumbs/<name>.txt come as <name>.txt. A file of 4 GiB or more, or 65535 files or more, make a ZIP64 archive.",
+            "content": {
+              "application/zip": {
+                "schema": {
+                  "type": "string",
+                  "contentMediaType": "application/zip"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "No `names` (code `invalid_request`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key is needed, or it is wrong (code `unauthorized`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "None of the files is in the gallery (code `not_found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/ps5sd/v1/app/gallery": {
       "post": {
         "tags": [

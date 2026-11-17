@@ -37,6 +37,7 @@
     ref_images on /sdcpp/v1/img_gen, extra_images on /sdapi/v1/txt2img (Edit by the prompt, FLUX.2)
     POST /ps5sd/v1/app/gallery                                         (an inpainting put back together here, with its parameters)
     GET  /ps5sd/v1/gallery/thumb/<file>, .../gallery/info/<file>       (the gallery's thumbnails; what made an image)
+    GET, POST /ps5sd/v1/gallery/archive                                (Download all, and Download on a selection: a ZIP)
     GET  /ps5sd/v1/app/catalog, GET/POST /ps5sd/v1/app/downloads,      (downloads; a 404 hides that part)
          DELETE .../downloads/<id>, POST .../app/hf/search
   SPDX-License-Identifier: MIT
@@ -547,6 +548,7 @@
     <h2 id="help-gallery">Gallery</h2>
     <p>In the viewer, the mouse wheel or two fingers zoom in, a drag moves the picture, and a double click or double tap switches between the whole picture and its pixels one to one. <b>Copy prompt</b>, <b>Copy negative</b> and <b>Copy all</b> copy what made the image; Copy all is the text other tools (AUTOMATIC1111, Civitai) read when it is pasted.</p>
     <p><b>Name</b> gives a file a name and tags. The search finds them, and <code>#night</code> finds the files tagged night; a tag in the viewer does that search. They are kept on the console next to the gallery, not in the file.</p>
+    <p><b>Download all</b> saves every file of the gallery as one ZIP, and <b>Select</b> then <b>Download</b> does the same for the files you picked (one file is saved as it is). The console makes the ZIP while the browser saves it, so it has no size to show until it is done, and a big gallery takes a while. A video's or a PNG's settings, when they are kept next to the file, come as <code>&lt;name&gt;.txt</code>.</p>
     <h2 id="help-video">Video length and time</h2>
     <p>Wan makes 4n+1 frames: 33 are 2 seconds at 16 per second, 81 are 5 seconds.</p>
     <p>On the console, 33 frames at 832×480 take about 2 minutes 15 seconds with the CausVid LoRA (Models tab, Get more) at 4 steps and CFG 1, 81 frames about 8 minutes. Without the LoRA, 33 frames take up to 15 minutes at 20 steps.</p>
@@ -589,6 +591,7 @@
 <section class="gal" id="view-gallery" style="display:none">
   <div class="galbar">
     <h2>Gallery</h2>
+    <a class="btn" id="gdlall" href="/ps5sd/v1/gallery/archive" style="display:none" title="Every file of the gallery as one ZIP">Download all</a>
     <button type="button" id="refresh">Refresh</button>
   </div>
   <div class="mseg gfilter" id="gfilter" role="group" aria-label="Show" style="display:none">
@@ -604,7 +607,7 @@
   <div class="gselbar" id="gselbar" style="display:none" role="group" aria-label="Selected files">
     <span id="gsel-n"></span>
     <button type="button" id="gsel-all">All</button>
-    <button type="button" id="gsel-dl">Download</button>
+    <button type="button" id="gsel-dl" title="One file as it is, several as one ZIP">Download</button>
     <button type="button" class="danger" id="gsel-del">Delete</button>
   </div>
   <div class="thumbs" id="thumbs"></div>
@@ -613,6 +616,7 @@
 </section>
 
 <div class="foot">stable-diffusion.cpp on PlayStation 5</div>
+<iframe name="gdlframe" id="gdlframe" title="" aria-hidden="true" tabindex="-1" style="display:none"></iframe>
 
 <div class="lb" id="lb" style="display:none" role="dialog" aria-modal="true" aria-label="Image viewer">
   <div class="lb-bar">

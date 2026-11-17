@@ -739,10 +739,21 @@ from what the run used: A1111's sampler names (`Sampler: Euler a, Schedule type:
 | `GET /ps5sd/v1/gallery/<name>` | one image as PNG; a video is served with its own type |
 | `GET /ps5sd/v1/gallery/thumb/<name>` | the thumbnail, a JPEG at most 320 px a side. Made when the file is saved (a video's from its first frame); a PNG saved before 0.9.0 gets its own on the first request. 404 for a video saved before 0.9.0 |
 | `GET /ps5sd/v1/gallery/info/<name>` | what made the file: `{"name", "type", "parameters", "prompt", "sdcpp"}`. `parameters` is A1111's text, `sdcpp` the JSON of the request that sd.cpp puts at its end (prompt, size, seed, sampling, models, LoRAs, hires, video), `null` when there is none |
+| `GET /ps5sd/v1/gallery/archive` | every kept file (images and videos, not the `tmp_*` ones) as one ZIP, `ps5sd-gallery-<date>.zip`. See below. `?names=a.png,b.webm` takes only those |
+| `POST /ps5sd/v1/gallery/archive` | the same for the files named in the form field `names` (file names, separated by commas, spaces or line breaks; the field may come more than once). `400` without a name, `404` when none of them is in the gallery |
 | `DELETE /ps5sd/v1/app/gallery/<name>` | delete one image or video: `{"deleted": "<name>"}`; 400 for a name the gallery does not list (folders, other files), 404 when it is gone already. Its name and tags go with it |
 | `GET /ps5sd/v1/app/gallery/labels` | `{"labels": {"<file>": {"title": "Old town at night", "tags": ["night", "houses"]}}}`: the names and tags of the files that have any |
 | `POST /ps5sd/v1/app/gallery/labels` | `{"name": "<file>", "title": "...", "tags": ["..."]}`: sets a file's name (one line, at most 100 characters) and tags (at most 20, each at most 40 characters, no commas; one that is there twice in any case counts once). An empty title without tags removes them. `200 {"name", "title", "tags"}` as kept; `404` for a file that is not there |
 | `POST /ps5sd/v1/app/gallery/keep` | `{"name": "tmp_<file>"}`: keeps a file that was made with `"temporary": true`; it becomes `<file>`, with its thumbnail and parameters. `200 {"kept": "<file>"}`, `404` when there is no such file, `409` when `<file>` is taken |
+
+The archive is made while it is sent, so the console holds one piece of a file in memory, whatever the size
+of the gallery, and the answer has no `Content-Length`. The files are stored, not compressed (a PNG and a WebM
+are compressed already). A file's parameters, when they are in `.thumbs/<name>.txt` (a video's, or a PNG saved
+without them), come as `<name>.txt` next to it. A file that is gone by the time it is read is left out. A
+file of 4 GiB or more, or 65535 files or more, make a ZIP64 archive, which every current unzip tool reads.
+The web UI's Download all is a link to the `GET` route, and its Download on a selection of files is a form that
+`POST`s the names. With an API key, both work with the login cookie as well (the form needs no
+`X-PS5SD-Request` header, which a form cannot add); a script sends the key as for any route.
 
 The names and tags are kept in `/data/PS5SD/outputs/.labels.json`, not in the files, so a PNG stays as it
 was made. The web UI's search finds them; the gallery's `q` does not.

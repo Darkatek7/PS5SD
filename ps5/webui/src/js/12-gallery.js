@@ -155,6 +155,7 @@
     var kind = galleryKind();
     var view = galleryView();
     drawFilter(countVideos());
+    show('gdlall', galleryList.length > 0, 'inline-block');
     var shown = Math.min(view.length, st.limit);
     for (var i = 0; i < shown; i++) {
       (function (item, idx) {
@@ -247,24 +248,54 @@
     var n = selNames().length;
     text($('gsel-n'), n ? n + ' selected' : 'Press the images to select them.');
     $('gsel-dl').disabled = !n;
+    text($('gsel-dl'), n > 1 ? 'Download ZIP' : 'Download');
     $('gsel-del').disabled = !n;
   }
 
-  // One download after the other: a browser takes several clicks at once badly.
+  // The files as one ZIP (names), or the whole gallery (null). The console makes it while the browser
+  // saves it, so nothing is held in this page: a form into a hidden frame. The page stays as it is,
+  // and the login cookie goes along.
+  function downloadArchive(names) {
+    var f = document.createElement('form');
+    f.method = names ? 'post' : 'get';
+    f.action = '/ps5sd/v1/gallery/archive';
+    f.target = 'gdlframe';
+    f.style.display = 'none';
+    if (names) {
+      var inp = document.createElement('input');
+      inp.type = 'hidden';
+      inp.name = 'names';
+      inp.value = names.join('\n');
+      f.appendChild(inp);
+    }
+    document.body.appendChild(f);
+    f.submit();
+    setTimeout(function () { document.body.removeChild(f); }, 1000);
+  }
+
+  function downloadAll() {
+    downloadArchive(null);
+    toast('Downloading the gallery as a ZIP. It has no size until it is done.', 5000);
+  }
+
+  // One file as it is; several as one ZIP.
   function downloadSelected() {
-    var list = selNames(), k = 0;
-    (function next() {
-      if (k >= list.length) return;
+    var list = selNames();
+    if (!list.length) return;
+    if (list.length === 1) {
       var a = document.createElement('a');
-      a.href = list[k].url;
-      a.setAttribute('download', list[k].name);
+      a.href = list[0].url;
+      a.setAttribute('download', list[0].name);
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
-      k++;
-      setTimeout(next, 600);
-    })();
-    toast('Downloading ' + list.length + (list.length === 1 ? ' file.' : ' files.'));
+      toast('Downloading 1 file.');
+      return;
+    }
+    var names = [];
+    for (var i = 0; i < list.length; i++) names.push(list[i].name);
+    downloadArchive(names);
+    toast('Downloading ' + list.length + ' files as a ZIP. It has no size until it is done.', 5000);
   }
 
   function askDeleteSelected() {
