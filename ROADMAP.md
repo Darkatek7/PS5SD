@@ -10,6 +10,8 @@ can rely on.
 
 ## Done
 
+- **1.3.0**: the gallery as one ZIP (issue 20); FLUX.3 Klein's Spectrum from the fourth step (67 s instead
+  of 74); how to run Krea 2 Turbo, which is not in the catalog for its licence (issue 19).
 - **1.2.1**: a LoRA's strength from -100 to 100, not -2 to 2 (issue 18).
 - **1.2.0**: models load about five times faster (one reader with `pread()`); Spectrum in the FLUX.3
   Klein, Z-Image Turbo and Wan 2.1 presets (FLUX.3 Klein 73 s instead of 114); Mesa's shader cache kept.
@@ -510,18 +512,35 @@ Measured on the console on 2026-11-13 ([CONSOLE.md](docs/CONSOLE.md#faster-loadi
 - [x] **A LoRA's strength from -100 to 100**: the web UI kept it to -2..2, and slider LoRAs are made for
   -8 to 8 and more. The range is ComfyUI's; sd-server and sd.cpp take any strength.
 
+## 1.3.0: the gallery as one ZIP ([issue 20](https://github.com/Darkatek7/PS5SD/issues/20)), done
+
+Measured on the console on 2026-11-17 ([CONSOLE.md](docs/CONSOLE.md#spectrum-from-the-fourth-step-klein-9bs-samplers-krea-2-2026-11-17)).
+
+- [x] **The gallery as one ZIP**: **Download all** in the gallery, and **Download** with two or more images
+  selected. The console makes the ZIP while it sends it (`patches/sdcpp/0086`), with each image's parameters as
+  a text file beside it: 1.06 GB in 24 s. `GET` and `POST /ps5sd/v1/gallery/archive`; a form may post it with
+  only the login cookie.
+- [x] **Spectrum from the fourth step** in the FLUX.3 Klein presets (`--cache-option warmup=3`): 67 s instead
+  of 74, with the same picture. From the third step hands and objects moved. A preset that 1.2.x wrote gets it
+  at the next start.
+- [x] **Krea 2 Turbo** ([issue 19](https://github.com/Darkatek7/PS5SD/issues/19)): it runs, about 3 minutes
+  an image at 1024x1024 and 8 steps. Its licence asks everyone who deploys it for a content filter, which
+  PS5SD does not have, so it is not in the catalog. `docs/MODELS.md` says how to set it up.
+- [x] Looked at and left: VAE tiles of 768 instead of 512 (0.3 s), flash attention (on already), Klein 9B's
+  preset (dpm2 at 8 steps stays; Euler at 4 steps takes 48 s instead of 165, and the catalog says so).
+
 ## After 1.0
 
 1.x adds what does not break a client of the API; a change that breaks one (a route, a field, an error
 code that goes away or changes its meaning) waits for 2.0.
 
 The plan as of 2026-11-04, in order (1.1.0 was taken by the stable-diffusion.cpp of November on
-2026-11-12 and 1.2.0 by faster loading on 2026-11-14, so the rest moved up two numbers). 1.5.0 only touches
-the web UI and the app's own routes, so it can be worked on next to 1.3.0 and 1.4.0. The times below are
-those of 1.0.0 on the console ([CONSOLE.md](docs/CONSOLE.md)); every new number goes there with its date and
-build.
+2026-11-12, 1.2.0 by faster loading on 2026-11-14 and 1.3.0 by the gallery as a ZIP on 2026-11-17, so the
+rest moved up three numbers). 1.6.0 only touches the web UI and the app's own routes, so it can be worked
+on next to 1.4.0 and 1.5.0. The times below are those of 1.0.0 on the console ([CONSOLE.md](docs/CONSOLE.md));
+every new number goes there with its date and build.
 
-## 1.3.0: two pictures for Edit, and sdxl-full converted once ([issue 13](https://github.com/Darkatek7/PS5SD/issues/13))
+## 1.4.0: two pictures for Edit, and sdxl-full converted once ([issue 13](https://github.com/Darkatek7/PS5SD/issues/13))
 
 Issue 13 asks for a pose (a skeleton of one or more people, for sprite sheets) and a character from a
 reference picture, with a prompt and no setup. FLUX.2 Klein takes several reference pictures, so this
@@ -548,7 +567,7 @@ needs no ControlNet and no preprocessor.
   `ftp_writer.cpp`, with a host test. If that turns out too large, point the entry at a ready Q8_0 GGUF
   instead.
 
-## 1.4.0: what the stable-diffusion.cpp of November brings
+## 1.5.0: what the stable-diffusion.cpp of November brings
 
 1.1.0 moved PS5SD onto it with the times of 1.0, and 1.2.0 took Spectrum from it. This release uses
 the rest.
@@ -558,6 +577,9 @@ the rest.
   them), Z-Image fusions and BF16 GEMM (#2265), position embeddings kept between runs (#2211). The
   baseline: Z-Image Turbo 1024x1024 89 s, SDXL Base 29 s, Klein 9B 49 s warm, Wan 2.1 1.3B (9 frames at
   832x480) 87 s.
+- [ ] **FLUX.3 Klein's slow matrix product**: the MLP's output layer (`k=9216`) runs at 5.4 TFLOPS, the
+  other Q4_K products at 9.6 to 9.8 ([CONSOLE.md](docs/CONSOLE.md#where-a-flux3-step-goes)). At their speed a
+  step would be about a tenth faster. Find out why in ggml-vulkan's matrix product (tile size, split-k).
 - [ ] **Fixes** that come with it: the hires fix keeps the step count it was given (#2227), Vulkan's free
   memory checked again after a reclaim (#2256), small-BAR heaps (#2181), Wan's VAE decode plans (#2197).
 - [ ] **Face and detail fix**: upstream's server does ADetailer now (#2164). A face detector in the
@@ -570,7 +592,7 @@ the rest.
 - [ ] Soak test and update test again; the new times into CONSOLE.md and, where they changed, into the
   catalog and `docs/MODELS.md`.
 
-## 1.5.0: the web UI, smaller steps
+## 1.6.0: the web UI, smaller steps
 
 Each one tested in a browser with `scripts/webui-dev.py` (`--mock-*` without a console) on a PC, a phone
 and the PS5's own browser, which needs ES5.
@@ -594,7 +616,7 @@ and the PS5's own browser, which needs ES5.
   keeps the expanded prompt.
 - [ ] `docs/API.md` for the new routes and fields; the Help tab shows it.
 
-## 1.6.0: the gallery on the TV
+## 1.7.0: the gallery on the TV
 
 - [ ] **A slideshow with the DualSense**: the gallery in full screen on the TV. Left and right step
   through it, Options starts and stops it, Circle goes back to the dashboard; new images join it while it
@@ -614,7 +636,7 @@ and the PS5's own browser, which needs ES5.
   fork): only built down to ES5 in one page, so the PS5's browser keeps working, and with every feature of
   the current page. Not started; first a word with the people who would work on it.
 - [ ] **More ControlNets**: OpenPose and depth for SDXL. Without a preprocessor on the console they need
-  a pose or depth image, so only if people ask for them (1.4.0 brings one for Z-Image).
+  a pose or depth image, so only if people ask for them (1.5.0 brings one for Z-Image).
 - [ ] **Tighter OpenAPI schemas**: some answers are described loosely (the download routes, the A1111
   lists, `capabilities`); each gets its fields as API.md names them.
 
