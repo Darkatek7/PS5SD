@@ -209,16 +209,25 @@ int main() {
         check(update_catalog_presets(presets.u8string()).empty() && read(presets / "wan21-t2v-1.3b.txt") == changed,
               "a preset someone changed stays");
         check(read(presets / "sdxl-base.txt") == sdxl.preset, "other presets stay");
-        // 1.1.1's FLUX.3 Klein, without Spectrum, gets it
-        const std::string klein = find_catalog("flux3-klein-q4")->preset;
-        check(klein.size() > spectrum.size() &&
-                  klein.compare(klein.size() - spectrum.size(), spectrum.size(), spectrum) == 0,
-              "FLUX.3 Klein skips steps with Spectrum");
-        write(presets / "flux3-klein-q4.txt", klein.substr(0, klein.size() - spectrum.size()));
-        const auto klein_updated = update_catalog_presets(presets.u8string());
-        check(klein_updated.size() == 1 && klein_updated[0] == "flux3-klein-q4" &&
-                  read(presets / "flux3-klein-q4.txt") == klein,
-              "1.1.1's FLUX.3 Klein preset becomes the current one");
+        // 1.1.1's FLUX.3 Klein, without Spectrum, and 1.2.x's, with Spectrum from the fifth step, get the
+        // current one: Spectrum from the fourth step
+        const std::string klein  = find_catalog("flux3-klein-q4")->preset;
+        const std::string warmup = "--cache-option\nwarmup=3\n";
+        const std::string tail   = spectrum + warmup;
+        check(klein.size() > tail.size() && klein.compare(klein.size() - tail.size(), tail.size(), tail) == 0,
+              "FLUX.3 Klein skips steps with Spectrum from the fourth step");
+        for (const auto & old : { klein.substr(0, klein.size() - tail.size()), klein.substr(0, klein.size() - warmup.size()) }) {
+            write(presets / "flux3-klein-q4.txt", old);
+            const auto klein_updated = update_catalog_presets(presets.u8string());
+            check(klein_updated.size() == 1 && klein_updated[0] == "flux3-klein-q4" &&
+                      read(presets / "flux3-klein-q4.txt") == klein,
+                  "1.1.1's and 1.2.x's FLUX.3 Klein presets become the current one");
+        }
+        const std::string q6 = find_catalog("flux3-klein-q6")->preset;
+        write(presets / "flux3-klein-q6.txt", q6.substr(0, q6.size() - warmup.size()));
+        const auto q6_updated = update_catalog_presets(presets.u8string());
+        check(q6_updated.size() == 1 && q6_updated[0] == "flux3-klein-q6" && read(presets / "flux3-klein-q6.txt") == q6,
+              "1.2.x's FLUX.3 Klein Q6 preset becomes the current one");
         const CatalogEntry * tae = find_catalog("wan21-t2v-1.3b-tae");
         check(tae != nullptr && !tae->featured && tae->files.size() == 3 &&
                   std::string(tae->files[0].dest) == find_catalog("wan21-t2v-1.3b")->files[0].dest &&

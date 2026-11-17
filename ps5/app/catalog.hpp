@@ -61,6 +61,37 @@ namespace catalog_data {
 // stays as it is.
 inline std::vector<std::pair<const char *, const char *>> old_presets() {
     return {
+        // 1.2.0 and 1.2.1: Spectrum from the fifth step. From the fourth it skips 7 of 16 steps instead
+        // of 6: 67 s instead of 74 for FLUX.3 Klein Q4, with the same picture (docs/CONSOLE.md, "Spectrum
+        // from the fourth step"). From the third it skipped 8, but moved hands and objects.
+        { "flux3-klein-q4",
+          "# name: FLUX.3 Image Klein (Q4_K)\n"
+          "# defaults: steps=16 cfg=1 width=1024 height=1024 sampler=euler\n"
+          "--diffusion-model\n"
+          "diffusion_models/flux3-image-klein-Q4_K.gguf\n"
+          "--llm\n"
+          "text_encoders/Qwen3VL-4B-Instruct-Q4_K_M.gguf\n"
+          "--vae\n"
+          "vae/flux2-vae.safetensors\n"
+          "--vae-tiling\n"
+          "--vae-tile-size\n"
+          "512\n"
+          "--cache-mode\n"
+          "spectrum\n" },
+        { "flux3-klein-q6",
+          "# name: FLUX.3 Image Klein (Q6_K)\n"
+          "# defaults: steps=16 cfg=1 width=896 height=896 sampler=euler\n"
+          "--diffusion-model\n"
+          "diffusion_models/flux3-image-klein-Q6_K.gguf\n"
+          "--llm\n"
+          "text_encoders/Qwen3VL-4B-Instruct-Q4_K_M.gguf\n"
+          "--vae\n"
+          "vae/flux2-vae.safetensors\n"
+          "--vae-tiling\n"
+          "--vae-tile-size\n"
+          "512\n"
+          "--cache-mode\n"
+          "spectrum\n" },
         // up to 0.9.0: 128 px tiles at sd.cpp's overlap of 0.5, which decodes each pixel about three
         // times (docs/CONSOLE.md, "Faster video decoding")
         { "wan21-t2v-1.3b",
@@ -220,7 +251,7 @@ inline std::vector<CatalogEntry> entries() {
         {
             "flux3-klein-q4",
             "FLUX.3 Image Klein (Q4_K)",
-            "Best quality, writes text: about 75 s an image.",
+            "Best quality, writes text: about 67 s an image.",
             {
                 { "https://huggingface.co/leejet/flux-3-image-klein-GGUF/resolve/main/flux3-image-klein-Q4_K.gguf",
                   "diffusion_models/flux3-image-klein-Q4_K.gguf", 3514023104ull, 0 },
@@ -239,7 +270,9 @@ inline std::vector<CatalogEntry> entries() {
             "--vae-tile-size\n"
             "512\n"
             "--cache-mode\n"
-            "spectrum\n",
+            "spectrum\n"
+            "--cache-option\n"
+            "warmup=3\n",
             true,
             "best detail and text in images",
         },
@@ -345,7 +378,9 @@ inline std::vector<CatalogEntry> entries() {
             "--vae-tile-size\n"
             "512\n"
             "--cache-mode\n"
-            "spectrum\n",
+            "spectrum\n"
+            "--cache-option\n"
+            "warmup=3\n",
             false,
             "",
         },

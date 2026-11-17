@@ -1184,3 +1184,95 @@ stable-diffusion.cpp's cache modes, set per request (`cache_mode`):
 - **Polling too fast.** A client that asked for its job's state every 0.5 s found the title refusing new
   connections for about two minutes, several times in an hour (`Connection timed out` on the PC). At one
   request every 2 s, as the soak test asks, it did not happen.
+
+## Spectrum from the fourth step, Klein 9B's samplers, Krea 2 (2026-11-17)
+
+The 1.2.1 release build, FW 13.00, 1024x1024, CFG 1. Each time is `generate_image` from `app.log`, on a
+loaded model. Two prompts: the lighthouse of the section before (seed 42), and
+`close-up portrait photo of an old fisherman ... holding a white coffee mug that says HARBOR ...` (seed 7),
+for faces, hands and text.
+
+### Spectrum from the fourth step
+
+FLUX.3 Klein Q4, 16 steps with Euler, `cache_option` per request:
+
+| Spectrum | Skipped | Sampling | Image | Difference to no cache, lighthouse / portrait |
+|---|---|---|---|---|
+| none | 0 | 109.2 s | 114.5 s | |
+| `warmup=4` (sd.cpp's default, the 1.2.x presets) | 6 of 16 | 68.5 s | 73.9 s | 3.1 / 3.0 |
+| `warmup=3` | 7 of 16 | 61.7 s | 67.1 s | 4.7 / 3.7 |
+| `window=3` | 7 of 16 | 61.8 s | 67.2 s | 4.5 / |
+| `warmup=2` | 8 of 16 | 54.8 s | 60.1 s | 5.6 / 8.0 |
+| `warmup=3,window=3` | 8 of 16 | 54.8 s | 60.1 s | 6.1 / |
+
+- The difference is the mean of the pixels' differences (0 to 255) to the image without a cache.
+- `warmup=3` keeps the picture: the same composition, the same hands, the sign and the mug's text right.
+- `warmup=2` kept the lighthouse but moved the portrait's hands and mug. Not used.
+- The FLUX.3 Klein presets (Q4_K and Q6_K) have `--cache-option warmup=3` now.
+
+### The VAE in larger tiles
+
+FLUX.3 Klein's VAE (the FLUX.2 VAE) at 1024x1024: 5.40 s in 512 px tiles, 5.08 s in 768 px tiles. With
+1024 px tiles or none the decode ran out of memory (5.2 GiB free after an image) and sd.cpp decoded it in
+tiles after all (5.7 s). Not worth a change.
+
+### FLUX.2 Klein 9B: sampler and steps
+
+The portrait prompt, Klein 9B Q4_0:
+
+| Sampler, steps | Image |
+|---|---|
+| dpm2, 8 (the catalog's preset; two model passes a step) | 165.3 s |
+| Euler, 4 | 48.2 s |
+| Euler, 6 | 69.4 s |
+| Euler, 8 | 90.8 s |
+
+All four are good pictures with the text right. dpm2 at 8 steps holds the mug a little more naturally; Euler
+at 4 steps has the same detail in the face and beard.
+
+### Krea 2 Turbo
+
+realrebelai's `Krea-2-Turbo-Q4_K_M.gguf` (7.22 GB) with the Qwen3-VL 4B text encoder and the Wan 2.1 VAE that
+the catalog already has (stable-diffusion.cpp supports Krea 2 since `8caa3f9`):
+
+| Steps | Image | |
+|---|---|---|
+| 8, Euler | 174.6 s | 19.6 s a step, the decode 8.7 s; a good photo, the sign reads "PS9SD" |
+| 8, Spectrum `warmup=3` | 126.8 s | 2 of 8 skipped, the same composition |
+| 4, Euler | 87.6 s | darker and less detail |
+
+- It fits: after an image 1.89 GiB were free in the largest part.
+- Krea 2's licence (Krea 2 Community License) asks everyone who deploys the model for a content filter
+  (section 4.2). PS5SD has none.
+
+### Where a FLUX.3 step goes
+
+`GGML_VK_PERF_LOGGER=1` in `env.txt` times every GPU operation. It made a step about a hundred times
+slower, so only the first 30 blocks of one step were measured (4.7 s of GPU time). It also made sd.cpp's
+flash attention probe run out of its time budget (`flash attention auto: Vulkan0 -> off (probe time budget
+exhausted)`), so this run computed the attention the plain way:
+
+| Operation | Share |
+|---|---|
+| The model's linear layers (`MUL_MAT q4_K`) | 67.0% |
+| Attention: `Q·K` and `·V` in f32 | 17.5% |
+| Attention: `SOFT_MAX` | 4.4% |
+| Attention: `SCALE` | 4.2% |
+| Copies, norms, the rest | 6.9% |
+
+- The linear layers ran at 5.4 to 9.8 TFLOPS, the attention's products at 5.6 to 7.5 (the GPU's peak is about
+  10 in f32 and 20 in f16).
+- In a normal run the probe turns flash attention on, and a debug build showed every attention of the run
+  taking it: FLUX.3 Klein's at 4176 and 4096 tokens, its text encoder's and the VAE's. By the probe it takes
+  about 57% of the plain way's time, so the attention is about a sixth of a step, and the linear layers about
+  three quarters.
+- The linear layer with `k=9216` (the MLP's output layer, `mlp_out`) ran at 5.4 TFLOPS,
+  the others at 9.6 to 9.8. That one is the place where a faster matrix multiplication would show.
+
+### The gallery as one ZIP
+
+`GET /ps5sd/v1/gallery/archive` on a build with `patches/sdcpp/0086`: the console's gallery, 483 files and
+46 parameter texts, 1.06 GB, came in 23.9 s (44 MB/s over the network) as one ZIP that `unzip -t` and
+Python's `zipfile` read without errors; a file from it was the same, byte for byte, as over FTP. A `POST`
+with three names, a key in the cookie, and names that are not the gallery's (`../etc/passwd`: 404) answered
+as `docs/API.md` says.
