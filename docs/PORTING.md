@@ -89,6 +89,12 @@ PS5LM's `build-app.sh`, with llama.cpp replaced by stable-diffusion.cpp:
    thread is never pinned, because threads it starts later inherit its mask (PS5SX2 f9abb4a).
    sd.cpp itself sets no priority or mask today, so this changes nothing by default; it makes
    the threadpool parameters mean on the console what they mean elsewhere.
+3. **`0003-ps5-vulkan-large-matmul-tiles.patch`.** ggml-vulkan computes a matrix product in
+   tiles of 32×32, 64×64 or 128×128, and on AMD without cooperative matrices it leaves the large
+   one out. On `__PROSPERO__` the large tile is on, except for products that accumulate in f32
+   (layers that ask for `GGML_PREC_F32`): there it holds twice the registers and took about four
+   times as long. A FLUX.3 Klein or Klein 9B step is about 17% faster, Z-Image 12%, SDXL 4%, with
+   the same images (SDXL's differ in small details; [CONSOLE.md](CONSOLE.md#larger-matrix-tiles-2026-11-17)).
 
 No ggml patch is needed for the static build itself: `GGML_BACKEND_DL=OFF` registers CPU and
 Vulkan at start, and the `dlopen` family that `ggml-backend-dl.cpp` still names is stubbed at

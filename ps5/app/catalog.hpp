@@ -251,7 +251,7 @@ inline std::vector<CatalogEntry> entries() {
         {
             "flux3-klein-q4",
             "FLUX.3 Image Klein (Q4_K)",
-            "Best quality, writes text: about 67 s an image.",
+            "Best quality, writes text: about 56 s an image.",
             {
                 { "https://huggingface.co/leejet/flux-3-image-klein-GGUF/resolve/main/flux3-image-klein-Q4_K.gguf",
                   "diffusion_models/flux3-image-klein-Q4_K.gguf", 3514023104ull, 0 },
@@ -279,7 +279,7 @@ inline std::vector<CatalogEntry> entries() {
         {
             "z-image-turbo",
             "Z-Image Turbo (Q4_K)",
-            "Photoreal in 8 steps, about 55 s an image.",
+            "Photoreal in 8 steps, about 48 s an image.",
             {
                 { "https://huggingface.co/leejet/Z-Image-Turbo-GGUF/resolve/main/z_image_turbo-Q4_K.gguf",
                   "diffusion_models/z_image_turbo-Q4_K.gguf", 3864250304ull, 0 },
@@ -307,7 +307,7 @@ inline std::vector<CatalogEntry> entries() {
         {
             "flux2-klein-4b",
             "FLUX.2 Klein 4B (Q8_0)",
-            "Fast and detailed: 1024x1024 in 4 steps, about 30 s an image. Apache 2.0. 7.1 GB.",
+            "Fast and detailed: 1024x1024 in 4 steps, about 22 s an image. Apache 2.0. 7.1 GB.",
             {
                 { "https://huggingface.co/leejet/FLUX.2-klein-4B-GGUF/resolve/main/flux-2-klein-4b-Q8_0.gguf",
                   "diffusion_models/flux-2-klein-4b-Q8_0.gguf", 4300629440ull, 0 },
@@ -331,9 +331,9 @@ inline std::vector<CatalogEntry> entries() {
         {
             "flux2-klein-9b",
             "FLUX.2 Klein 9B (Q4_0)",
-            "The larger Klein: more detail than the 4B, 1024x1024 in 8 steps with dpm2, about 3 minutes an image "
-            "(4 the first after a start; 4 steps with Euler take about 50 s). Works with FLUX.2 Klein 9B LoRAs. FLUX "
-            "Non-Commercial License. 11.0 GB.",
+            "The larger Klein: more detail than the 4B, 1024x1024 in 8 steps with dpm2, about 2 min 20 s an image "
+            "(4 steps with Euler take about 40 s). Works with FLUX.2 Klein 9B LoRAs. FLUX Non-Commercial License. "
+            "11.0 GB.",
             {
                 { "https://huggingface.co/leejet/FLUX.2-klein-9B-GGUF/resolve/main/flux-2-klein-9b-Q4_0.gguf",
                   "diffusion_models/flux-2-klein-9b-Q4_0.gguf", 5616208032ull, 0 },
@@ -359,7 +359,7 @@ inline std::vector<CatalogEntry> entries() {
         {
             "flux3-klein-q6",
             "FLUX.3 Image Klein (Q6_K)",
-            "FLUX.3 Klein in Q6_K: closer to the original than Q4_K, with the same text encoder and VAE. 896x896 in about 1 min; 1024x1024 fits right after a start of PS5SD, 1536x1536 does not. 7.7 GB.",
+            "FLUX.3 Klein in Q6_K: closer to the original than Q4_K, with the same text encoder and VAE. 896x896 in about 45 s; 1024x1024 fits right after a start of PS5SD, 1536x1536 does not. 7.7 GB.",
             {
                 { "https://huggingface.co/leejet/flux-3-image-klein-GGUF/resolve/main/flux3-image-klein-Q6_K.gguf",
                   "diffusion_models/flux3-image-klein-Q6_K.gguf", 4874083520ull, 0 },
@@ -387,7 +387,7 @@ inline std::vector<CatalogEntry> entries() {
         {
             "sdxl-base",
             "SDXL Base 1.0 (Q8_0)",
-            "SDXL already in Q8_0 (gpustack's GGUF), with the fp16-fix VAE; loads faster than the full one. About 30 s an image. 5.4 GB.",
+            "SDXL already in Q8_0 (gpustack's GGUF), with the fp16-fix VAE; loads faster than the full one. About 27 s an image. 5.4 GB.",
             {
                 { "https://huggingface.co/gpustack/stable-diffusion-xl-base-1.0-GGUF/resolve/main/"
                   "stable-diffusion-xl-base-1.0-Q8_0.gguf",

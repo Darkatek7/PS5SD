@@ -153,8 +153,8 @@ The options that matter on the PS5:
 |---|---|
 | `--type q8_0` | For an f16 or f32 SDXL `.safetensors` (6–7 GB). The weights are converted to 8 bits as they load. Without it, the model does not fit beside the VAE and is streamed in for every image, at about 30 s more per image. A `.gguf` is already quantized and doesn't need it. |
 | `--vae-tiling --vae-tile-size 512` | Decodes the image in tiles. At 1024×1024 the VAE otherwise needs about 6 GB at once and pushes the model out of memory. |
-| `--cache-mode spectrum` | Predicts the steps it can and skips them, from the fifth step on. The catalog's FLUX.3 Klein, Z-Image Turbo and Wan 2.1 presets have it: FLUX.3 Klein takes about 67 s instead of 115, Z-Image Turbo 55 s instead of 71, a Wan video at 20 steps 86 s instead of 140, with the same picture. A request turns it off with `"cache_mode": "disabled"` (`/sdcpp/v1/img_gen` and `vid_gen`). |
-| `--cache-option warmup=3` | Spectrum from the fourth step on, which skips one step more. The FLUX.3 Klein presets have it (67 s instead of 74). At `warmup=2` hands and objects moved. A request sets it with `"cache_option"`. |
+| `--cache-mode spectrum` | Predicts the steps it can and skips them, from the fifth step on. The catalog's FLUX.3 Klein, Z-Image Turbo and Wan 2.1 presets have it. On 1.3.0 FLUX.3 Klein took about 67 s instead of 115, Z-Image Turbo 55 s instead of 71, a Wan video at 20 steps 86 s instead of 140, with the same picture. A request turns it off with `"cache_mode": "disabled"` (`/sdcpp/v1/img_gen` and `vid_gen`). |
+| `--cache-option warmup=3` | Spectrum from the fourth step on, which skips one step more. The FLUX.3 Klein presets have it (on 1.3.0, 67 s instead of 74). At `warmup=2` hands and objects moved. A request sets it with `"cache_option"`. |
 | `--cache-mode ucache --cache-option threshold=1.5` | Skips steps that change little: SDXL at 25 steps runs about 40% faster, with small changes in detail. |
 
 The `# defaults:` keys are `steps`, `cfg`, `width`, `height`, `sampler`, `scheduler`, `clip_skip` and `loras`
@@ -572,8 +572,8 @@ must fit together, plus the working memory for one image.
 | SDXL Q8_0 + Canny ControlNet (fp16) | 7.9 GB | yes, 2.7 GiB free after a 1024x1024 image |
 | FLUX.3 Klein Q4_K / Q6_K + Qwen3-VL-4B Q4_K_M | 6.4 / 7.7 GB | yes; Q6_K up to 1024×1024 right after a start, 896×896 after other models; not 1536×1536 |
 | Z-Image Turbo Q4_K + Qwen3-4B Q4_K_M | 6.7 GB | yes |
-| FLUX.2 Klein 4B Q8_0 + Qwen3-4B Q4_K_M | 7.1 GB | yes, 1024×1024 in 4 steps in about 30 s, 3.9 GiB free after it |
-| FLUX.2 Klein 9B Q4_0 + Qwen3-8B Q4_K_M | 11.0 GB | yes, 1024×1024 in 4 steps with Euler in about 50 s (the catalog preset, 8 steps with dpm2, takes about 3 minutes), 0.9 GiB free in one block after it; larger not measured |
+| FLUX.2 Klein 4B Q8_0 + Qwen3-4B Q4_K_M | 7.1 GB | yes, 1024×1024 in 4 steps in about 22 s, 3.9 GiB free after it |
+| FLUX.2 Klein 9B Q4_0 + Qwen3-8B Q4_K_M | 11.0 GB | yes, 1024×1024 in 4 steps with Euler in about 40 s (the catalog preset, 8 steps with dpm2, takes about 2 min 20 s), 0.9 GiB free in one block after it; larger not measured |
 | Wan 2.1 T2V 1.3B (video) fp16 + umt5-xxl Q4_K_M + VAE | 6.7 GB | yes, up to 81 frames at 832×480 with 256 px VAE tiles (128 px before 0.9.1) |
 | Wan 2.2 TI2V 5B Q8_0 + umt5-xxl Q4_K_M + VAE | 10.5 GB | yes, 33 frames at 832×480 in about 6 minutes, at 1280×704 in about 16 minutes (20 steps); 2.48 GiB free in one block after the 1280×704 run |
 | FLUX.1 dev or schnell in f16 (24 GB) | | no; use a Q4 or Q5 `.gguf` |

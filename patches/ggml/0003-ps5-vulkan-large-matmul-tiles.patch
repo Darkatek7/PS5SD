@@ -1,0 +1,43 @@
+diff --git a/src/ggml-vulkan/ggml-vulkan.cpp b/src/ggml-vulkan/ggml-vulkan.cpp
+index 1905a4c6..5df442e6 100644
+--- a/src/ggml-vulkan/ggml-vulkan.cpp
++++ b/src/ggml-vulkan/ggml-vulkan.cpp
+@@ -2227,10 +2227,22 @@ void ggml_vk_load_shaders(vk_device& device, vk_pipeline requested) {
+         bool disable_robustness = false, bool require_full_subgroups = false, uint32_t required_subgroup_size = 0,
+         bool create_aligned = true, bool pin_subgroup_to_warp = false
+     ) {
++#if defined(__PROSPERO__)
++        // On the PS5 a large tile that accumulates in f32 took about four times as long as the medium one
++        // (Z-Image's and SDXL's GGML_PREC_F32 layers): it keeps twice the registers. Those stay medium.
++        std::vector<vk_tile_config> configs = tile_configs;
++        if (!key.f16acc) {
++            while (configs.size() > 1 && configs.back().wg_denoms[0] * configs.back().wg_denoms[1] > 64 * 64) {
++                configs.pop_back();
++            }
++        }
++#else
++        const std::vector<vk_tile_config> & configs = tile_configs;
++#endif
+         auto& vec = device->pipeline_matmul[key];
+         const bool first_call = vec.empty();
+-        for (size_t i = 0; i < tile_configs.size(); i++) {
+-            const auto& tc = tile_configs[i];
++        for (size_t i = 0; i < configs.size(); i++) {
++            const auto& tc = configs[i];
+ 
+             // Intel coopmat1 pins the required subgroup size to each warptile's WARP element.
+             const uint32_t rsgs = pin_subgroup_to_warp ? tc.warptile[WARP_SIZE_IDX] : required_subgroup_size;
+@@ -4857,7 +4869,13 @@ vk_device ggml_vk_get_device(size_t idx) {
+             switch (device->vendor_id) {
+ #ifndef GGML_VULKAN_RUN_TESTS
+             case VK_VENDOR_ID_AMD:
++#if defined(__PROSPERO__)
++                // The PS5's GPU (RADV, RDNA2, no coopmat): the large tiles made a FLUX.3 Klein step 17% faster,
++                // FLUX.2 Klein 9B 18% and Z-Image 12%, when they accumulate in f16 (see create_mm_pipelines).
++                device->mul_mat_l[i]    = true;
++#else
+                 device->mul_mat_l[i]    = device->coopmat_support && device->driver_id != vk::DriverId::eAmdProprietary;
++#endif
+                 device->mul_mat_m[i]    = true;
+                 device->mul_mat_s[i]    = true;
+                 device->mul_mat_id_l[i] = false;

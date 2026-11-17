@@ -577,9 +577,10 @@ the rest.
   them), Z-Image fusions and BF16 GEMM (#2265), position embeddings kept between runs (#2211). The
   baseline: Z-Image Turbo 1024x1024 89 s, SDXL Base 29 s, Klein 9B 49 s warm, Wan 2.1 1.3B (9 frames at
   832x480) 87 s.
-- [ ] **FLUX.3 Klein's slow matrix product**: the MLP's output layer (`k=9216`) runs at 5.4 TFLOPS, the
-  other Q4_K products at 9.6 to 9.8 ([CONSOLE.md](docs/CONSOLE.md#where-a-flux3-step-goes)). At their speed a
-  step would be about a tenth faster. Find out why in ggml-vulkan's matrix product (tile size, split-k).
+- [x] **FLUX.3 Klein's slow matrix product**: the MLP's output layer (`k=9216`) ran at 5.4 TFLOPS, the
+  other Q4_K products at 9.6 to 9.8. ggml-vulkan left its large tile out on the PS5; `patches/ggml/0003` turns it
+  on for products that accumulate in f16. A FLUX.3 Klein image takes 56 s instead of 67, Klein 9B's preset 137 s
+  instead of 165, Z-Image Turbo 48 s instead of 55 ([CONSOLE.md](docs/CONSOLE.md#larger-matrix-tiles-2026-11-17)).
 - [ ] **Fixes** that come with it: the hires fix keeps the step count it was given (#2227), Vulkan's free
   memory checked again after a reclaim (#2256), small-BAR heaps (#2181), Wan's VAE decode plans (#2197).
 - [ ] **Face and detail fix**: upstream's server does ADetailer now (#2164). A face detector in the

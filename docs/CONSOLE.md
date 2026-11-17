@@ -1283,3 +1283,56 @@ The web UI in headless Chrome, on the same build: **Download all** saved the 1.0
 selected images came as a ZIP of three, one selected image as the file itself, and the page stayed as it
 was. With the API key on, after the page's login, the three selected came as a ZIP too (a form `POST` with
 only the cookie).
+
+## Larger matrix tiles (2026-11-17)
+
+ggml-vulkan computes a matrix product in tiles of 32×32, 64×64 or 128×128. On AMD without cooperative matrices
+it leaves the large tile out, so on the PS5 every large product ran in 64×64 tiles. That is why FLUX.3 Klein's
+`mlp_out` (`k=9216`) was slow. `patches/ggml/0003` turns the large tile on, on 1.3.0's build.
+
+FLUX.3 Klein Q4, 1024x1024, 4 steps without a cache, the sampling of the second image after a start (the first
+is about 2.7 s slower). Tile and threads per tile:
+
+| Tile | Sampling |
+|---|---|
+| 64×64, 128 (1.3.0) | 27.37 s |
+| 128×128, 128 (ggml's large tile) | 22.94 s |
+| 128×128, 256 | 23.27 s |
+| 128×256, 256 | 22.79 s |
+| 256×128, 256 | 22.63 s |
+
+At 8 steps 256×128 took 45.2 s, 128×128 45.7 s (twice each). On Klein 9B 256×128 was 3% faster than 128×128,
+on SDXL 2% slower. The patch keeps ggml's 128×128.
+
+The large tile made Z-Image and SDXL slower at first. A product of a layer that wants f32 precision accumulates
+in f32 (Z-Image's and SDXL's feed-forward outputs, `matmul_quant_f32`). With twice the registers, such a product
+took about four times as long in the large tile. Z-Image Turbo, 8 steps without a cache, and SDXL Base, the
+sampling of the second image:
+
+| Large tile for | Z-Image | SDXL |
+|---|---|---|
+| nothing (1.3.0) | 65.73 s | 24.13 s |
+| every product | 78.76 s | 28.08 s |
+| only the f32-accumulating products | 92.90 s | 30.07 s |
+| only the f16-accumulating products (the patch) | 57.70 s | 23.16 s |
+
+The catalog's presets, 1.3.0 against 1.3.0 with the patch, the second image after a start (the first in
+brackets):
+
+| Preset | 1.3.0 | With the patch |
+|---|---|---|
+| FLUX.3 Klein Q4, 1024x1024, Spectrum | 66.7 s (70.8) | 56.1 s (60.4) |
+| FLUX.3 Klein Q6, 896x896, Spectrum | | 45.0 s (50.2) |
+| FLUX.2 Klein 9B, dpm2 at 8 steps | 165.3 s | 136.8 s (144.1) |
+| FLUX.2 Klein 4B Q8_0, 4 steps | 25.3 s (30.4) | 21.9 s (27.0) |
+| Z-Image Turbo, Spectrum | 54.7 s (59.6) | 48.4 s (53.2) |
+| SDXL Base Q8_0 | 27.9 s | 26.8 s (26.9) |
+| Wan 2.1 1.3B, 9 frames at 832x480, Spectrum | 83.7 s (88.2) | 80.1 s (84.7) |
+
+- The images of FLUX.3 Klein, Klein 9B, Klein 4B and Z-Image are the same, pixel for pixel: the tile changes how
+  the work is split, not the order of the sums. SDXL's differs in small details (a mean of 1.5 of 255; 2.5% of
+  the pixels by more than 8): some of its convolutions have a `k` that is no multiple of 128 (2880, for one),
+  which the large tile computes with the shader for unaligned sizes. The video was not compared.
+- Klein 9B at 4 steps with Euler: 43.0 s of sampling before, 35.3 s with the patch; about 40 s an image.
+- Wan's sampling took 62.5 s instead of 67.2, its VAE decode 16.3 s instead of 15.0.
+- The memory is the same: after a Klein 9B image the largest free part was 1.18 GiB.
