@@ -6,7 +6,7 @@ PS5SD runs the models stable-diffusion.cpp supports:
 - SD 3.x;
 - FLUX.1, FLUX.2 and FLUX.3 Klein;
 - Wan 2.1 and Wan 2.2 TI2V 5B, for short videos (the second also from a picture); see **Video** below;
-- Z-Image, Qwen-Image and others; see stable-diffusion.cpp's [docs](https://github.com/leejet/stable-diffusion.cpp/tree/master/docs).
+- Z-Image, Qwen-Image, Krea 2 (see **Krea 2 Turbo** below) and others; see stable-diffusion.cpp's [docs](https://github.com/leejet/stable-diffusion.cpp/tree/master/docs).
 
 It reads `.safetensors`, `.gguf`, `.ckpt` and `.sft` files. Everything lives under `/data/PS5SD` on the console:
 
@@ -191,6 +191,43 @@ vae/sdxl_vae_fp16_fix.safetensors
 --vae-tile-size
 640
 ```
+
+### Krea 2 Turbo
+
+Krea 2 Turbo runs on the PS5, but it is not in the catalog. Its licence, the
+[Krea 2 Community License](https://huggingface.co/realrebelai/KREA-2_GGUFs/blob/main/LICENSE), asks everyone who
+deploys the model for a content filter (section 4.2), and PS5SD has none. Read the licence before you use it.
+It is also slow: about 3 minutes an image at 1024×1024 and 8 steps (FLUX.3 Klein: about 1 minute).
+
+It needs three files:
+
+- the model: paste
+  `https://huggingface.co/realrebelai/KREA-2_GGUFs/resolve/main/TURBO/Krea-2-Turbo-Q4_K_M.gguf` under
+  **Get more** as a Model (7.2 GB). It goes into `/data/PS5SD/models`;
+- the text encoder `text_encoders/Qwen3VL-4B-Instruct-Q4_K_M.gguf`: FLUX.3 Klein from the catalog has it;
+- the VAE `vae/wan_2.1_vae.safetensors`: Wan 2.1 from the catalog has it.
+
+Without those two models, paste their links instead
+(`https://huggingface.co/Qwen/Qwen3-VL-4B-Instruct-GGUF/resolve/main/Qwen3VL-4B-Instruct-Q4_K_M.gguf` and
+`https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/vae/wan_2.1_vae.safetensors`)
+and leave the folders out of the preset. Then upload the preset as a Preset, for example as `krea2-turbo.txt`:
+
+```text
+# name: Krea 2 Turbo (Q4_K_M)
+# defaults: steps=8 cfg=1 width=1024 height=1024 sampler=euler
+--diffusion-model
+Krea-2-Turbo-Q4_K_M.gguf
+--llm
+text_encoders/Qwen3VL-4B-Instruct-Q4_K_M.gguf
+--vae
+vae/wan_2.1_vae.safetensors
+--vae-tiling
+--vae-tile-size
+512
+```
+
+At 4 steps an image takes 88 s, but it is darker and has less detail. `--cache-mode spectrum` saves about a
+quarter, but it changed the text in the picture.
 
 ### Saved presets: a model with your settings
 

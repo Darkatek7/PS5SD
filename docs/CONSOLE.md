@@ -1243,7 +1243,9 @@ the catalog already has (stable-diffusion.cpp supports Krea 2 since `8caa3f9`):
 
 - It fits: after an image 1.89 GiB were free in the largest part.
 - Krea 2's licence (Krea 2 Community License) asks everyone who deploys the model for a content filter
-  (section 4.2). PS5SD has none.
+  (section 4.2). PS5SD has none. So it is not in the catalog; `docs/MODELS.md` says how to set it up.
+- The preset from `docs/MODELS.md`, with the model in `/data/PS5SD/models` itself: 173.9 s. The Models tab
+  shows it once, as the preset.
 
 ### Where a FLUX.3 step goes
 
@@ -1276,3 +1278,8 @@ exhausted)`), so this run computed the attention the plain way:
 Python's `zipfile` read without errors; a file from it was the same, byte for byte, as over FTP. A `POST`
 with three names, a key in the cookie, and names that are not the gallery's (`../etc/passwd`: 404) answered
 as `docs/API.md` says.
+
+The web UI in headless Chrome, on the same build: **Download all** saved the 1.06 GB ZIP in 24.4 s, three
+selected images came as a ZIP of three, one selected image as the file itself, and the page stayed as it
+was. With the API key on, after the page's login, the three selected came as a ZIP too (a form `POST` with
+only the cookie).
