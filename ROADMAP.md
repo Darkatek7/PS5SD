@@ -10,6 +10,10 @@ can rely on.
 
 ## Done
 
+- **1.4.0**: Edit by the prompt with every model that takes a reference (issue 21), the references sent at
+  768 px (a third faster), a second picture, drag and drop and paste; the free space, and a download that does
+  not fit stops at once; the gallery copied to a USB drive (issue 17); a model search, the last image after a
+  reload, an update notice, an icon and a manifest.
 - **1.3.1**: larger matrix tiles on the GPU: FLUX.3 Klein 56 s instead of 67, Klein 9B's preset 137 s instead
   of 165, Z-Image Turbo 48 s instead of 55, with the same images.
 - **1.3.0**: the gallery as one ZIP (issue 20); FLUX.3 Klein's Spectrum from the fourth step (67 s instead
@@ -543,6 +547,34 @@ Measured on the console on 2026-11-17 ([CONSOLE.md](docs/CONSOLE.md#larger-matri
   137 s instead of 165, Klein 4B 22 s instead of 25, Z-Image Turbo 48 s instead of 55, SDXL 27 s instead of 28,
   a Wan clip of 9 frames 80 s instead of 84. The images are the same; SDXL's differ in small details.
 
+## 1.4.0: Edit with every model, storage and USB copies ([issue 21](https://github.com/Darkatek7/PS5SD/issues/21), [issue 17](https://github.com/Darkatek7/PS5SD/issues/17)), done
+
+Measured on the console on 2026-11-18 and 2026-11-19
+([CONSOLE.md](docs/CONSOLE.md#reference-pictures-for-edit-2026-11-18)).
+
+- [x] **Edit by the prompt with every model that takes a reference** (issue 21): `patches/sdcpp/0087` puts
+  the model's reference preset into `GET /sdcpp/v1/capabilities`, and the web UI offers Edit for every model
+  that has one (FLUX.2 and FLUX.3 Klein, Qwen Image Edit and others), not by the model's name.
+- [x] **Smaller references**: the web UI sends a reference at most 768 px a side and keeps it at that size
+  (`resize_before_vae=false`). Klein 4B 36 s instead of 52, Klein 9B 64 s instead of 95, FLUX.3 Klein 102 s
+  instead of 148.
+- [x] **A second picture in Edit**: an optional slot, shown for a model that takes references. "The goblin
+  from image 1 in front of the lighthouse from image 2" keeps the scene; Klein 4B with two references took
+  51 s.
+- [x] **Issue 13's pose, tried**: no model took the pose from a second picture (a skeleton or a mannequin,
+  at 512 and 1024, in either order). A pose needs a ControlNet (1.5.0 and 1.x below).
+- [x] **Pictures in by drag and drop and by paste**: a file dropped on Edit's slots or on Guide fills it;
+  Ctrl+V fills the start picture, then an empty second slot.
+- [x] **The free space**: `GET /ps5sd/v1/app/storage`, a Storage card in Settings, the free space in Get more
+  and Downloads, and a catalog entry that does not fit says so. A download that does not fit with 1 GiB to
+  spare fails at once. The title's own `statvfs` gives made-up numbers, so the app asks ftpsrv (`AVBL`).
+- [x] **Copies on a USB drive** (issue 17): the gallery, or the images you select, to `/mnt/usbN/PS5SD/`
+  through ftpsrv, and each new image after its job if you like (`usb_copy`).
+- [x] **Smaller things**: the last image on Create after a reload, the viewer's info beside the picture on a
+  PC, a search on the Models tab, a notice when a new release is out (GitHub, once a day), the title's icon
+  and a manifest for a shortcut on a phone's home screen (`patches/sdcpp/0088`), and one load of the
+  settings and the gallery at start instead of two or three.
+
 ## After 1.0
 
 1.x adds what does not break a client of the API; a change that breaks one (a route, a field, an error
@@ -550,36 +582,10 @@ code that goes away or changes its meaning) waits for 2.0.
 
 The plan as of 2026-11-04, in order (1.1.0 was taken by the stable-diffusion.cpp of November on
 2026-11-12, 1.2.0 by faster loading on 2026-11-14 and 1.3.0 by the gallery as a ZIP on 2026-11-17, so the
-rest moved up three numbers). 1.6.0 only touches the web UI and the app's own routes, so it can be worked
+rest moved up three numbers; 1.4.0 took the web UI's storage and USB items on 2026-11-19, and the pose of
+issue 13 and the `sdxl-full` conversion moved on). 1.6.0 only touches the web UI and the app's own routes, so it can be worked
 on next to 1.4.0 and 1.5.0. The times below are those of 1.0.0 on the console ([CONSOLE.md](docs/CONSOLE.md));
 every new number goes there with its date and build.
-
-## 1.4.0: two pictures for Edit, and sdxl-full converted once ([issue 13](https://github.com/Darkatek7/PS5SD/issues/13))
-
-Issue 13 asks for a pose (a skeleton of one or more people, for sprite sheets) and a character from a
-reference picture, with a prompt and no setup. FLUX.2 Klein takes several reference pictures, so this
-needs no ControlNet and no preprocessor.
-
-- [ ] **Try it through the API first**: `POST /sdcpp/v1/img_gen` with two `ref_images` (a pose skeleton
-  and a character) on Klein 4B Q8_0 and Klein 9B Q4_0, 1024x1024, 4 steps. Write down whether the pose
-  holds, whether the character holds, the time, and the pool after the run. Klein 9B leaves under 1 GiB in
-  its largest part after one image, so a second reference may not fit there; then try smaller references,
-  or offer it on Klein 4B only.
-- [ ] **A second picture in Edit**: the web UI sends one reference (`ps5/webui/src/js/09-generation.js`,
-  `ref_images = [p.req.init]`). "Edit by the prompt" gets a second, optional slot, shown only for a model
-  that takes references. The gallery's Edit and Use all fill the first one.
-- [ ] **A preset "Pose and character"** in the catalog (`ps5/app/catalog.hpp`), on Klein 4B, with prompt
-  starters that name the two pictures, so the issue's "download the preset, give it two pictures and a
-  prompt" works. `docs/MODELS.md` and `docs/API.md` say how to use it.
-- [ ] **Pictures in by drag and drop and by paste**: a file dropped on a picture slot (Edit, Guide, the
-  references), or Ctrl+V of a picture, fills it. The `paste` event carries the picture over plain HTTP;
-  only `navigator.clipboard.read` needs HTTPS.
-- [ ] **`sdxl-full` converted once**: the f16 checkpoint (6.9 GB) is converted to Q8_0 at every load, so a
-  switch takes 9.8 s against 4.4 s for `sdxl-base` (17.7 s and 8.6 s before `0085`). Convert it once after the download and load the GGUF.
-  sd.cpp's own conversion holds the whole model in CPU memory, which the title does not have (about
-  2 GB), and the title's writes slow down after 1.4 GB, so it has to go tensor by tensor and through
-  `ftp_writer.cpp`, with a host test. If that turns out too large, point the entry at a ready Q8_0 GGUF
-  instead.
 
 ## 1.5.0: what the stable-diffusion.cpp of November brings
 
@@ -597,7 +603,8 @@ the rest.
   catalog, a **Fix faces** button under the result and in the viewer, and the field in
   `/sdcpp/v1/img_gen` and the A1111 routes. Measure the time it adds on an SDXL picture with two faces.
 - [ ] **Z-Image ControlNet** (#2187): the Union model (pose, depth, edges) in the catalog, for Guide on
-  Z-Image Turbo. With a pose picture this is a second way to issue 13's pose, on another model.
+  Z-Image Turbo. With a pose picture this is the way to issue 13's pose: 1.4.0 found that a reference
+  picture does not carry one. A preset "Pose and character" then gives it with a prompt and no setup.
 - [ ] **The gallery viewer in a browser**: its info and Use all on an image from 1.0 and one from 1.1. The
   conversion of the new JSON (`infoShape` in `12b-gallery-info.js`) was tested with node only.
 - [ ] Soak test and update test again; the new times into CONSOLE.md and, where they changed, into the
@@ -616,9 +623,9 @@ and the PS5's own browser, which needs ES5.
   prompt opens the list; a click puts one back.
 - [ ] **Favourites**: a ★ in the viewer and on the gallery's tiles, and a filter for them. Kept with the
   names and tags (`/ps5sd/v1/app/gallery/labels`, a `fav` field), not in the file.
-- [ ] **Open like an app on a phone**: `apple-touch-icon`, `apple-mobile-web-app-capable` and a web
+- [x] **Open like an app on a phone**: `apple-touch-icon`, `apple-mobile-web-app-capable` and a web
   manifest with the title's icon, so a shortcut on the home screen opens without the browser's bars.
-  Android installs a full web app only over HTTPS; the shortcut works without it.
+  Android installs a full web app only over HTTPS; the shortcut works without it. Done in 1.4.0.
 - [ ] **Outpainting**: make an image larger on one or more sides (Edit, "Extend", 128 to 512 px a side).
   The page puts the picture on a larger canvas with a mask over the new part and runs the masked
   inpainting of 0.5.0.
@@ -647,7 +654,13 @@ and the PS5's own browser, which needs ES5.
   fork): only built down to ES5 in one page, so the PS5's browser keeps working, and with every feature of
   the current page. Not started; first a word with the people who would work on it.
 - [ ] **More ControlNets**: OpenPose and depth for SDXL. Without a preprocessor on the console they need
-  a pose or depth image, so only if people ask for them (1.5.0 brings one for Z-Image).
+  a pose or depth image; issue 13 asks for the pose (1.5.0 brings one for Z-Image).
+- [ ] **`sdxl-full` converted once**: the f16 checkpoint (6.9 GB) is converted to Q8_0 at every load, so a
+  switch takes 9.8 s against 4.4 s for `sdxl-base`. Convert it once after the download and load the GGUF.
+  sd.cpp's own conversion holds the whole model in CPU memory, which the title does not have (about
+  2 GB), and the title's writes slow down after 1.4 GB, so it has to go tensor by tensor and through
+  `ftp_writer.cpp`, with a host test. If that turns out too large, point the entry at a ready Q8_0 GGUF
+  instead.
 - [ ] **Tighter OpenAPI schemas**: some answers are described loosely (the download routes, the A1111
   lists, `capabilities`); each gets its fields as API.md names them.
 
