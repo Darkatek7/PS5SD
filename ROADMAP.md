@@ -10,6 +10,7 @@ can rely on.
 
 ## Done
 
+- **1.4.1**: the gallery shows every file, not only the newest 1000 (issue 22).
 - **1.4.0**: Edit by the prompt with every model that takes a reference (issue 21), the references sent at
   768 px (a third faster), a second picture, drag and drop and paste; the free space, and a download that does
   not fit stops at once; the gallery copied to a USB drive (issue 17); a model search, the last image after a
@@ -574,6 +575,13 @@ Measured on the console on 2026-11-18 and 2026-11-19
   PC, a search on the Models tab, a notice when a new release is out (GitHub, once a day), the title's icon
   and a manifest for a shortcut on a phone's home screen (`patches/sdcpp/0088`), and one load of the
   settings and the gallery at start instead of two or three.
+
+## 1.4.1: the whole gallery ([issue 22](https://github.com/Darkatek7/PS5SD/issues/22)), done
+
+- [x] **More than 1000 files**: the web UI asked for the list once, and the server gives at most 1000 entries
+  an answer, so the count stopped at 1000 and the older files were missing. The page now reads the list in
+  pages of 1000 (`offset`) until one is short. `scripts/webui-dev.py --mock-gallery N` tries it without a
+  console.
 
 ## After 1.0
 
