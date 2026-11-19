@@ -93,6 +93,11 @@ add_executable(test_gallery_labels test_gallery_labels.cpp ../gallery_labels.cpp
 target_include_directories(test_gallery_labels PRIVATE .. "${SD_DIR}/thirdparty")
 add_test(NAME gallery_labels COMMAND test_gallery_labels)
 
+# The web UI's prompt history (prompt_history.hpp; header only).
+add_executable(test_prompt_history test_prompt_history.cpp)
+target_include_directories(test_prompt_history PRIVATE .. "${SD_DIR}/thirdparty")
+add_test(NAME prompt_history COMMAND test_prompt_history)
+
 # sd-server's one error shape (patches/sdcpp/0076), when SD_DIR is patched (CI applies the series).
 if(EXISTS "${SD_DIR}/examples/server/api_error.cpp")
     find_package(Threads REQUIRED)

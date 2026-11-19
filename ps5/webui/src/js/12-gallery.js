@@ -2,7 +2,7 @@
   var galleryList = [];
   var galleryLoaded = false;
   var lbFrom = null;
-  // The filter above the grid: all, images or videos (kept in this browser).
+  // The filter above the grid: all, images, videos or favourites (all but favourites kept in this browser).
   var galleryFilter = load('gfilter') || 'all';
   // The order (kept too) and the search in the prompts (the server gives each file's prompt).
   var galleryOrder = load('gorder') === 'oldest' ? 'oldest' : 'newest';
@@ -10,8 +10,10 @@
   // While selecting: {name: true} of the selected files; null otherwise.
   var gsel = null;
 
-  // The names and tags of the files (GET /ps5sd/v1/app/gallery/labels): {name: {title, tags}}.
+  // The names, tags and favourite marks of the files (GET /ps5sd/v1/app/gallery/labels): {name: {title, tags, fav}}.
   var galleryLabels = {};
+  // The app keeps favourites (the labels answer says "favourites": true): the star and the filter show only then.
+  var galleryFavs = false;
 
   // The list and the labels, asked for together; the list is drawn when both are in. shared: join a load
   // that is already on its way (the start and a tab switch ask at the same time) instead of asking again.
@@ -56,7 +58,10 @@
     }
     page(0);
     req('GET', APP + '/gallery/labels', null, function (c, data) {
-      if (c === 200 && data && data.labels) galleryLabels = data.labels;
+      if (c === 200 && data) {
+        if (data.labels) galleryLabels = data.labels;
+        galleryFavs = data.favourites === true;
+      }
       labelsIn = true;
       both();
     });
@@ -66,6 +71,7 @@
     var l = galleryLabels[it.name];
     it.title = l && l.title ? l.title : '';
     it.tags = l && l.tags ? l.tags : [];
+    it.fav = !!(l && l.fav);
   }
 
   function refreshGallery() { loadGallery(null, true); }
@@ -82,10 +88,25 @@
     return n;
   }
 
-  // The filter that applies. With no video in the gallery there is nothing to filter by: All.
+  function countFavs() {
+    var n = 0;
+    for (var i = 0; i < galleryList.length; i++) if (galleryList[i].fav) n++;
+    return n;
+  }
+
+  // The filter that applies. With no video in the gallery there is nothing to filter by: All. Favourites
+  // only where the app keeps them.
   function galleryKind() {
+    if (galleryFilter === 'fav') return galleryFavs ? 'fav' : 'all';
     if (galleryFilter !== 'images' && galleryFilter !== 'videos') return 'all';
     return countVideos() ? galleryFilter : 'all';
+  }
+
+  // Does the item belong to the filter kind (galleryKind())?
+  function kindHas(kind, it) {
+    if (kind === 'fav') return !!it.fav;
+    if (kind === 'images' || kind === 'videos') return isVideo(it) === (kind === 'videos');
+    return true;
   }
 
   // The items the grid and the viewer step through: the filter, the search, the order.
@@ -94,7 +115,7 @@
     var kind = galleryKind(), q = gallerySearch.toLowerCase(), out = [];
     for (var i = 0; i < galleryList.length; i++) {
       var it = galleryList[i];
-      if (kind !== 'all' && isVideo(it) !== (kind === 'videos')) continue;
+      if (!kindHas(kind, it)) continue;
       if (q && !gallerySearchHits(it, q)) continue;
       out.push(it);
     }
@@ -145,7 +166,7 @@
 
   function setGalleryFilter(kind) {
     galleryFilter = kind;
-    save('gfilter', kind);
+    save('gfilter', kind === 'fav' ? 'all' : kind);   // Favourites is for now, not the next visit
     st.limit = PAGE;
     drawGallery();
   }
@@ -153,21 +174,27 @@
   // The viewer on an item of the gallery (a strip image, an upscale result). The filter goes to All
   // when the item is not in the one on screen.
   function openLbItem(it, from) {
-    var kind = galleryKind();
-    if (kind !== 'all' && isVideo(it) !== (kind === 'videos')) setGalleryFilter('all');
+    if (!kindHas(galleryKind(), it)) setGalleryFilter('all');
     if (gallerySearch && galleryView().indexOf(it) < 0) { gallerySearch = ''; $('gsearch').value = ''; drawGallery(); }
     var i = galleryView().indexOf(it);
     if (i >= 0) openLb(i, from);
   }
 
-  // The segmented control above the grid: All, Images, Videos, each with its count. Hidden without videos.
+  // The segmented control above the grid: All, Images, Videos and Favourites, each with its count. The
+  // images and videos are hidden without videos, Favourites without the app's support; the whole control
+  // when there is nothing to choose between.
   function drawFilter(videos) {
     var kind = galleryKind();
-    var ids = { all: 'gf-all', images: 'gf-images', videos: 'gf-videos' };
-    show('gfilter', videos > 0, 'flex');
+    var favs = galleryFavs ? countFavs() : 0;
+    var ids = { all: 'gf-all', images: 'gf-images', videos: 'gf-videos', fav: 'gf-fav' };
+    show('gfilter', videos > 0 || favs > 0 || kind === 'fav', 'flex');
+    show('gf-images', videos > 0 || kind === 'images', 'block');
+    show('gf-videos', videos > 0 || kind === 'videos', 'block');
+    show('gf-fav', galleryFavs, 'block');
     text($('gf-all'), 'All ' + galleryList.length);
     text($('gf-images'), 'Images ' + (galleryList.length - videos));
     text($('gf-videos'), 'Videos ' + videos);
+    text($('gf-fav'), '★ ' + favs);
     for (var k in ids) {
       if (!ids.hasOwnProperty(k)) continue;
       $(ids[k]).className = k === kind ? 'on' : '';
@@ -209,12 +236,14 @@
         };
         cell.appendChild(a);
         if (item.title) cell.appendChild(el('span', 'tname', item.title));
+        if (galleryFavs) cell.appendChild(favButton(item, 'tfav'));
         box.appendChild(cell);
       })(view[i], i);
     }
     text($('gcount'), galleryList.length ? '(' + galleryList.length + ')' : '');
     text($('none'), gallerySearch ? 'Nothing matches "' + gallerySearch + '".'
-      : kind === 'images' ? 'No images saved yet.' : kind === 'videos' ? 'No videos saved yet.' : 'Nothing saved yet.');
+      : kind === 'images' ? 'No images saved yet.' : kind === 'videos' ? 'No videos saved yet.'
+      : kind === 'fav' ? 'No favourites yet. Press the star on an image.' : 'Nothing saved yet.');
     show('none', !view.length);
     show('more', view.length > shown, 'inline-block');
     drawSelBar();
@@ -413,6 +442,7 @@
     $('lb-edit').style.display = isVideo(it) ? 'none' : '';
     $('lb-guide').style.display = isVideo(it) ? 'none' : '';
     show('lb-up', !isVideo(it) && upModels.length > 0, 'inline-block');
+    drawLbFav(it);
     var dl = $('lb-dl');
     dl.href = it.url;
     dl.setAttribute('download', it.name);
@@ -516,7 +546,7 @@
       if (k === 46) { askDeleteImage(); return false; }
       if (k === 9) {
         // keep Tab inside the viewer
-        var ring = [$('lb-prev'), $('lb-dl'), $('lb-open'), $('lb-up'), $('lb-edit'), $('lb-guide'), $('lb-label'), $('lb-infobtn'), $('lb-del'), $('lb-close'),
+        var ring = [$('lb-prev'), $('lb-dl'), $('lb-open'), $('lb-up'), $('lb-edit'), $('lb-guide'), $('lb-label'), $('lb-fav'), $('lb-infobtn'), $('lb-del'), $('lb-close'),
           $('lb-next'), $('lb-cp'), $('lb-cn'), $('lb-ca'), $('lb-use')];
         var live = [];
         for (var i = 0; i < ring.length; i++) if (!ring[i].disabled && ring[i].style.display !== 'none' && ring[i].offsetParent !== null) live.push(ring[i]);

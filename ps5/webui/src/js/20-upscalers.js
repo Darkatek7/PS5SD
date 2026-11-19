@@ -150,12 +150,12 @@
   function upscale(src, b) {
     if (upBusy || !upModels.length) return;
     upBusy = true;
-    var label = b ? b.textContent : '';
-    if (b) { b.disabled = true; text(b, 'Upscaling…'); }
+    var label = b ? getLabel(b) : '';
+    if (b) { b.disabled = true; setLabel(b, 'Upscaling…'); }
     var t0 = new Date().getTime();
     var finish = function (message, ms) {
       upBusy = false;
-      if (b) { b.disabled = false; text(b, label); }
+      if (b) { b.disabled = false; setLabel(b, label); }
       if (message) toast(message, ms || 6000);
     };
     imageBase64(src, function (b64) {

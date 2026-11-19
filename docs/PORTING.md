@@ -313,6 +313,13 @@ instead of trapping, so `main.cpp` reports an out-of-memory load or generation a
   `usb_copy`): one thread copies gallery files and their parameters to `/mnt/<drive>/PS5SD/`, through
   ftpsrv as the downloader writes (`FtpSink`, with `MKD` for the folders), skipping a file that is there
   with the same size. `sd_activity_job_end` queues each new file when `usb_copy` names a drive.
+- The gallery's labels (`gallery_labels.cpp`, `GET` and `POST /ps5sd/v1/app/gallery/labels`) keep a name, tags and
+  a favourite mark (`fav`, only when set) for each file in `outputs/.labels.json`; the answer says `"favourites": true`,
+  which an older app's does not, so the web UI shows its star and filter only where it is there.
+- The prompt history (`prompt_history.hpp`, `GET`, `POST` and `DELETE /ps5sd/v1/app/prompts`): the last 50 prompts of the
+  web UI with their negative prompt and model, in `/data/PS5SD/prompts.json`, written as a temporary file and a
+  rename. Header only, tested by `ps5/app/tests/test_prompt_history.cpp`. The page (`js/09g-prompt-history.js`) adds a prompt
+  as a run starts; wildcards (`js/09f-wildcards.js`) and Extend (`js/19-...`) are in the page only.
 - `pwa.hpp`: the web app manifest (`GET /ps5sd/v1/app/manifest.webmanifest`) and the size of the title's
   icon, which `GET /ps5sd/v1/app/icon.png` serves from `/app0/sce_sys/icon0.png`.
 - Without a display (`PS5SD_NO_DISPLAY`): no `Display`, no renderer. Every phase (`set_phase`)

@@ -182,8 +182,10 @@
     var enter = e.keyCode === 13 || e.key === 'Enter';
     var esc = e.keyCode === 27 || e.key === 'Escape';
     if (esc) {
-      var busy = cmOpen || !!openMenu || overlayOpen();
+      var histOpen = $('phist').style.display !== 'none';
+      var busy = cmOpen || !!openMenu || overlayOpen() || histOpen;
       if (cmOpen) cmToggle(false);
+      if (histOpen && !overlayOpen()) { histShow(false); try { $('prompt-hist').focus(); } catch (x) {} }
       // Escape shuts the Save as preset box too, when no menu or overlay was open
       if (!busy && $('ps-box').style.display !== 'none') {
         show('ps-box', false);

@@ -353,6 +353,12 @@
   .tname { position: absolute; left: 0.4rem; right: 0.4rem; bottom: 0.4rem; padding: 0.25rem 0.5rem; font-size: 0.8rem;
     color: #fff; background: var(--tname-bg); border-radius: 0 0 12px 12px; white-space: nowrap; overflow: hidden;
     text-overflow: ellipsis; pointer-events: none; }
+  /* the star of a file: on the tile's corner (top left; the video mark is at the bottom, the selection check at the top right) */
+  .tfav { position: absolute; left: 0.8rem; top: 0.8rem; z-index: 2; box-sizing: border-box; width: 1.9rem; height: 1.9rem; min-width: 0;
+    min-height: 0; margin: 0; padding: 0; font-size: 1.05rem; line-height: 1.9rem; text-align: center; color: #fff; border: 0;
+    border-radius: 50%; background: var(--tname-bg); }
+  .tfav:hover { background: rgba(0, 0, 0, 0.8); }
+  .tfav.starred, #lb-fav.starred { color: #ffcc00; }
   .ld-field input { margin-top: 0.4rem; }
   .ld-used { margin: 0.8rem 0 1.2rem; }
   .ld-used .hint { margin-right: 0.3rem; }
@@ -523,6 +529,29 @@
     border: 1px solid var(--border); border-radius: 10px; font-family: ui-monospace, Menlo, Consolas, monospace;
     font-size: 1.05rem; word-break: break-all; -webkit-user-select: all; user-select: all; }
   #hr-hint { min-height: 1.2rem; }
+  /* Extend: four lists for the sides, in a row (two by two on a narrow screen) */
+  .extbox { margin: 0.6rem 0 0.2rem; padding: 0.7rem 0.8rem; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; }
+  .extgrid { display: flex; flex-wrap: wrap; margin: 0.3rem -0.3rem 0; }
+  .extgrid label { flex: 1 1 5.5rem; min-width: 0; margin: 0 0.3rem 0.4rem; color: var(--muted); font-size: 0.85rem; }
+  .extgrid select { display: block; width: 100%; margin-top: 0.25rem; }
+  /* the prompt history, under the prompt */
+  .phist { margin: 0.4rem 0 0.2rem; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+  .phead { display: flex; align-items: center; padding: 0.3rem 0.5rem 0.3rem 0.9rem; border-bottom: 1px solid var(--border); }
+  .phead .pht { flex: 1; font-weight: 600; }
+  .phead .linkbtn { margin: 0 0 0 0.6rem; }
+  .phlist { max-height: 19rem; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+  .phrow { display: flex; align-items: stretch; border-bottom: 1px solid var(--border); }
+  .phrow:last-child { border-bottom: 0; }
+  .phuse { display: block; flex: 1; min-width: 0; min-height: 3rem; margin: 0; padding: 0.55rem 0.9rem; text-align: left; background: transparent;
+    border: 0; border-radius: 0; color: var(--text); font-weight: 400; }
+  .phuse:hover { background: var(--raised); }
+  .phuse .pht, .phuse .phm { display: block; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-box-orient: vertical; }
+  .phuse .pht { -webkit-line-clamp: 2; line-clamp: 2; overflow-wrap: anywhere; }
+  .phuse .phm { -webkit-line-clamp: 1; line-clamp: 1; margin-top: 0.15rem; color: var(--faint); font-size: 0.78rem; overflow-wrap: anywhere; }
+  .phx { flex: none; width: 2.8rem; min-width: 0; margin: 0; padding: 0; background: transparent; border: 0; border-radius: 0; color: var(--faint);
+    font-size: 1.3rem; }
+  .phx:hover { color: var(--bad); background: var(--raised); }
+  .phist .hint { margin: 0; padding: 0.8rem 0.9rem; }
   .initbar { display: flex; align-items: center; flex-wrap: wrap; margin-top: 0.8rem; }
   .initbar button { flex: none; min-height: 2.75rem; margin-right: 0.8rem; }
   .initbar .hint { margin: 0; }
@@ -649,6 +678,27 @@
   .actions button { line-height: normal; }
   .actions a:hover { background: var(--raised-hi); }
   #cancel, .waitrow button { min-height: 2.2rem; font-size: 0.875rem; }
+  /* the buttons under the result stay in one line: an icon and a short label on each, ⋯ for the rarer
+     ones (it opens upward), Delete at the far end. On a narrow screen each button is a column, the icon
+     over its label, and they share the width. */
+  .actions { flex-wrap: nowrap; align-items: stretch; }
+  .actions .ab { display: inline-flex; align-items: center; justify-content: center; flex: 0 1 auto; min-width: 0;
+    box-sizing: border-box; white-space: nowrap; text-decoration: none; line-height: 1.2; }
+  .actions .ab svg { flex: none; width: 1.15em; height: 1.15em; margin-right: 0.4rem; fill: none; stroke: currentColor;
+    stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .actions .ab .lbl { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .actions .ab.danger { margin-left: auto; }
+  .actions .rmore { flex: none; margin: 0 0.45rem 0.45rem 0; }
+  .actions .rmore .more-btn { margin: 0; height: 100%; min-height: 2.3rem; }
+  .actions .menu.up { top: auto; bottom: calc(100% + 0.3rem); }
+  @media (max-width: 720px) {
+    .actions .ab { flex: 1 1 0; flex-direction: column; min-height: 3.2rem; padding: 0.3rem 0.1rem; margin-right: 0.3rem;
+      line-height: 1.15; font-size: 0.72rem; border-radius: 12px; }
+    .actions .ab svg { width: 1.35rem; height: 1.35rem; margin: 0 0 0.2rem; }
+    .actions .ab.danger { margin-left: 0; margin-right: 0; }
+    .actions .rmore { flex: 0 0 2.6rem; margin-right: 0.3rem; }
+    .actions .rmore .more-btn { width: 100%; min-width: 0; padding: 0; border-radius: 12px; }
+  }
 
   /* lists, menus and dialogs */
   .mrow, .sub, .hrow { border-color: var(--sep); }

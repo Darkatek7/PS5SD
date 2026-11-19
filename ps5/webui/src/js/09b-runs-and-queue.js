@@ -25,8 +25,9 @@
   // The images one Generate makes in one go: one for a video, and without the job API.
   function runCount() { return st.video || !st.useJobs ? 1 : countValue(); }
 
-  // The page makes the run itself: each image has to be put back here, or the server cannot repeat.
-  function pageRunNeeded(p, n) { return n > 1 && (!st.serverRepeat || !!(p.req && p.req.mask)); }
+  // The page makes the run itself: each image has to be put back here, the server cannot repeat, or the
+  // prompt has a wildcard (each image gets its own pick, so each is a job of its own).
+  function pageRunNeeded(p, n) { return n > 1 && (!st.serverRepeat || !!(p.req && p.req.mask) || !!p.wild); }
 
   function galleryUrl(name) { return '/ps5sd/v1/gallery/' + encodeURIComponent(name); }
 
@@ -138,7 +139,7 @@
         var b = document.createElement('button');
         b.type = 'button';
         b.id = 'pick' + idx;
-        b.title = r.name || 'Image ' + (r.no || idx + 1);
+        b.title = (r.name || 'Image ' + (r.no || idx + 1)) + (r.prompt ? ' · ' + r.prompt : '');
         b.className = idx === st.pick ? 'on' : '';
         var img = document.createElement('img');
         img.src = r.url || r.src;
@@ -257,6 +258,9 @@
     for (var k in run.first) q[k] = run.first[k];
     q.repeat = 1;
     q.seed = run.done === 0 ? run.seed0 : run.named ? run.seed0 + run.done : Math.floor(Math.random() * 2147483647);
+    // a wildcard picks again for every image after the first (the first has its pick from generate())
+    if (q.wild && run.done > 0) q.prompt = expandWildcards(q.template);
+    st.followPrompt = q.wild ? q.prompt : '';
     st.seed = q.seed;
     st.last = q;
     st.known = snapshotGallery();
@@ -272,6 +276,7 @@
     run.done++;
     r.no = run.done;
     r.of = run.total;
+    if (st.last && st.last.wild) r.prompt = st.last.prompt;
     run.items.unshift(r);
     // not kept: its tmp_ file (an image put back into the picture is only in the page until Keep)
     if (st.last && st.last.temp) {
@@ -306,12 +311,14 @@
 
   // ---- the queue
   // A Generate while something runs: the same settings, one job (its count as "repeat"), queued on the server.
+  // With a wildcard in the prompt, or a server that cannot repeat, the count queues one job per image.
   function addToQueue(p, n) {
     if (!st.useJobs) return;
-    if (pageRunNeeded(p, n)) {
+    if (n > 1 && p.req && p.req.mask) {
       toast('An edit with a mask puts each image back into this page, so it cannot wait in the queue. Run it when nothing else runs.', 7000);
       return;
     }
+    if (n > 1 && (p.wild || !st.serverRepeat)) { queueEach(p, n); return; }
     p.repeat = n;
     postJob(p, function (code, data) {
       if (code === 202 && data && data.id) {
@@ -323,6 +330,33 @@
       toast(code === 0 ? 'Cannot reach the server.' :
         'The server refused the request' + (errMessage(data) ? ': ' + errMessage(data) : ' (' + code + ').'), 6000);
     });
+  }
+
+  // n jobs of one image each, posted one after the other so they stay in order; each has its own seed (a
+  // named one counts up, else a new random one) and, with a wildcard, its own pick.
+  function queueEach(p, n) {
+    var k = 0;
+    (function next() {
+      if (k >= n) {
+        toast('Added to the queue: ' + n + ' images.');
+        refreshQueue();
+        return;
+      }
+      var q = {};
+      for (var key in p) q[key] = p[key];
+      q.repeat = 1;
+      if (k > 0) {
+        q.seed = p.named ? p.seed + k : Math.floor(Math.random() * 2147483647);
+        if (p.wild) q.prompt = expandWildcards(p.template);
+      }
+      k++;
+      postJob(q, function (code, data) {
+        if (code === 202 && data && data.id) { st.queued[data.id] = q; next(); return; }
+        toast((k > 1 ? 'Added ' + (k - 1) + ' of ' + n + ' to the queue. ' : '') + (code === 0 ? 'Cannot reach the server.' :
+          'The server refused the request' + (errMessage(data) ? ': ' + errMessage(data) : ' (' + code + ').')), 6000);
+        refreshQueue();
+      });
+    })();
   }
 
   // GET /ps5sd/v1/jobs: the queued and running jobs, oldest first. An idle page takes up the oldest one it

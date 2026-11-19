@@ -1,6 +1,7 @@
   // ---------- image to image and inpainting ----------
-  // st.init: the start image {canvas (at most 4096 px a side), name, mask, painted}. mask is a canvas of
-  // the same size, red where painted and clear elsewhere (null: no mask); painted is its painted share.
+  // st.init: the start image {canvas (at most 4096 px a side), name, mask, painted, undo, extPad}. mask is
+  // a canvas of the same size, red where painted and clear elsewhere (null: no mask); painted is its painted
+  // share; extPad (after an Extend) is how much of the picture next to the mask "only the masked area" takes.
   // With a mask and "only the masked area", a box around the mask is generated at the model's size and
   // put back into the image here, in the page; otherwise the whole image (cropped to the form's aspect)
   // is the start. A masked result is always blended back over the start image with a soft edge, so the
@@ -32,7 +33,7 @@
       var k = Math.min(1, INIT_MAX / Math.max(w, h));
       var c = canvasOf(Math.max(1, Math.round(w * k)), Math.max(1, Math.round(h * k)));
       c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
-      st.init = { canvas: c, name: name || 'image', mask: null, painted: 0 };
+      st.init = { canvas: c, name: name || 'image', mask: null, painted: 0, undo: [] };
       // the size follows the image: its aspect, at the model's usual number of pixels
       var f = fitArea(c.width, c.height, st.preset ? st.preset.w * st.preset.h : 512 * 512);
       $('w').value = f.w;
@@ -198,6 +199,125 @@
   }
   initDropAndPaste();
 
+  // ---- Extend (outpainting): the picture on a larger canvas, the new part masked, then the masked
+  // inpainting above does the rest. 128 to 512 px for each side; the canvas stays within INIT_MAX.
+  var EXT_SIZES = [0, 128, 192, 256, 320, 384, 448, 512];
+  var EXT_SIDES = ['l', 't', 'r', 'b'];
+
+  function initExtend() {
+    for (var k = 0; k < EXT_SIDES.length; k++) {
+      var sel = $('ext-' + EXT_SIDES[k]);
+      for (var i = 0; i < EXT_SIZES.length; i++) {
+        var o = document.createElement('option');
+        o.value = EXT_SIZES[i];
+        text(o, EXT_SIZES[i] ? EXT_SIZES[i] + ' px' : 'none');
+        sel.appendChild(o);
+      }
+    }
+    $('init-extend').onclick = function () {
+      var open = $('ext-box').style.display === 'none';
+      show('ext-box', open);
+      $('init-extend').setAttribute('aria-expanded', open ? 'true' : 'false');
+    };
+    $('ext-go').onclick = extendInit;
+    $('ext-cancel').onclick = function () { show('ext-box', false); $('init-extend').setAttribute('aria-expanded', 'false'); };
+    $('ext-undo').onclick = undoExtend;
+  }
+
+  // The pixels each side adds, from the four lists: {l, t, r, b}.
+  function extSizes() {
+    var out = {};
+    for (var k = 0; k < EXT_SIDES.length; k++) out[EXT_SIDES[k]] = parseInt($('ext-' + EXT_SIDES[k]).value, 10) || 0;
+    return out;
+  }
+
+  // src on a canvas l, t, r, b px larger. The new part gets the colours of the picture's edge: a small copy
+  // of the picture (so the colours are smooth) has its outer row or column stretched outwards, and the
+  // corners take the corner's colour. The model starts from that, so a strength below 1 still looks right.
+  function extendCanvas(src, l, t, r, b) {
+    var W = src.width, H = src.height, w = W + l + r, h = H + t + b;
+    var c = canvasOf(w, h), g = c.getContext('2d');
+    var k = Math.min(1, 24 / Math.max(W, H));
+    var sw = Math.max(1, Math.round(W * k)), sh = Math.max(1, Math.round(H * k));
+    var sm = canvasOf(sw, sh);
+    sm.getContext('2d').drawImage(src, 0, 0, sw, sh);
+    if (l) g.drawImage(sm, 0, 0, 1, sh, 0, t, l, H);
+    if (r) g.drawImage(sm, sw - 1, 0, 1, sh, l + W, t, r, H);
+    if (t) g.drawImage(sm, 0, 0, sw, 1, l, 0, W, t);
+    if (b) g.drawImage(sm, 0, sh - 1, sw, 1, l, t + H, W, b);
+    if (l && t) g.drawImage(sm, 0, 0, 1, 1, 0, 0, l, t);
+    if (r && t) g.drawImage(sm, sw - 1, 0, 1, 1, l + W, 0, r, t);
+    if (l && b) g.drawImage(sm, 0, sh - 1, 1, 1, 0, t + H, l, b);
+    if (r && b) g.drawImage(sm, sw - 1, sh - 1, 1, 1, l + W, t + H, r, b);
+    g.drawImage(src, l, t);
+    return c;
+  }
+
+  // The mask for the larger canvas: what was painted (at its new place) and the new part, which reaches a
+  // little way into the picture (bleed) so the join is made again and blends.
+  function extendMask(old, W, H, l, t, r, b) {
+    var w = W + l + r, h = H + t + b, bleed = Math.max(8, Math.min(32, Math.round(Math.min(W, H) / 32)));
+    var c = canvasOf(w, h), g = c.getContext('2d');
+    if (old) g.drawImage(old, l, t);
+    g.fillStyle = 'rgb(255,48,48)';
+    if (l) g.fillRect(0, 0, l + bleed, h);
+    if (r) g.fillRect(l + W - bleed, 0, r + bleed, h);
+    if (t) g.fillRect(0, 0, w, t + bleed);
+    if (b) g.fillRect(0, t + H - bleed, w, b + bleed);
+    return c;
+  }
+
+  function extendInit() {
+    var i = st.init;
+    if (!i) return;
+    var e = extSizes(), W = i.canvas.width, H = i.canvas.height;
+    if (!e.l && !e.t && !e.r && !e.b) { toast('Pick how far to extend on at least one side.', 4000); return; }
+    var w = W + e.l + e.r, h = H + e.t + e.b;
+    if (w > INIT_MAX || h > INIT_MAX) {
+      toast('The picture would be ' + w + '×' + h + '. It can be at most ' + INIT_MAX + ' px on a side.', 6000);
+      return;
+    }
+    var strength = num('init-str', 0.6, 0.05, 1);
+    i.undo.push({ canvas: i.canvas, mask: i.mask, painted: i.painted, w: $('w').value, h: $('h').value, strength: strength, extPad: i.extPad || 0 });
+    var share = (w * h - W * H) / (w * h) + (i.mask ? i.painted * W * H / (w * h) : 0);
+    i.canvas = extendCanvas(i.canvas, e.l, e.t, e.r, e.b);
+    i.mask = extendMask(i.mask, W, H, e.l, e.t, e.r, e.b);
+    i.painted = Math.min(1, share);
+    // "only the masked area" takes as much of the picture next to the new part as the new part is wide, so
+    // the model sees what it continues (with the usual 32 px it drew a scene of its own)
+    i.extPad = Math.max(i.extPad || 0, e.l, e.t, e.r, e.b);
+    // the job's size follows the new canvas, as when a start image is picked
+    var f = fitArea(w, h, st.preset ? st.preset.w * st.preset.h : 512 * 512);
+    $('w').value = f.w;
+    $('h').value = f.h;
+    markPreset();
+    // the new part is made from the prompt: full strength, and only the masked part at full resolution
+    if (strength < 0.9) $('init-str').value = 1;
+    $('init-crop').checked = true;
+    for (var k = 0; k < EXT_SIDES.length; k++) $('ext-' + EXT_SIDES[k]).value = 0;
+    show('ext-box', false);
+    $('init-extend').setAttribute('aria-expanded', 'false');
+    persist();
+    drawInit();
+    toast('The picture is ' + w + '×' + h + ' now, the new part masked. Say what should be there and press Generate.', 7000);
+  }
+
+  function undoExtend() {
+    var i = st.init, u = i && i.undo.pop();
+    if (!u) return;
+    i.canvas = u.canvas;
+    i.mask = u.mask;
+    i.painted = u.painted;
+    i.extPad = u.extPad;
+    $('w').value = u.w;
+    $('h').value = u.h;
+    $('init-str').value = u.strength;
+    markPreset();
+    persist();
+    drawInit();
+  }
+  initExtend();
+
   function drawInit() {
     var i = st.init, ref = refEdit();
     show('init-box', !!i);
@@ -232,6 +352,9 @@
       }
       show('init-str-row', !ref, 'flex');
       show('init-mask', !ref, 'inline-block');
+      show('init-extend', !ref, 'inline-block');
+      if (ref) show('ext-box', false);
+      show('ext-undo', i.undo.length > 0, 'inline-block');
       show('init-crop-row', !!i.mask && !ref, 'flex');
       text($('init-hint'), ref
         ? 'Say what to change, for example "the same house in winter, snow on the roof". The layout and the rest stay. ' +
@@ -239,7 +362,7 @@
           'It takes about one and a half to two times as long as an image of its own, and a second picture adds to it.'
         : i.mask && $('init-crop').checked
         ? 'A box around the mask is made with as many pixels as Width × Height, then put back into the image: small fixes in large images are quick and sharp.'
-        : 'Strength 0.3 to 0.5 keeps the picture and changes details; 0.7 and up changes much more.' +
+        : 'Strength 0.3 to 0.5 keeps the picture and changes details; 0.7 and up changes much more. Extend makes the picture larger.' +
           ($('hr-on').checked ? ' The hires fix is not used with a start image.' : ''));
     }
     summary();
@@ -478,7 +601,7 @@
     var crop = !!(i.mask && !ref && $('init-crop').checked);
     var b = crop ? maskBounds(i.mask) : null;
     if (b) {
-      var pad = Math.max(32, Math.round(Math.max(W, H) / 32));
+      var pad = Math.max(32, Math.round(Math.max(W, H) / 32), i.extPad || 0);
       var x0 = Math.max(0, b.x - pad), y0 = Math.max(0, b.y - pad);
       var x1 = Math.min(W, b.x + b.w + pad), y1 = Math.min(H, b.y + b.h + pad);
       box = { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };

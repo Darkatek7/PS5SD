@@ -75,6 +75,7 @@
 #include "download_core.hpp"
 #include "gallery_labels.hpp"
 #include "prompt_tags.hpp"
+#include "prompt_history.hpp"
 #include "downloader.hpp"
 #include "https_client.hpp"
 #include "upload.hpp"
@@ -183,6 +184,7 @@ constexpr const char * kUpscalers = "/data/PS5SD/upscalers";  // ESRGAN models: 
 constexpr const char * kModels  = "/data/PS5SD/models";
 constexpr const char * kPresets = "/data/PS5SD/presets";
 constexpr const char * kTags    = "/data/PS5SD/tags";  // tag files for the prompt's completion
+constexpr const char * kPrompts = "/data/PS5SD/prompts.json";  // the web UI's prompt history
 #ifndef PS5SD_NO_DISPLAY
 constexpr const char * kFont    = "/app0/assets/fonts/dejavu-sans-mono.huifont";
 #endif
@@ -197,6 +199,8 @@ ConsoleStats g_console;  // the temperature, power, fan and load (console_stats.
 const ModelLibrary g_library{ kModels, kPresets };
 // The names and tags of the gallery's files (gallery_labels.hpp).
 GalleryLabels g_labels{ kOutputs };
+// The last 50 prompts of the web UI (prompt_history.hpp).
+PromptHistory g_prompts{ kPrompts };
 
 // The copier of the gallery to a USB drive (usb_copy.hpp), made on first use
 // and never destroyed: its thread ends on request_stop, and the title ends
@@ -1516,10 +1520,18 @@ bool set_api_key(bool on, std::string & error) {
 //                       keeps going while the server restarts.
 //   gallery (POST)      {"image": "<base64 PNG>"}: an image the web UI made,
 //                       saved to outputs (201 {"saved": "<name>"}).
-//   gallery/labels (GET) {"labels": {"<file>": {"title", "tags"}}}; (POST)
-//                       {"name": "<file>", "title": "...", "tags": [...]}: a
-//                       file's name and tags (gallery_labels.hpp), answered
-//                       with {"name", "title", "tags"} as kept.
+//   gallery/labels (GET) {"labels": {"<file>": {"title", "tags", "fav"}},
+//                       "favourites": true}; (POST) {"name": "<file>",
+//                       "title": "...", "tags": [...], "fav": bool}: a file's
+//                       name and tags, or its favourite mark (a body with only
+//                       "fav" leaves the name and tags), (gallery_labels.hpp),
+//                       answered with {"name", "title", "tags", "fav"} as kept.
+//   prompts (GET)       {"prompts": [{"id", "prompt", "negative", "model",
+//                       "time"}]}: the last 50 prompts of the web UI, newest
+//                       first; (POST) {"prompt", "negative", "model"} adds one
+//                       (a repeat moves to the front; 201 with the entry);
+//                       prompts/<id> (DELETE) removes one, prompts (DELETE)
+//                       empties the list (prompt_history.hpp).
 //   gallery/keep (POST) {"name": "tmp_<file>"}: keeps an image made with
 //                       "temporary" ({"kept": "<file>"}).
 //   gallery/copy (POST) {"to": "usb0", "names": [...]}: copies gallery files
@@ -1945,7 +1957,8 @@ extern "C" int sd_app_request(const char * method, const char * path, const char
         const nlohmann::json j = nlohmann::json::parse(body != nullptr ? std::string(body, body_len) : std::string(), nullptr, false);
         std::vector<std::string> tags;
         bool                     ok = j.is_object() && j.contains("name") && j["name"].is_string() &&
-                  (!j.contains("title") || j["title"].is_string()) && (!j.contains("tags") || j["tags"].is_array());
+                  (!j.contains("title") || j["title"].is_string()) && (!j.contains("tags") || j["tags"].is_array()) &&
+                  (!j.contains("fav") || j["fav"].is_boolean());
         if (ok && j.contains("tags")) {
             for (const auto & t : j["tags"]) {
                 ok = ok && t.is_string();
@@ -1956,18 +1969,64 @@ extern "C" int sd_app_request(const char * method, const char * path, const char
         }
         GalleryLabel label;
         std::string  error;
+        bool         saved = false;
         if (!ok) {
-            out    = error_json("the body must be {\"name\": \"<file>\", \"title\": \"...\", \"tags\": [\"...\"]}");
+            out    = error_json("the body must be {\"name\": \"<file>\", \"title\": \"...\", \"tags\": [\"...\"], \"fav\": true}");
             status = 400;
         } else if (!gallery_name_ok(j["name"].get<std::string>())) {
             out    = error_json("not a gallery file: " + j["name"].get<std::string>());
             status = 400;
-        } else if (!g_labels.set(j["name"].get<std::string>(), j.value("title", std::string()), tags, label, error)) {
-            out    = error_json(error);
-            status = error.rfind("no file", 0) == 0 ? 404 : 400;
         } else {
-            out    = nlohmann::json{ { "name", j["name"] }, { "title", label.title }, { "tags", label.tags } }.dump(
-                -1, ' ', false, nlohmann::json::error_handler_t::replace);
+            const std::string file = j["name"].get<std::string>();
+            // a body with "fav" and neither "title" nor "tags" is only the star: the name and tags stay
+            const bool only_fav = j.contains("fav") && !j.contains("title") && !j.contains("tags");
+            saved = only_fav || g_labels.set(file, j.value("title", std::string()), tags, label, error);
+            if (saved && j.contains("fav")) {
+                saved = g_labels.set_fav(file, j["fav"].get<bool>(), label, error);
+            }
+            if (!saved) {
+                out    = error_json(error);
+                status = error.rfind("no file", 0) == 0 ? 404 : 400;
+            } else {
+                out    = nlohmann::json{ { "name", file }, { "title", label.title }, { "tags", label.tags }, { "fav", label.fav } }.dump(
+                    -1, ' ', false, nlohmann::json::error_handler_t::replace);
+                status = 200;
+            }
+        }
+    } else if (m == "GET" && p == "prompts") {
+        out    = g_prompts.list_json();
+        status = 200;
+    } else if (m == "POST" && p == "prompts") {
+        const nlohmann::json j = nlohmann::json::parse(body != nullptr ? std::string(body, body_len) : std::string(), nullptr, false);
+        const bool           ok = j.is_object() && j.contains("prompt") && j["prompt"].is_string() &&
+                        (!j.contains("negative") || j["negative"].is_string()) && (!j.contains("model") || j["model"].is_string());
+        nlohmann::json entry;
+        std::string    error;
+        if (!ok) {
+            out    = error_json("the body must be {\"prompt\": \"...\", \"negative\": \"...\", \"model\": \"...\"}");
+            status = 400;
+        } else if (!g_prompts.add(j["prompt"].get<std::string>(), j.value("negative", std::string()), j.value("model", std::string()),
+                                  entry, error)) {
+            out    = error_json(error);
+            status = error.rfind("could not write", 0) == 0 ? 500 : 400;
+        } else {
+            out    = entry.dump(-1, ' ', false, nlohmann::json::error_handler_t::replace);
+            status = 201;
+        }
+    } else if (m == "DELETE" && p == "prompts") {
+        out    = nlohmann::json{ { "deleted", g_prompts.clear() } }.dump();
+        status = 200;
+    } else if (m == "DELETE" && p.rfind("prompts/", 0) == 0) {
+        const std::string id_text = p.substr(8);
+        const bool        digits  = !id_text.empty() && id_text.size() <= 15 && id_text.find_first_not_of("0123456789") == std::string::npos;
+        if (!digits) {
+            out    = error_json("not a prompt id: " + id_text);
+            status = 400;
+        } else if (!g_prompts.remove(std::stoll(id_text))) {
+            out    = error_json("no prompt " + id_text);
+            status = 404;
+        } else {
+            out    = nlohmann::json{ { "deleted", std::stoll(id_text) } }.dump();
             status = 200;
         }
     } else if (m == "GET" && p == "gallery/copy") {

@@ -454,6 +454,29 @@ a tag a line; its `danbooru.csv` works as it is), or a `.txt` with a tag a line,
 
 The files are read on the first request and again when they change.
 
+## Prompt history
+
+The web UI's **History** button at the prompt lists the last 50 prompts, each with its negative prompt and
+the model that was loaded. They are kept on the console, in `/data/PS5SD/prompts.json`, so every browser
+and device sees the same list. The page adds a prompt when a run starts, and not again while it is the
+newest. A prompt with a wildcard (see below) is kept as typed, not as one run expanded it.
+
+| Route | |
+|---|---|
+| `GET /ps5sd/v1/app/prompts` | `{"prompts": [{"id": 12, "prompt": "a red fox", "negative": "blurry", "model": "SDXL Base 1.0", "time": 1790000000}]}`, the newest first, at most 50. `time` is in seconds since 1970 |
+| `POST /ps5sd/v1/app/prompts` | `{"prompt": "...", "negative": "...", "model": "..."}`: puts a prompt at the front (`negative` and `model` are optional). Spaces at the ends are cut. One that is there already (the same three texts) moves to the front with its id; when it is the newest already, nothing changes. `201` with the entry as kept; `400` for an empty prompt, a prompt or negative prompt over 8000 bytes, or a model over 200 bytes. The list keeps 50 entries, the oldest go |
+| `DELETE /ps5sd/v1/app/prompts/<id>` | removes one entry: `{"deleted": <id>}`; `404` when no entry has that id |
+| `DELETE /ps5sd/v1/app/prompts` | empties the list: `{"deleted": <how many>}` |
+
+### Wildcards
+
+In the web UI's prompt, `{red|blue|green}` picks one option for each image. The page expands it before
+it sends a job, so the server and every API client only see a plain prompt, and the image's metadata
+keeps the expanded one. A run of several images (the count next to Generate) is made one job after
+the other, each with its own pick; while something runs, the same count queues one job per image. A brace
+without a `|` stays as it is. The server does not know wildcards: a client that wants them expands
+them itself.
+
 ## Jobs: queue and cancel
 
 | Route | |
@@ -705,6 +728,11 @@ server reads only up to 8 KB.
 - An inpainting model (the catalog's SD 1.5 and SDXL inpainting) blends the edges of the mask better;
   any other model inpaints too.
 
+The web UI's **Extend** (outpainting) is this too: it puts the picture on a larger canvas (128 to 512 px
+more on each side you choose), fills the new part with the colours of the picture's edge, paints a mask
+over the new part and a little way into the picture, and sends that. The server sees an ordinary masked
+`img_gen`; a client does the same with its own canvas and mask.
+
 The web UI does more in the page: with "only the masked area" it sends a box around the mask, made at
 the model's size, and puts the result back into the start image with a soft edge; a masked result is
 always blended over the start image, so the rest of it stays exactly as it was. That finished image goes
@@ -770,8 +798,8 @@ from what the run used: A1111's sampler names (`Sampler: Euler a, Schedule type:
 | `GET /ps5sd/v1/gallery/archive` | every kept file (images and videos, not the `tmp_*` ones) as one ZIP, `ps5sd-gallery-<date>.zip`. See below. `?names=a.png,b.webm` takes only those |
 | `POST /ps5sd/v1/gallery/archive` | the same for the files named in the form field `names` (file names, separated by commas, spaces or line breaks; the field may come more than once). `400` without a name, `404` when none of them is in the gallery |
 | `DELETE /ps5sd/v1/app/gallery/<name>` | delete one image or video: `{"deleted": "<name>"}`; 400 for a name the gallery does not list (folders, other files), 404 when it is gone already. Its name and tags go with it |
-| `GET /ps5sd/v1/app/gallery/labels` | `{"labels": {"<file>": {"title": "Old town at night", "tags": ["night", "houses"]}}}`: the names and tags of the files that have any |
-| `POST /ps5sd/v1/app/gallery/labels` | `{"name": "<file>", "title": "...", "tags": ["..."]}`: sets a file's name (one line, at most 100 characters) and tags (at most 20, each at most 40 characters, no commas; one that is there twice in any case counts once). An empty title without tags removes them. `200 {"name", "title", "tags"}` as kept; `404` for a file that is not there |
+| `GET /ps5sd/v1/app/gallery/labels` | `{"labels": {"<file>": {"title": "Old town at night", "tags": ["night", "houses"], "fav": true}}, "favourites": true}`: the names, tags and favourite marks of the files that have any. `fav` is there only when it is `true`. Since 1.6.0 the answer has `"favourites": true`; an older app's has not, and the web UI then shows no star |
+| `POST /ps5sd/v1/app/gallery/labels` | `{"name": "<file>", "title": "...", "tags": ["..."], "fav": true}`: sets a file's name (one line, at most 100 characters) and tags (at most 20, each at most 40 characters, no commas; one that is there twice in any case counts once), or its favourite mark. An empty title without tags removes them, unless the file is a favourite. A body with only `name` and `fav` changes the mark and leaves the name and tags; a body with `title` or `tags` and no `fav` leaves the mark. `200 {"name", "title", "tags", "fav"}` as kept; `404` for a file that is not there |
 | `POST /ps5sd/v1/app/gallery/keep` | `{"name": "tmp_<file>"}`: keeps a file that was made with `"temporary": true`; it becomes `<file>`, with its thumbnail and parameters. `200 {"kept": "<file>"}`, `404` when there is no such file, `409` when `<file>` is taken |
 | `POST /ps5sd/v1/app/gallery/copy` | `{"to": "usb0", "names": ["<file>", ...]}`: copies files to a USB drive (see below); without `names`, or with an empty list, the whole gallery. `202` with the state as `GET` gives it, `409` while a copy runs, `400` for a drive that is not `usb0` to `usb7` or has nothing mounted, and for a name the gallery does not list |
 | `GET /ps5sd/v1/app/gallery/copy` | the last copy: `{"state": "idle", "to": "usb0", "done": 0, "total": 0, "skipped": 0, "bytes": 0, "error": ""}`; `state` is `idle`, `copying`, `done` or `failed`. `done` counts the files copied and skipped |
@@ -785,8 +813,9 @@ The web UI's Download all is a link to the `GET` route, and its Download on a se
 `POST`s the names. With an API key, both work with the login cookie as well (the form needs no
 `X-PS5SD-Request` header, which a form cannot add); a script sends the key as for any route.
 
-The names and tags are kept in `/data/PS5SD/outputs/.labels.json`, not in the files, so a PNG stays as it
-was made. The web UI's search finds them; the gallery's `q` does not.
+The names, tags and favourite marks are kept in `/data/PS5SD/outputs/.labels.json`, not in the files, so a PNG
+stays as it was made. The web UI's search finds names and tags; the gallery's `q` does not. The web UI's
+star (in the viewer and on the tiles) sets `fav`, and its filter **Favourites** shows the files that have it.
 
 ### Copies on a USB drive
 

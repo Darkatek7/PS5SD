@@ -129,6 +129,7 @@
 
   function persist() {
     growPrompt();
+    drawWildHint();
     save('prompt', $('prompt').value);
     save('neg', $('neg').value);
     save('set.' + (st.mkey || '_'), JSON.stringify(getForm()));

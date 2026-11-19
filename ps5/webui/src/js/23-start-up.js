@@ -117,6 +117,7 @@
     $('waitcancel').onclick = cancelAll;
     var v = load('prompt'); if (v !== null) $('prompt').value = v;
     v = load('neg'); if (v !== null) $('neg').value = v;
+    drawWildHint();
     applyModel('', null);
     st.model = null;
     st.mkey = null;
@@ -197,6 +198,8 @@
     $('gf-all').onclick = function () { setGalleryFilter('all'); };
     $('gf-images').onclick = function () { setGalleryFilter('images'); };
     $('gf-videos').onclick = function () { setGalleryFilter('videos'); };
+    $('gf-fav').onclick = function () { setGalleryFilter('fav'); };
+    $('lb-fav').onclick = function () { var it = lbItem(); if (it) toggleFav(it); };
     $('gorder').value = galleryOrder;
     $('gorder').onchange = function () { setGalleryOrder($('gorder').value); };
     $('gsearch').oninput = function () { setGallerySearch($('gsearch').value); };
@@ -209,6 +212,10 @@
     $('st-refresh').onclick = enterStorage;
     $('lb-use').onclick = function () { useSettings(); };
     $('lb-infobtn').onclick = toggleLbInfo;
+    $('prompt-hist').onclick = function () { histShow($('phist').style.display === 'none'); };
+    $('ph-close').onclick = function () { histShow(false); try { $('prompt-hist').focus(); } catch (e) {} };
+    $('ph-clear').onclick = clearHistory;
+    loadPromptHistory();
     $('prompt-copy').onclick = function () { copyText($('prompt').value, 'The prompt'); };
     $('neg-copy').onclick = function () { copyText($('neg').value, 'The negative prompt'); };
     show('prompt-paste', canPaste(), 'inline-block');

@@ -81,6 +81,45 @@ void test_labels(const fs::path & dir) {
     check(g.set("sd_3.png", "again", {}, out, error) && labels_of(g)["sd_3.png"]["title"] == "again", "written again");
 }
 
+void test_favourites(const fs::path & dir) {
+    touch(dir / "sd_1.png");
+    touch(dir / "sd_2.png");
+    GalleryLabels g(dir.u8string());
+    GalleryLabel  out;
+    std::string   error;
+    const auto    top = nlohmann::json::parse(g.all_json());
+    check(top.contains("favourites") && top["favourites"] == true, "the answer says the app keeps favourites");
+
+    check(g.set_fav("sd_1.png", true, out, error) && out.fav && out.title.empty(), "a star on a file with no name: " + error);
+    nlohmann::json all = labels_of(g);
+    check(all["sd_1.png"]["fav"] == true && all["sd_1.png"]["tags"].empty(), "kept as an entry");
+
+    // the name and tags do not touch the star, and the star does not touch them
+    check(g.set("sd_1.png", "Old town", { "night" }, out, error) && out.fav, "set keeps the star: " + error);
+    all = labels_of(g);
+    check(all["sd_1.png"]["fav"] == true && all["sd_1.png"]["title"] == "Old town", "name and star together");
+    check(g.set_fav("sd_1.png", false, out, error) && !out.fav && out.title == "Old town" && out.tags.size() == 1,
+          "the star off keeps the name and tags");
+    all = labels_of(g);
+    check(!all["sd_1.png"].contains("fav"), "no fav field when it is off");
+    check(g.set_fav("sd_1.png", true, out, error), "star again");
+    check(g.set("sd_1.png", "", {}, out, error) && out.fav, "no name and no tags, but a star: the entry stays");
+    check(labels_of(g).contains("sd_1.png"), "a starred file keeps its entry");
+    check(g.set_fav("sd_1.png", false, out, error) && !labels_of(g).contains("sd_1.png"), "no name, no tags, no star: no entry");
+
+    check(!g.set_fav("sd_9.png", true, out, error) && error.rfind("no file", 0) == 0, "a file that is not there");
+    check(!g.set_fav("../sd_1.png", true, out, error), "no folders");
+
+    // an old file without the field reads as no star, and the others are left alone
+    std::ofstream(dir / ".labels.json") << "{\"sd_2.png\": {\"title\": \"two\", \"tags\": []}}";
+    check(g.set_fav("sd_1.png", true, out, error), "star next to an old entry");
+    all = labels_of(g);
+    check(all["sd_2.png"]["title"] == "two" && !all["sd_2.png"].contains("fav") && all["sd_1.png"]["fav"] == true,
+          "an entry without fav is as it was");
+    fs::remove(dir / "sd_1.png");
+    check(g.set_fav("sd_2.png", true, out, error) && !labels_of(g).contains("sd_1.png"), "the star of a deleted file is dropped");
+}
+
 void test_temporary(const fs::path & dir) {
     touch(dir / "tmp_sd_20261023_1.png");
     touch(dir / "tmp_sd_20261023_2.webm");
@@ -117,6 +156,7 @@ int main() {
     fs::remove_all(dir);
     test_labels(dir / "a");
     test_temporary(dir / "b");
+    test_favourites(dir / "c");
     fs::remove_all(dir);
     if (failures) {
         std::printf("%d failure(s)\n", failures);

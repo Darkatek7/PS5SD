@@ -49,6 +49,8 @@
          DELETE .../downloads/<id>, POST .../app/hf/search
     GET  /ps5sd/v1/app/storage                                         (Settings: space; Get more: free space; a 404 hides it)
     GET, POST /ps5sd/v1/app/gallery/copy                               (copy the gallery or a selection to a USB drive)
+    GET, POST /ps5sd/v1/app/gallery/labels                             (a file's name, tags and star; "favourites": true says the app keeps stars)
+    GET, POST, DELETE /ps5sd/v1/app/prompts, DELETE .../prompts/<id>   (the prompt history under the prompt; a 404 hides it)
     GET  /ps5sd/v1/app/icon.png, .../app/manifest.webmanifest          (the tab's icon; the "install as app" manifest)
     GET  https://api.github.com/repos/Darkatek7/PS5SD/releases/latest  (Settings, About: is a newer release out; once a day, from the browser)
   SPDX-License-Identifier: MIT
@@ -118,11 +120,18 @@
     <p class="hint starter" id="starter" style="display:none"></p>
     <textarea id="prompt" class="big" rows="4" placeholder="What should it draw?"></textarea>
     <div class="tagbox" id="tagbox" role="listbox" aria-label="Tags" style="display:none"></div>
+    <p class="hint" id="wild-hint" style="display:none">Each image picks one option of every <code>{a|b|c}</code>. <button type="button" class="info" data-help="help-wildcards" aria-label="More about wildcards">&#9432;</button></p>
     <div class="linkrow">
       <button type="button" class="linkbtn" id="neg-toggle" aria-expanded="false" aria-controls="neg-box">+ Negative prompt</button>
       <span class="fill"></span>
+      <button type="button" class="linkbtn" id="prompt-hist" aria-expanded="false" aria-controls="phist" style="display:none" title="The last prompts, kept on the console">History</button>
       <button type="button" class="linkbtn" id="prompt-copy">Copy</button>
       <button type="button" class="linkbtn" id="prompt-paste" style="display:none">Paste</button>
+    </div>
+    <div class="phist" id="phist" style="display:none">
+      <div class="phead"><span class="pht">Prompt history</span><button type="button" class="linkbtn" id="ph-clear">Clear all</button><button type="button" class="linkbtn" id="ph-close">Close</button></div>
+      <div class="phlist" id="ph-list"></div>
+      <p class="hint" id="ph-none" style="display:none">No prompts yet. Each run adds its prompt here.</p>
     </div>
     <div id="neg-box" style="display:none">
       <label for="neg">Negative prompt</label>
@@ -156,9 +165,25 @@
             <div class="mmeta" id="init-meta"></div>
             <div class="initbtns">
               <button type="button" id="init-mask">Paint a mask</button>
+              <button type="button" id="init-extend" aria-expanded="false" aria-controls="ext-box" title="Make the picture larger on one or more sides">Extend</button>
               <button type="button" id="init-drop">Remove</button>
             </div>
           </div>
+        </div>
+        <div class="extbox" id="ext-box" style="display:none">
+          <div class="lbl">Extend the picture by</div>
+          <div class="extgrid">
+            <label>Left<select id="ext-l"></select></label>
+            <label>Top<select id="ext-t"></select></label>
+            <label>Right<select id="ext-r"></select></label>
+            <label>Bottom<select id="ext-b"></select></label>
+          </div>
+          <div class="initbtns">
+            <button type="button" class="on" id="ext-go">Extend</button>
+            <button type="button" id="ext-undo" style="display:none">Undo the last</button>
+            <button type="button" id="ext-cancel">Close</button>
+          </div>
+          <p class="hint">The new part is masked and made from the prompt: say what should be there. A picture can grow to 4096 px on a side. <button type="button" class="info" data-help="help-extend" aria-label="More about extending a picture">&#9432;</button></p>
         </div>
         <label class="opt" id="init-ref-row" style="display:none"><input type="checkbox" id="init-ref" checked> Edit by the prompt: say what to change, the rest of the picture stays</label>
         <div id="init2-sect" style="display:none">
@@ -584,12 +609,18 @@
     <p>Which layer of the text encoder the prompt is read from, counted from the end. Auto is what stable-diffusion.cpp does by itself: 1 for SD 1.5 and 2 for SD 2.1 and SDXL models (Pony and Illustrious too). Some SD 1.5 anime models want 2. The setting shows for the models that read the prompt with CLIP (SD 1.5, SD 2.1, SDXL); FLUX, Wan and the others read it with another encoder. Any number from 1 to 12 can be typed; an empty field is Auto, and it says what Auto is for the loaded model. With 1 an SDXL model makes noise, so the server reads a 1 as Auto for every model but SD 1.5. A preset can set it with <code>clip_skip=2</code> in its <code># defaults:</code> line.</p>
     <h2 id="help-starters">Prompt starters</h2>
     <p>Some models want each prompt to begin the same way: Pony models with <code>score_9, score_8_up, score_7_up</code>, and a negative prompt with <code>score_4, score_5</code>. A preset can carry them in a <code># prompt:</code> and a <code># negative:</code> line. While it is loaded, the server puts them before the prompts of every run, from this page and from the API, and the Create tab shows them above the fields. A prompt that starts with them already does not get them twice.</p>
+    <h2 id="help-wildcards">Wildcards and the prompt history</h2>
+    <p>In the prompt, <code>{red|blue|green}</code> is one of its options, picked anew for each image: a run of 8 images with <code>a {red|blue|green} car</code> makes cars of different colours. Each image is a job of its own, with its own pick, and the image keeps the prompt that made it. A brace without a <code>|</code> stays as it is, and an option can be empty (<code>{snowy|}</code>).</p>
+    <p><b>History</b> under the prompt lists the last 50 prompts, with their negative prompts and models. A click puts one back (the negative prompt too), the <b>×</b> removes one. The list is kept on the console, so every browser and device has it. A prompt with a wildcard is kept as you typed it.</p>
+    <h2 id="help-extend">Extend a picture</h2>
+    <p>Start from an image (or press Edit on one of the gallery), then <b>Extend</b>: pick 128 to 512 px for each side that should grow and press Extend. The page puts the picture on a larger canvas, fills the new part with the colours of the edge and masks it, a little way into the picture too, so the join blends. Say in the prompt what should be there and press Generate. The strength goes to 1, and the picture keeps its own pixels (<b>Only the masked area</b>); the part that is made reaches as far into the picture as the new part is wide, so the model sees what it continues. <b>Undo the last</b> takes the last extension back. A picture can grow to 4096 px on a side.</p>
     <h2 id="help-nokeep">Images that are not kept</h2>
     <p>With <b>Don't keep on the console</b> a run's images and videos do not go into the gallery. Download what you want to keep on this device; the console deletes them when PS5SD starts again. <b>Keep on the console</b> under the image puts one into the gallery after all.</p>
     <h2 id="help-nometa">The settings in the file</h2>
     <p>A PNG carries what made it, the prompt and the settings, the way AUTOMATIC1111 writes them, so other tools and sites (Civitai) can read them. With <b>Leave the settings out of the file</b> the PNG carries nothing: a copy of it tells nobody the prompt. The console keeps them next to the image, so the gallery's Info and Use all still work there. The switch is kept on the console. An API client sends <code>"embed_image_metadata": false</code>.</p>
     <h2 id="help-gallery">Gallery</h2>
     <p>In the viewer, the mouse wheel or two fingers zoom in, a drag moves the picture, and a double click or double tap switches between the whole picture and its pixels one to one. <b>Copy prompt</b>, <b>Copy negative</b> and <b>Copy all</b> copy what made the image; Copy all is the text other tools (AUTOMATIC1111, Civitai) read when it is pasted.</p>
+    <p>The <b>star</b> on a tile and in the viewer marks a favourite; the filter <b>★ Favourites</b> above the grid shows those. Stars are kept on the console with the names and tags, not in the file.</p>
     <p><b>Name</b> gives a file a name and tags. The search finds them, and <code>#night</code> finds the files tagged night; a tag in the viewer does that search. They are kept on the console next to the gallery, not in the file.</p>
     <p><b>Download all</b> saves every file of the gallery as one ZIP, and <b>Select</b> then <b>Download</b> does the same for the files you picked (one file is saved as it is). The console makes the ZIP while the browser saves it, so it has no size to show until it is done, and a big gallery takes a while. A video's or a PNG's settings, when they are kept next to the file, come as <code>&lt;name&gt;.txt</code>.</p>
     <h2 id="help-video">Video length and time</h2>
@@ -641,6 +672,7 @@
     <button type="button" id="gf-all" class="on" aria-pressed="true">All</button>
     <button type="button" id="gf-images" aria-pressed="false">Images</button>
     <button type="button" id="gf-videos" aria-pressed="false">Videos</button>
+    <button type="button" id="gf-fav" aria-pressed="false" style="display:none" title="The files with a star">&#9733; Favourites</button>
   </div>
   <div class="galtools">
     <input type="search" id="gsearch" placeholder="Search the prompts" aria-label="Search the prompts">
@@ -674,6 +706,7 @@
       <button type="button" id="lb-edit" title="Use as the start image on the Create tab">Edit</button>
       <button type="button" id="lb-guide" title="Use as the guide image (ControlNet) on the Create tab">Guide</button>
       <button type="button" id="lb-label" title="A name and tags for this file, which the search finds">Name</button>
+      <button type="button" id="lb-fav" aria-pressed="false" title="Add to the favourites" style="display:none">&#9734; Favourite</button>
       <button type="button" id="lb-infobtn" aria-pressed="true" title="Show or hide what made the image" style="display:none">Info</button>
       <button type="button" class="danger" id="lb-del">Delete</button>
     </div>
@@ -790,6 +823,8 @@
 @@include js/09c-memory-fit.js
 @@include js/09d-tag-complete.js
 @@include js/09e-event-stream.js
+@@include js/09f-wildcards.js
+@@include js/09g-prompt-history.js
 @@include js/10-controls.js
 @@include js/10b-create-layout.js
 @@include js/11-help.js

@@ -51,6 +51,10 @@
       "description": "The generated images and videos."
     },
     {
+      "name": "prompts",
+      "description": "The web UI's prompt history, kept on the console."
+    },
+    {
       "name": "A1111",
       "description": "The AUTOMATIC1111 API."
     },
@@ -3058,8 +3062,8 @@
           "gallery"
         ],
         "operationId": "getGalleryLabels",
-        "summary": "Names and tags of files",
-        "description": "The names and tags of the files that have any. They are kept in `/data/PS5SD/outputs/.labels.json`, not in the files.",
+        "summary": "Names, tags and favourites of files",
+        "description": "The names, tags and favourite marks of the files that have any. They are kept in `/data/PS5SD/outputs/.labels.json`, not in the files. `favourites` is `true` when this app keeps the `fav` field; an older app's answer has no such key, and a client then does not offer a star.",
         "responses": {
           "200": {
             "description": "The labels.",
@@ -3073,6 +3077,10 @@
                       "additionalProperties": {
                         "$ref": "#/components/schemas/Label"
                       }
+                    },
+                    "favourites": {
+                      "type": "boolean",
+                      "description": "`true` when the app keeps favourites (since 1.6.0)."
                     }
                   },
                   "additionalProperties": true
@@ -3097,8 +3105,8 @@
           "gallery"
         ],
         "operationId": "setGalleryLabels",
-        "summary": "Name and tag a file",
-        "description": "Sets a file's name (one line, at most 100 characters) and tags (at most 20, each at most 40 characters, no commas; one that is there twice in any case counts once). An empty title without tags removes them.",
+        "summary": "Name, tag or star a file",
+        "description": "Sets a file's name (one line, at most 100 characters) and tags (at most 20, each at most 40 characters, no commas; one that is there twice in any case counts once), or its favourite mark. An empty title without tags removes them unless the file is a favourite. `fav` alone (no `title` and no `tags`) changes only the mark and leaves the name and tags; a body with `title` or `tags` and no `fav` leaves the mark.",
         "requestBody": {
           "required": true,
           "content": {
@@ -3124,6 +3132,10 @@
                       "type": "string",
                       "maxLength": 40
                     }
+                  },
+                  "fav": {
+                    "type": "boolean",
+                    "description": "Mark the file as a favourite (`true`) or take the mark off (`false`). Since 1.6.0; an older app ignores it."
                   }
                 },
                 "additionalProperties": true
@@ -3133,7 +3145,7 @@
         },
         "responses": {
           "200": {
-            "description": "The name and tags as kept.",
+            "description": "The name, tags and mark as kept.",
             "content": {
               "application/json": {
                 "schema": {
@@ -3146,6 +3158,9 @@
                       "properties": {
                         "name": {
                           "type": "string"
+                        },
+                        "fav": {
+                          "type": "boolean"
                         }
                       }
                     }
@@ -5232,6 +5247,263 @@
           }
         }
       }
+    },
+    "/ps5sd/v1/app/prompts": {
+      "get": {
+        "tags": [
+          "prompts"
+        ],
+        "operationId": "listPrompts",
+        "summary": "The prompt history",
+        "description": "The last 50 prompts the web UI sent, newest first, with the negative prompt and the model. They are kept in `/data/PS5SD/prompts.json`, so every browser sees the same list.",
+        "responses": {
+          "200": {
+            "description": "The list.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "prompts": {
+                      "type": "array",
+                      "maxItems": 50,
+                      "items": {
+                        "$ref": "#/components/schemas/PromptEntry"
+                      }
+                    }
+                  },
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key is needed, or it is wrong (code `unauthorized`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "prompts"
+        ],
+        "operationId": "addPrompt",
+        "summary": "Add a prompt to the history",
+        "description": "Puts a prompt at the front. One that is there already (the same prompt, negative prompt and model) moves to the front instead and keeps its id; when it is the newest already, nothing changes. The list keeps 50 entries, the oldest go. Spaces at the ends are cut.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "prompt"
+                ],
+                "properties": {
+                  "prompt": {
+                    "type": "string",
+                    "maxLength": 8000,
+                    "description": "At most 8000 bytes; not empty."
+                  },
+                  "negative": {
+                    "type": "string",
+                    "maxLength": 8000,
+                    "description": "At most 8000 bytes."
+                  },
+                  "model": {
+                    "type": "string",
+                    "maxLength": 200,
+                    "description": "A name of one line, at most 200 bytes."
+                  }
+                },
+                "additionalProperties": true
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The entry as kept.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PromptEntry"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The body is not valid, the prompt is empty or a text is too long (code `invalid_request`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key is needed, or it is wrong (code `unauthorized`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A request with the login cookie lacks the header `X-PS5SD-Request` (code `forbidden`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The body is over 64 MB (code `payload_too_large`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "prompts"
+        ],
+        "operationId": "clearPrompts",
+        "summary": "Empty the prompt history",
+        "description": "Removes every entry.",
+        "responses": {
+          "200": {
+            "description": "How many entries went.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "deleted": {
+                      "type": "integer"
+                    }
+                  },
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key is needed, or it is wrong (code `unauthorized`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A request with the login cookie lacks the header `X-PS5SD-Request` (code `forbidden`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ps5sd/v1/app/prompts/{id}": {
+      "delete": {
+        "tags": [
+          "prompts"
+        ],
+        "operationId": "deletePrompt",
+        "summary": "Remove one prompt from the history",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The `id` of an entry.",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The entry is removed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "deleted": {
+                      "type": "integer"
+                    }
+                  },
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The id is not a number (code `invalid_request`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key is needed, or it is wrong (code `unauthorized`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A request with the login cookie lacks the header `X-PS5SD-Request` (code `forbidden`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No entry has that id (code `not_found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -6002,7 +6274,8 @@
         "properties": {
           "title": {
             "type": "string",
-            "example": "Old town at night"
+            "example": "Old town at night",
+            "description": "Left out of a `POST` that only sets `fav`."
           },
           "tags": {
             "type": "array",
@@ -6013,6 +6286,11 @@
               "night",
               "houses"
             ]
+          },
+          "fav": {
+            "type": "boolean",
+            "description": "A favourite (the web UI's star). Only there when it is `true`.",
+            "example": true
           }
         },
         "additionalProperties": true
@@ -6387,6 +6665,43 @@
               },
               "additionalProperties": true
             }
+          }
+        },
+        "additionalProperties": true
+      },
+      "PromptEntry": {
+        "type": "object",
+        "required": [
+          "id",
+          "prompt",
+          "negative",
+          "model",
+          "time"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer",
+            "description": "Counts up; the key to delete one. An entry that moves to the front keeps its id.",
+            "example": 12
+          },
+          "prompt": {
+            "type": "string",
+            "example": "a red fox in the snow, soft light"
+          },
+          "negative": {
+            "type": "string",
+            "description": "The negative prompt; empty for none.",
+            "example": "blurry"
+          },
+          "model": {
+            "type": "string",
+            "description": "The name of the model the web UI had loaded; empty when it did not say.",
+            "example": "SDXL Base 1.0"
+          },
+          "time": {
+            "type": "integer",
+            "description": "When the entry was added or last moved to the front, in seconds since 1970.",
+            "example": 1790000000
           }
         },
         "additionalProperties": true

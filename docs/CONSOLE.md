@@ -1493,3 +1493,18 @@ about 5 s more).
 - Direct convolution: sd.cpp's start probe turns it off on the PS5 for 2D and 3D ("probe output check
   failed"), so the SDXL UNet, the VAEs and Wan keep im2col.
 - Flash attention: the probe picks it (0.74 ms against 1.32 ms), as PS5SD sets it anyway.
+
+## The web UI of 1.6.0 (2026-11-19)
+
+A 1.6.0 build, the web UI in headless Chrome at 1440x900, SDXL Base 1.0 (Q8_0), fast (25 steps, euler_a).
+
+- **Wildcards**: `a {red|blue|green} sports car on a mountain road, photo` with a count of 2 at 768x768 made
+  two jobs with one image each, a blue car and a green one, in 54 s. The history kept the prompt with the
+  braces once.
+- **The result's row**: Download, Run again, Upscale, Edit, ⋯ and Delete on one line at 1440 px.
+- **Favourites**: the star in the viewer and on the tile, the filter with one file, the star taken off
+  again; `gallery/labels` kept `"fav": true` and then nothing.
+- **Extend**: 256 px on the right of a picture. "Only the masked area" first took the usual 32 px of the
+  picture next to the mask, and the model drew a scene of its own there (another car, other mountains).
+  With as much of the picture as the new part is wide, it went on with the road and the forest; a seam
+  stays faintly visible with SDXL Base. 48 s for 576x1792, the result put back and saved as one file.

@@ -475,6 +475,18 @@ A normal model inpaints too: SDXL Base at its 10 steps took 53 s for 1024x1024 o
 An inpainting checkpoint from elsewhere (a Civitai model whose name ends in "inpainting") works too; sd.cpp
 recognises it by its weights.
 
+### Extend a picture (outpainting)
+
+**Extend** under the start image makes the picture larger: pick 128 to 512 px for each side that should
+grow, and press **Extend**. The page puts the picture on a larger canvas, fills the new part with the
+colours of the picture's edge and paints a mask over it, a little way into the picture too, so the join
+blends. Write what the new part should show and press Generate: this is the masked inpainting above, with
+the new canvas as the start image. The strength goes to 1 so the new part comes from the prompt, and
+"Only the masked area" stays on, so the picture keeps its own pixels and the result is the whole larger
+canvas. The part that is made reaches as far into the picture as the new part is wide, so the model sees
+what it continues. **Undo** puts the picture back as it was; Extend can be pressed again for another side. A picture
+can grow to 4096 px a side. Any model does it; an inpainting model blends the join better.
+
 ## Edit by the prompt
 
 FLUX.2 Klein, FLUX.3 Klein and other edit models can change an image by a sentence, without a mask. On the

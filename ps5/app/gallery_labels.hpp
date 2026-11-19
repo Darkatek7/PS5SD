@@ -1,8 +1,9 @@
 // What the gallery keeps besides its files: a name and tags for each file,
 // and the images that are not kept.
 //
-// The names and tags are in <outputs>/.labels.json, {"<file>": {"title":
-// "...", "tags": ["...", ...]}}, so a PNG stays as it was made. The web UI's
+// The names, tags and favourites are in <outputs>/.labels.json, {"<file>": {"title":
+// "...", "tags": ["...", ...], "fav": true}}, so a PNG stays as it was made ("fav" is
+// there only when it is true). The web UI's
 // search finds them (GET /ps5sd/v1/app/gallery/labels); the server's own
 // gallery listing does not read them.
 //
@@ -25,23 +26,31 @@ namespace ps5sd {
 struct GalleryLabel {
     std::string              title;
     std::vector<std::string> tags;
+    bool                     fav = false;  // a favourite (the web UI's star)
 };
 
 class GalleryLabels {
   public:
     explicit GalleryLabels(std::string outputs_dir) : dir_(std::move(outputs_dir)) {}
 
-    // {"labels": {"<file>": {"title", "tags"}}}: every file that has a name or tags.
+    // {"labels": {"<file>": {"title", "tags", "fav"}}, "favourites": true}: every file that has a
+    // name, tags or a favourite mark ("fav" only when it is set). "favourites" says this app
+    // keeps the mark; an older app's answer lacks it.
     std::string all_json() const;
 
     // Sets the name and tags of a file of the gallery: a name of one line (at
     // most 100 characters), at most 20 tags of at most 40 characters each,
     // without commas; a tag that is there already (in any case) counts once.
-    // An empty name without tags removes the entry. The entries of files that
+    // An empty name without tags removes the entry, unless the file is a favourite (set() leaves
+    // that mark as it is). The entries of files that
     // are gone are dropped on the way. False with a message for a file that is
     // not there or a name or tag that does not do; out is the label as kept.
     bool set(const std::string & file, const std::string & title, const std::vector<std::string> & tags,
              GalleryLabel & out, std::string & error);
+
+    // Marks a file as a favourite, or takes the mark off; its name and tags stay. The same
+    // refusals as set() for a file that is not there. out is the label as kept.
+    bool set_fav(const std::string & file, bool fav, GalleryLabel & out, std::string & error);
 
     // Forgets a file's entry (its file was deleted).
     void remove(const std::string & file);

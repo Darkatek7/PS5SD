@@ -95,12 +95,33 @@ nlohmann::json read_labels(const fs::path & p) {
     return j.is_object() ? j : nlohmann::json::object();
 }
 
+// The entries of the other files that are still there; the ones of files that are gone are dropped.
+nlohmann::json kept_entries(const std::string & dir, const nlohmann::json & all, const std::string & file) {
+    std::error_code ec;
+    nlohmann::json  kept = nlohmann::json::object();
+    for (auto it = all.begin(); it != all.end(); ++it) {
+        if (it.key() != file && plain_file_name(it.key()) && fs::exists(fs::u8path(dir) / fs::u8path(it.key()), ec)) {
+            kept[it.key()] = it.value();
+        }
+    }
+    return kept;
+}
+
+nlohmann::json entry_json(const std::string & title, const std::vector<std::string> & tags, bool fav) {
+    nlohmann::json e = { { "title", title }, { "tags", tags } };
+    if (fav) {
+        e["fav"] = true;
+    }
+    return e;
+}
+
 }  // namespace
 
 std::string GalleryLabels::all_json() const {
     std::lock_guard<std::mutex> lock(mutex_);
-    return nlohmann::json{ { "labels", read_labels(fs::u8path(path())) } }.dump(-1, ' ', false,
-                                                                                 nlohmann::json::error_handler_t::replace);
+    // "favourites": true tells a client that this app keeps the "fav" field (an older one does not)
+    return nlohmann::json{ { "labels", read_labels(fs::u8path(path())) }, { "favourites", true } }.dump(
+        -1, ' ', false, nlohmann::json::error_handler_t::replace);
 }
 
 bool GalleryLabels::set(const std::string & file, const std::string & title_in, const std::vector<std::string> & tags_in,
@@ -140,14 +161,11 @@ bool GalleryLabels::set(const std::string & file, const std::string & title_in, 
 
     std::lock_guard<std::mutex> lock(mutex_);
     nlohmann::json              all = read_labels(fs::u8path(path()));
-    nlohmann::json              kept = nlohmann::json::object();
-    for (auto it = all.begin(); it != all.end(); ++it) {
-        if (it.key() != file && plain_file_name(it.key()) && fs::exists(fs::u8path(dir_) / fs::u8path(it.key()), ec)) {
-            kept[it.key()] = it.value();
-        }
-    }
-    if (!title.empty() || !tags.empty()) {
-        kept[file] = { { "title", title }, { "tags", tags } };
+    // the favourite mark stays as it is: the name and tags do not touch it
+    const bool fav = all.contains(file) && all[file].is_object() && all[file].value("fav", false);
+    nlohmann::json kept = kept_entries(dir_, all, file);
+    if (!title.empty() || !tags.empty() || fav) {
+        kept[file] = entry_json(title, tags, fav);
     }
     if (!write_whole(fs::u8path(path()), kept.dump(1))) {
         error = "could not write " + path();
@@ -155,6 +173,41 @@ bool GalleryLabels::set(const std::string & file, const std::string & title_in, 
     }
     out.title = title;
     out.tags  = tags;
+    out.fav   = fav;
+    return true;
+}
+
+bool GalleryLabels::set_fav(const std::string & file, bool fav, GalleryLabel & out, std::string & error) {
+    std::error_code ec;
+    if (!plain_file_name(file) || !fs::is_regular_file(fs::u8path(dir_) / fs::u8path(file), ec)) {
+        error = "no file " + file + " in the gallery";
+        return false;
+    }
+    std::lock_guard<std::mutex> lock(mutex_);
+    nlohmann::json              all = read_labels(fs::u8path(path()));
+    std::string                 title;
+    std::vector<std::string>    tags;
+    if (all.contains(file) && all[file].is_object()) {
+        title = all[file].value("title", std::string());
+        if (all[file].contains("tags") && all[file]["tags"].is_array()) {
+            for (const auto & t : all[file]["tags"]) {
+                if (t.is_string()) {
+                    tags.push_back(t.get<std::string>());
+                }
+            }
+        }
+    }
+    nlohmann::json kept = kept_entries(dir_, all, file);
+    if (!title.empty() || !tags.empty() || fav) {
+        kept[file] = entry_json(title, tags, fav);
+    }
+    if (!write_whole(fs::u8path(path()), kept.dump(1))) {
+        error = "could not write " + path();
+        return false;
+    }
+    out.title = title;
+    out.tags  = tags;
+    out.fav   = fav;
     return true;
 }
 

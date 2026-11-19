@@ -33,7 +33,12 @@
       $('prompt').focus();
       return;
     }
+    // {a|b} in the prompt: this image's pick; the typed prompt stays in p.template (Run again, the history)
+    p.template = p.prompt;
+    p.wild = hasWildcard(p.prompt);
+    if (p.wild) p.prompt = expandWildcards(p.template);
     var n = runCount();
+    rememberPrompt(p);
     // while something runs, the same settings wait in the server's queue
     if (st.busy) { addToQueue(p, n); return; }
     persist();

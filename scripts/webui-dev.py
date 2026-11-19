@@ -2,6 +2,7 @@
 """Dev helper: serve the web UI at / and forward every other path to a PS5SD server.
 
     python scripts/webui-dev.py [--port 8787] [--target http://10.0.0.101:7860] [--mock-downloads] [--mock-models]
+                                [--mock-gallery N] [--mock-prompts] [--mock-generate] [--read-only]
 
 The page is put together from ps5/webui/src on every request (as scripts/bundle-webui.sh does
 for the build), so an edit shows after a reload.
@@ -29,18 +30,34 @@ not fit fails at once. Everything else is still forwarded.
 answer, with X-Total-Count), each file and thumbnail (the title's icon), its info, a delete, and the labels. With
 more than 1000 it shows whether the page reads the whole gallery.
 
+The labels route of --mock-gallery keeps the names, tags and favourite marks in memory as the app does ("fav" alone
+changes only the star; the answer carries "favourites": true). --no-favourites answers as an app from before 1.6.0
+does: no "favourites" key and no "fav" in the answer, so the page must hide the star and the filter.
+
+--mock-prompts answers the prompt history (GET, POST and DELETE /ps5sd/v1/app/prompts) in memory, as the app does:
+the newest first, at most 50, a repeat moves to the front, an empty prompt is a 400. --mock-models implies it.
+
+--mock-generate answers POST /sdcpp/v1/img_gen and GET /sdcpp/v1/jobs/<id> here: a job is done half a second after
+it was posted and gives one PNG of the requested size (a colour from the prompt: red, green or blue when the prompt
+says so, else from its hash), so a run, a queue and an edit can be tried with --read-only. GET /__mock/requests lists
+the bodies it got (images cut to their length), DELETE /__mock/requests empties the list.
+
 --mock-standby starts like a fresh install: no model is loaded, the library answers
 "standby": true, and every route outside /ps5sd/ answers 503 as sd-server --standby does,
 until a switch (Use) has loaded a model. It implies --mock-downloads.
 """
 import argparse
+import base64
 import http.client
 import json
+import hashlib
 import os
 import re
+import struct
 import threading
 import time
 import urllib.parse
+import zlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -617,12 +634,155 @@ class MockStorage:
         return None
 
 
+class MockPrompts:
+    """--mock-prompts: the prompt history of the app in memory (prompt_history.hpp): newest first, at most 50."""
+
+    MAX = 50
+
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.items = []
+
+    def handle(self, method, path, body):
+        """Returns (status, object), or None for another route."""
+        route = urllib.parse.urlparse(path).path
+        m = re.match(r"^/ps5sd/v1/app/prompts(?:/(.*))?$", route)
+        if not m:
+            return None
+        rest = m.group(1)
+        with self.lock:
+            if rest is None and method == "GET":
+                return 200, {"prompts": list(self.items)}
+            if rest is None and method == "POST":
+                try:
+                    j = json.loads(body or b"")
+                except ValueError:
+                    j = None
+                if not isinstance(j, dict) or not isinstance(j.get("prompt"), str) \
+                        or not isinstance(j.get("negative", ""), str) or not isinstance(j.get("model", ""), str):
+                    return 400, {"error": {"code": "invalid_request", "message": "the body must be {\"prompt\": ...}"}}
+                p, n, mo = j["prompt"].strip(), j.get("negative", "").strip(), j.get("model", "").strip()
+                if not p:
+                    return 400, {"error": {"code": "invalid_request", "message": "the prompt is empty"}}
+                if len(p.encode()) > 8000 or len(n.encode()) > 8000 or len(mo.encode()) > 200:
+                    return 400, {"error": {"code": "invalid_request", "message": "a text is too long"}}
+                nxt = max([e["id"] for e in self.items] + [0]) + 1
+                for i, e in enumerate(self.items):
+                    if e["prompt"] == p and e["negative"] == n and e["model"] == mo:
+                        if i == 0:
+                            return 201, e
+                        nxt = e["id"]
+                        del self.items[i]
+                        break
+                entry = {"id": nxt, "prompt": p, "negative": n, "model": mo, "time": int(time.time())}
+                self.items.insert(0, entry)
+                del self.items[self.MAX:]
+                return 201, entry
+            if rest is None and method == "DELETE":
+                n = len(self.items)
+                self.items = []
+                return 200, {"deleted": n}
+            if rest is not None and method == "DELETE":
+                if not rest.isdigit():
+                    return 400, {"error": {"code": "invalid_request", "message": "not a prompt id: " + rest}}
+                before = len(self.items)
+                self.items = [e for e in self.items if e["id"] != int(rest)]
+                if len(self.items) == before:
+                    return 404, {"error": {"code": "not_found", "message": "no prompt " + rest}}
+                return 200, {"deleted": int(rest)}
+        return None
+
+
+def make_png(w, h, rgb):
+    """A solid-colour PNG of w x h (RGB, 8 bit)."""
+    raw = (b"\x00" + bytes(rgb) * w) * h
+
+    def chunk(t, d):
+        return struct.pack(">I", len(d)) + t + d + struct.pack(">I", zlib.crc32(t + d) & 0xFFFFFFFF)
+    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0))
+            + chunk(b"IDAT", zlib.compress(raw, 1)) + chunk(b"IEND", b""))
+
+
+class MockGenerate:
+    """--mock-generate: img_gen jobs that finish half a second after they were posted, with a solid PNG of the
+    requested size. The bodies it got are kept for GET /__mock/requests."""
+
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.jobs = {}
+        self.requests = []
+        self.next_id = 1
+
+    @staticmethod
+    def colour(prompt):
+        p = prompt.lower()
+        for word, rgb in (("red", (220, 40, 40)), ("green", (40, 180, 70)), ("blue", (50, 90, 220))):
+            if word in p:
+                return rgb
+        d = hashlib.md5(p.encode()).digest()
+        return (d[0], d[1], d[2])
+
+    def handle(self, method, path, body):
+        """Returns (status, object) or None."""
+        route = urllib.parse.urlparse(path).path
+        if route == "/__mock/requests":
+            with self.lock:
+                if method == "DELETE":
+                    self.requests = []
+                    return 200, {"requests": []}
+                return 200, {"requests": list(self.requests)}
+        if method == "POST" and route in ("/sdcpp/v1/img_gen", "/sdapi/v1/txt2img"):
+            try:
+                j = json.loads(body or b"{}")
+            except ValueError:
+                return 400, {"error": "bad json"}
+            def shown(v):
+                # a long text (a picture) as its size; a PNG as its pixels too
+                if not (isinstance(v, str) and len(v) > 200):
+                    return v
+                try:
+                    raw = base64.b64decode(v.split(",", 1)[1] if v.startswith("data:") else v)
+                    if raw[:8] == b"\x89PNG\r\n\x1a\n":
+                        return "<PNG %dx%d>" % struct.unpack(">II", raw[16:24])
+                except (ValueError, IndexError, struct.error):
+                    pass
+                return "<%d chars>" % len(v)
+            cut = {k: shown(v) for k, v in j.items()}
+            if isinstance(j.get("ref_images"), list):
+                cut["ref_images"] = [shown(x) for x in j["ref_images"]]
+            with self.lock:
+                self.requests.append({"route": route, "body": cut})
+                jid = "mock-%d" % self.next_id
+                self.next_id += 1
+                self.jobs[jid] = {"t": time.time(), "body": j}
+            return 202, {"id": jid, "status": "queued"}
+        m = re.match(r"^/sdcpp/v1/jobs/(mock-\d+)(/cancel)?$", route)
+        if m:
+            with self.lock:
+                job = self.jobs.get(m.group(1))
+            if not job:
+                return 404, {"error": "no such job"}
+            if m.group(2):
+                return 200, {"id": m.group(1), "status": "cancelled"}
+            if time.time() - job["t"] < 0.5:
+                return 200, {"id": m.group(1), "status": "generating", "kind": "img_gen",
+                             "preview": {"step": 1, "total_steps": 4, "pass": 1}}
+            b = job["body"]
+            w, h = int(b.get("width") or 512), int(b.get("height") or 512)
+            png = make_png(w, h, self.colour(str(b.get("prompt", ""))))
+            return 200, {"id": m.group(1), "status": "completed", "kind": "img_gen", "prompt": b.get("prompt", ""),
+                         "result": {"images": [{"b64_json": base64.b64encode(png).decode()}]}}
+        return None
+
+
 class MockGallery:
     """--mock-gallery N: a gallery of N images in memory, newest first, paged as the server pages it
     (limit 1 to 1000, default 100, offset, X-Total-Count). Every image and thumbnail is the title's icon."""
 
-    def __init__(self, count):
+    def __init__(self, count, favourites=True):
         self.lock = threading.Lock()
+        self.favourites = favourites
+        self.labels = {}   # {name: {"title", "tags", "fav"}}, as the app keeps them
         now = int(time.time())
         self.items = [{"name": "mock_%05d.png" % i, "created": now - i * 60, "size": 1500000, "type": "image",
                        "prompt": "mock image %d" % i} for i in range(count)]
@@ -631,13 +791,50 @@ class MockGallery:
         with self.lock:
             return [x["name"] for x in self.items]
 
-    def handle(self, method, path):
+    def _labels(self, body):
+        """POST gallery/labels as the app answers it (gallery_labels.cpp): the name and tags, or only the star."""
+        try:
+            j = json.loads(body or b"")
+        except ValueError:
+            j = None
+        if not isinstance(j, dict) or not isinstance(j.get("name"), str):
+            return 400, {"error": {"code": "invalid_request", "message": "the body must be {\"name\": ...}"}}, {}
+        name = j["name"]
+        with self.lock:
+            if not any(x["name"] == name for x in self.items):
+                return 404, {"error": {"code": "not_found", "message": "no file " + name + " in the gallery"}}, {}
+            old = self.labels.get(name, {"title": "", "tags": [], "fav": False})
+            title, tags, fav = old["title"], old["tags"], old["fav"]
+            if "title" in j or "tags" in j or "fav" not in j:
+                title = str(j.get("title", "")).strip()
+                tags = [str(t).strip().lstrip("#").strip() for t in j.get("tags", []) if str(t).strip()]
+            if "fav" in j and self.favourites:
+                fav = bool(j["fav"])
+            entry = {"title": title, "tags": tags}
+            if fav:
+                entry["fav"] = True
+            if title or tags or fav:
+                self.labels[name] = entry
+            else:
+                self.labels.pop(name, None)
+            out = {"name": name, "title": title, "tags": tags}
+            if self.favourites:
+                out["fav"] = fav
+            return 200, out, {}
+
+    def handle(self, method, path, body=None):
         """Returns (status, object, headers), ("png", None, None) for a picture, or None for another route."""
         u = urllib.parse.urlparse(path)
         q = urllib.parse.parse_qs(u.query)
         route = u.path
         if method == "GET" and route == APP + "gallery/labels":
-            return 200, {"labels": {}}, {}
+            with self.lock:
+                out = {"labels": dict(self.labels)}
+            if self.favourites:
+                out["favourites"] = True
+            return 200, out, {}
+        if method == "POST" and route == APP + "gallery/labels":
+            return self._labels(body)
         if route == "/ps5sd/v1/gallery" and method == "GET":
             def number(key, default, lo, hi):
                 try:
@@ -669,7 +866,14 @@ class MockGallery:
         if not there:
             return 404, {"error": "not found"}, {}
         if method == "GET" and m.group(1) == "info/":
-            return 200, {"name": m.group(2)}, {}
+            # what made it, as 1.1.0 writes it, so the viewer shows its info and Use all
+            n = int(re.sub(r"\D", "", m.group(2)))
+            return 200, {"name": m.group(2), "type": "image/png", "prompt": "mock image %d" % n,
+                         "parameters": "mock image %d\nSteps: 20" % n,
+                         "sdcpp": {"schema": "sdcpp.generation/v1", "prompt": "mock image %d" % n, "negative_prompt": "",
+                                   "width": 1024, "height": 1024, "seed": n,
+                                   "sample_params": {"sample_steps": 20, "sample_method": "euler", "guidance": {"txt_cfg": 6}},
+                                   "models": {"model": "mock.safetensors"}}}, {}
         if method == "GET":
             return "png", None, None
         return None
@@ -683,6 +887,8 @@ class Handler(BaseHTTPRequestHandler):
     loras = None
     storage = None
     gallery = None
+    prompts = None
+    generate = None
     read_only = False
 
     def log_message(self, fmt, *args):
@@ -837,12 +1043,22 @@ class Handler(BaseHTTPRequestHandler):
         body = self.rfile.read(length) if length else None
         res = None
         if self.gallery is not None:
-            g = self.gallery.handle(self.command, self.path)
+            g = self.gallery.handle(self.command, self.path, body)
             if g is not None and g[0] == "png":
                 self._file(os.path.join(HERE, "..", "ps5", "app", "sce_sys", "icon0.png"), "image/png")
                 return
             if g is not None:
                 self._json(g[0], g[1], g[2])
+                return
+        if self.generate is not None:
+            g = self.generate.handle(self.command, self.path, body)
+            if g is not None:
+                self._json(g[0], g[1])
+                return
+        if self.prompts is not None and re.match(r"^/ps5sd/v1/app/prompts(/|$)", self.path):
+            res = self.prompts.handle(self.command, self.path, body)
+            if res is not None:
+                self._json(res[0], res[1])
                 return
         if self.storage is not None and self._storage(body):
             return
@@ -902,6 +1118,13 @@ if __name__ == "__main__":
     ap.add_argument("--mock-gallery", type=int, metavar="N",
                     help="answer the gallery's list, files, info and labels here with N mock images (paged as the"
                          " server pages them: at most 1000 an answer)")
+    ap.add_argument("--no-favourites", action="store_true",
+                    help="with --mock-gallery: answer the labels route as an app from before 1.6.0 (no favourites)")
+    ap.add_argument("--mock-prompts", action="store_true",
+                    help="answer the prompt history (GET, POST, DELETE /ps5sd/v1/app/prompts) here; implied by --mock-models")
+    ap.add_argument("--mock-generate", action="store_true",
+                    help="answer POST /sdcpp/v1/img_gen and GET /sdcpp/v1/jobs/<id> here with solid-colour PNGs; "
+                         "GET /__mock/requests shows what was posted")
     ap.add_argument("--mock-standby", action="store_true",
                     help="start without a model, as sd-server --standby does; implies --mock-downloads")
     a = ap.parse_args()
@@ -909,7 +1132,7 @@ if __name__ == "__main__":
     Handler.target = a.target
     Handler.read_only = a.read_only
     if a.mock_gallery is not None:
-        Handler.gallery = MockGallery(max(0, a.mock_gallery))
+        Handler.gallery = MockGallery(max(0, a.mock_gallery), not a.no_favourites)
     if a.mock_storage:
         Handler.storage = MockStorage(lambda: Handler._gallery_names())
     if a.mock_downloads:
@@ -917,6 +1140,10 @@ if __name__ == "__main__":
     if a.mock_downloads or a.mock_models:
         Handler.models = MockModels(Handler.mock)
         Handler.loras = MockLoras()
+    if a.mock_prompts or Handler.models:
+        Handler.prompts = MockPrompts()
+    if a.mock_generate:
+        Handler.generate = MockGenerate()
     if a.mock_standby:
         Handler.models.standby = True
         Handler.models.active = Handler.models.loaded = ""
