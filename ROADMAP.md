@@ -10,6 +10,8 @@ can rely on.
 
 ## Done
 
+- **1.6.0**: the web UI's smaller steps: the result's buttons in one row, the prompt history, favourites,
+  Extend (outpainting) and wildcards.
 - **1.5.0**: a pose with Z-Image Turbo's Union ControlNet, and a pose with a character in two steps
   (issue 13); the upstream speed work measured.
 - **1.4.1**: the gallery shows every file, not only the newest 1000 (issue 22).
@@ -612,33 +614,34 @@ code that goes away or changes its meaning) waits for 2.0.
 The plan as of 2026-11-04, in order (1.1.0 was taken by the stable-diffusion.cpp of November on
 2026-11-12, 1.2.0 by faster loading on 2026-11-14 and 1.3.0 by the gallery as a ZIP on 2026-11-17, so the
 rest moved up three numbers; 1.4.0 took the web UI's storage and USB items on 2026-11-19, and the pose of
-issue 13 and the `sdxl-full` conversion moved on; 1.5.0 took the pose). 1.6.0 only touches the web UI and the app's own routes, so it can be worked
-on next to 1.4.0 and 1.5.0. The times below are those of 1.0.0 on the console ([CONSOLE.md](docs/CONSOLE.md));
-every new number goes there with its date and build.
+issue 13 and the `sdxl-full` conversion moved on; 1.5.0 took the pose, 1.6.0 the web UI's smaller steps).
+The times below are those of 1.0.0 on the console ([CONSOLE.md](docs/CONSOLE.md)); every new number goes
+there with its date and build.
 
-## 1.6.0: the web UI, smaller steps
+## 1.6.0: the web UI, smaller steps, done
 
-Each one tested in a browser with `scripts/webui-dev.py` (`--mock-*` without a console) on a PC, a phone
-and the PS5's own browser, which needs ES5.
+Each one tested in a browser with `scripts/webui-dev.py` (`--mock-*` without a console) and on the console
+([CONSOLE.md](docs/CONSOLE.md#the-web-ui-of-160-2026-11-19)). The page stays ES5 for the PS5's own browser.
 
-- [ ] **The result's buttons in one row**: on a PC the seven buttons under the result wrap, and Delete
+- [x] **The result's buttons in one row**: on a PC the seven buttons under the result wrap, and Delete
   ends up alone on a second line (`docs/images/webui-pc-create.jpg`). Icons with a label for Download,
   Run again, Upscale, Edit and Delete; Use seed and Open full size go into a ⋯ menu.
-- [ ] **Prompt history**: the last 50 prompts, with the negative prompt and the model, kept on the
-  console (in `/ps5sd/v1/app/settings` or a route of their own) so every browser has them. A button at the
-  prompt opens the list; a click puts one back.
-- [ ] **Favourites**: a ★ in the viewer and on the gallery's tiles, and a filter for them. Kept with the
+  Delete stays in the row, on its right.
+- [x] **Prompt history**: the last 50 prompts, with the negative prompt and the model, kept on the
+  console (`/ps5sd/v1/app/prompts`) so every browser has them. History under the prompt opens the list; a
+  click puts one back.
+- [x] **Favourites**: a ★ in the viewer and on the gallery's tiles, and a filter for them. Kept with the
   names and tags (`/ps5sd/v1/app/gallery/labels`, a `fav` field), not in the file.
 - [x] **Open like an app on a phone**: `apple-touch-icon`, `apple-mobile-web-app-capable` and a web
   manifest with the title's icon, so a shortcut on the home screen opens without the browser's bars.
   Android installs a full web app only over HTTPS; the shortcut works without it. Done in 1.4.0.
-- [ ] **Outpainting**: make an image larger on one or more sides (Edit, "Extend", 128 to 512 px a side).
+- [x] **Outpainting**: make an image larger on one or more sides (Edit, "Extend", 128 to 512 px a side).
   The page puts the picture on a larger canvas with a mask over the new part and runs the masked
-  inpainting of 0.5.0.
-- [ ] **Wildcards**: `{red|blue|green}` in a prompt picks one for each image of a batch. The page expands
+  inpainting of 0.5.0, with as much of the picture next to it as the new part is wide.
+- [x] **Wildcards**: `{red|blue|green}` in a prompt picks one for each image of a batch. The page expands
   it before each job, so it works for every model and every API client sees a plain prompt; the image
   keeps the expanded prompt.
-- [ ] `docs/API.md` for the new routes and fields; the Help tab shows it.
+- [x] `docs/API.md` for the new routes and fields; the Help tab shows it.
 
 ## 1.7.0: the gallery on the TV
 
