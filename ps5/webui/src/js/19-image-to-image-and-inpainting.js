@@ -257,7 +257,7 @@
       $('cn-thumb').src = t.toDataURL('image/png');
       text($('cn-meta'), g.canvas.width + '×' + g.canvas.height + ' · ' + st.cnModel);
     }
-    text($('cn-hint'), 'The new image follows the guide\'s layout: its edges with Canny on, the image itself with it off. 0.5 is loose, 1 close.');
+    text($('cn-hint'), 'The new image follows the guide\'s layout: its edges with Canny on, the image itself with it off (a pose skeleton or a depth map, for a ControlNet that takes them). 0.5 is loose, 1 close.');
     summary();
   }
 
@@ -273,7 +273,7 @@
       setView('create');
       setMode('guide');
       drawGuide();
-      toast(st.cnModel ? 'Guide image set.' : 'Guide image set. It is used with a model that has a ControlNet (Models tab: SDXL + Canny ControlNet).', 6000);
+      toast(st.cnModel ? 'Guide image set.' : 'Guide image set. It is used with a model that has a ControlNet (Models tab: SDXL + Canny ControlNet, or Z-Image Turbo + Union ControlNet for a pose).', 6000);
     };
     img.onerror = function () { toast('Could not read that image.', 6000); };
     img.src = src;

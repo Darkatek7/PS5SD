@@ -6113,11 +6113,11 @@
             "items": {
               "type": "string"
             },
-            "description": "Reference images (base64 or data URLs) for edit by the prompt, FLUX.2 Klein."
+            "description": "Reference images (base64 or data URLs) for edit by the prompt, for a model with a reference preset (`model.ref_image_preset` in the capabilities)."
           },
           "control_image": {
             "type": "string",
-            "description": "The ControlNet guide: a base64 PNG or a data URL."
+            "description": "The ControlNet guide: a base64 PNG or a data URL. A pose skeleton, a depth map or edges, as the loaded ControlNet takes."
           },
           "control_strength": {
             "type": "number",

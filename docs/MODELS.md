@@ -500,7 +500,7 @@ with two. [API.md](API.md#edit-by-the-prompt) has the request.
 
 A ControlNet makes the new image follow a guide image. The Canny kind takes the edges of the guide, so the
 layout stays and the prompt sets the rest. sd.cpp loads ControlNets for SD 1.5, SD 2 and SDXL, in the
-original or the diffusers layout.
+original or the diffusers layout, and the Union ControlNet of Z-Image Turbo (below), which takes a pose.
 
 The catalog has one for SDXL, **SDXL Base 1.0 (Q8_0) + Canny ControlNet**, on the Models tab under **Get more**, not featured.
 One click installs it, 7.9 GB in all. A file that is there already (the SDXL GGUF or the VAE, from another
@@ -531,7 +531,8 @@ controlnet/xinsir-canny-sdxl-v2.safetensors
 On the Create tab, with a ControlNet loaded, the **Guide image (ControlNet)** part appears. Pick a file for
 the guide, or press **Guide** on a gallery image or under a result.
 
-- **Strength** (0.1 to 1.5, default 0.6): how closely the result follows the guide. 0.5 is loose, 1 is close.
+- **Strength** (0.1 to 1.5): how closely the result follows the guide. 0.5 is loose, 1 is close. It starts at
+  0.6 for SDXL's Canny ControlNet and at 0.9 for Z-Image's Union ControlNet.
   A guide with many edges (trees, grass) looks painted at 0.8 and up; 0.5 to 0.65 kept the layout and
   looked natural.
 - **Find the edges first (Canny)**: on by default. Turn it off when the guide is already an edge map, or a
@@ -572,6 +573,43 @@ With the hires fix, measured on the console (0.9.18, SDXL Base with xinsir's Can
 the second pass at a strength of 0.5): 1024x1024 alone in about 2 min 45 s, to 1536x1536 in about 6 minutes.
 2048x2048 runs the console's CPU memory out: the run fails with "Not enough memory", and PS5SD stays. Before
 0.9.18 a guide image with the hires fix ended PS5SD; keep it at 1536x1536 or below.
+
+### A pose: Z-Image Turbo with the Union ControlNet
+
+The catalog's **Z-Image Turbo (Q4_K) + Union ControlNet** (Models, **Get more**, not featured) adds
+alibaba-pai's Z-Image-Turbo-Fun-Controlnet-Union 2.1 to Z-Image Turbo. One ControlNet takes a pose skeleton
+(OpenPose), a depth map or edges. One click installs it, 10.3 GB in all; the files of Z-Image Turbo are not
+fetched again.
+
+| File | Size | From |
+|---|---|---|
+| `controlnet/z-image-turbo-fun-controlnet-union-2.1-q8_0.gguf` | 3.6 GB | [Solictous/Z-Image-Turbo-Fun-Controlnet-Union-2.1-GGUF](https://huggingface.co/Solictous/Z-Image-Turbo-Fun-Controlnet-Union-2.1-GGUF) (Q8_0 of [alibaba-pai/Z-Image-Turbo-Fun-Controlnet-Union-2.1](https://huggingface.co/alibaba-pai/Z-Image-Turbo-Fun-Controlnet-Union-2.1), 2602, 8 steps), Apache 2.0 |
+
+For a pose, make the guide a pose skeleton: the coloured stick figure of OpenPose on black. Pose editors in a
+browser make one (search for "OpenPose editor"), or take one from a pose collection. Then:
+
+1. **Use** the preset, open **Guide image (ControlNet)** on the Create tab and pick the skeleton.
+2. Turn **Find the edges first (Canny)** off: the skeleton is the guide as it is.
+3. Keep the strength at 0.9 and write the prompt for the figure and the scene.
+
+Measured on the console (2026-11-19, 1024x1024, 8 steps): at 0.9 a knight took the skeleton's pose (one arm
+raised, a hand on the hip, the legs apart) from a prompt that did not name it; at 0.7 he stood as the prompt
+liked, unless the prompt named the pose too; at 1.0 the colours went flat. An image takes about 80 s (48 s
+without the ControlNet), and 2.7 GiB were free after it.
+
+The preset has no VAE tiles: tiles leave seams in the encoded guide. A decode that does not fit falls back
+to tiles by itself.
+
+A pose and a character from a picture at once (issue 13) take two steps, since Z-Image Turbo takes no
+reference picture and FLUX.2 Klein takes no pose from a skeleton:
+
+1. Make any figure in the pose here, with the skeleton as the guide.
+2. Switch to FLUX.2 Klein, put that image into **Edit by the prompt** and the character as the second
+   picture, and write: "Replace the knight in image 1 with the goblin from image 2, in the same pose. Keep the
+   background of image 1."
+
+Measured on the console (2026-11-19, Klein 4B, two pictures of 768 px, 4 steps): the goblin took the
+knight's pose, one arm raised and the legs apart, and the castle stayed; 51 s.
 
 ## How big a model can be
 

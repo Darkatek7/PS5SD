@@ -1420,3 +1420,76 @@ One reference, the lighthouse at dusk, and "the same lighthouse in winter … ke
 A cold load of the web UI asks once each for `/ps5sd/v1/app/settings` (was three times), the gallery list
 and the gallery's labels (were twice with the gallery as the last tab), and for the icon and the manifest.
 No `favicon.ico` 404 any more.
+
+## The gallery viewer with images of 1.0 and 1.1 (2026-11-19)
+
+The 1.4.1 release build, the web UI in Chrome on a PC, Klein 9B loaded.
+
+- An image of 1.0 (2026-10-28, Z-Image Turbo, the old generation info) and one of 1.1 (2026-11-14, Z-Image
+  Turbo, `sdcpp.generation/v1`): the viewer showed the prompt, the preset, the model, the time, the size, the
+  steps, CFG, the sampler and the seed of each.
+- **Use all** switched to Z-Image Turbo and put the prompt, steps, seed, sampler, scheduler (`default` for the
+  old image, `discrete` for the new), CFG and size into the Create tab, for both.
+
+## Z-Image's Union ControlNet and ADetailer (2026-11-19)
+
+The 1.4.1 release build for the ControlNet; a 1.5.0 build (with a patch that made ADetailer a request's
+choice, since taken out again) for ADetailer.
+
+### Z-Image Turbo with the Union ControlNet
+
+Z-Image Turbo Q4_K, Qwen3-4B Q4_K_M, the FLUX.1 VAE and alibaba-pai's Z-Image-Turbo-Fun-Controlnet-Union 2.1
+(2602, 8 steps) in Q8_0 (3.57 GB), 1024x1024, 8 steps of euler at CFG 1. The guide: an OpenPose skeleton on
+black, one arm raised high, the other hand on the hip, the legs apart.
+
+| Preset | Strength | Prompt | Time | Pose |
+|---|---|---|---|---|
+| no VAE tiles, no Spectrum | 0.7 | a goblin, waving, one hand on his hip | 118.0 s | yes |
+| no VAE tiles, Spectrum | 0.7 | the same | 94.2 s | yes, the same picture |
+| no VAE tiles, Spectrum | 0.7 | a knight on a castle wall (no pose named) | 81.3 s | no: arms down |
+| no VAE tiles, Spectrum | 0.9 | the same | 79.2 s | yes |
+| no VAE tiles, Spectrum | 1.0 | the same | 79.3 s | yes, flat colours |
+
+- The weights: 9.6 GB (the ControlNet 3.4 GB of it). Free after loading: 10.6 GiB (sd.cpp loads them as they
+  are used); after an image: 2.4 to 2.7 GiB, the largest part.
+- A step took 11.7 s of which the GPU worked 9.6 s; without the ControlNet a step takes about 5.5 s. The 15
+  control layers run in every step.
+- The VAE decode of 1024x1024 did not fit without tiles and ran again in 512 px tiles by itself.
+- The catalog's preset uses Spectrum and no VAE tiles; the web UI starts the strength at 0.9 for it.
+- A pose and a character (issue 13) in two steps: the knight at 0.9 above as image 1, a goblin made by Klein
+  4B (standing, arms down, grey background) as image 2, both 768x768, on Klein 4B (4 steps,
+  `resize_before_vae=false`): "Replace the knight in image 1 with the goblin from image 2, in the same pose.
+  Keep the castle wall and the sky of image 1." The goblin stood on the wall with one arm raised and the
+  legs apart; with the pose named in the prompt too, the other hand also went to the hip. 50.7 and 51.0 s.
+
+### ADetailer
+
+SDXL Base Q8_0, 1024x1024, 10 steps of dpm++2m (ays), the detector igytikh/face-yolov8m-safetensors
+(YOLOv8m, 52 MB), loaded with `--ad-model`.
+
+- It ran: finding the faces took 0.3 s; four faces at a cafe table took about 5 s each, thirteen small
+  faces of a wedding party about 60 s in all.
+- The faces came out worse, not better. Large ones got seams and a blurred, doubled face; small ones
+  (20 to 27 px) were smeared at the default strength of 0.4 and became blocks of pixels at 0.6 (20 steps of
+  euler_a, karras). 20 steps or karras at 0.4 did not help.
+- So PS5SD does not offer it yet. The cause is not known: sd.cpp's ADetailer on the PS5's Vulkan, the SDXL
+  VAE's tiles, or the inpainting of a crop.
+
+### The upstream speed work
+
+The 1.5.0 build. Z-Image Turbo Q4_K, 1024x1024, 8 steps, the second image after a start (the first takes
+about 5 s more).
+
+| `env.txt` | Time |
+|---|---|
+| nothing (the default) | 49.0 s |
+| `GGML_VK_ASYNC_USE_TRANSFER_QUEUE=0` | 48.9 s, the same image |
+| `GGML_VK_ASYNC_USE_TRANSFER_QUEUE=1` | 48.9 s, the same image |
+| `GGML_VK_DISABLE_FUSION=1` | 49.8 s, an image that differs in small details |
+
+- The work of upstream's #2251, #2252, #2245, #2250 and #2211 is in since 1.1.0 and on by default. Graph
+  fusion saves about 0.8 s of 49 here; the transfer queue makes no difference on the PS5.
+- #2265 (Z-Image fusions, BF16 GEMM) changed only CUDA code.
+- Direct convolution: sd.cpp's start probe turns it off on the PS5 for 2D and 3D ("probe output check
+  failed"), so the SDXL UNet, the VAEs and Wan keep im2col.
+- Flash attention: the probe picks it (0.74 ms against 1.32 ms), as PS5SD sets it anyway.

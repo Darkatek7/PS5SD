@@ -611,13 +611,14 @@ it starts. `POST /ps5sd/v1/app/gallery/keep` keeps one after all (see [Gallery](
 curl http://<console>:7860/sdcpp/v1/vid_gen -d '{"prompt": "a lighthouse on a cliff, waves, evening light", "width": 832, "height": 480, "video_frames": 33, "fps": 16, "sample_params": {"sample_steps": 20, "guidance": {"txt_cfg": 6}}, "output_format": "webm"}'
 ```
 
-**ControlNet**: with a model whose preset loads a ControlNet (the catalog's SDXL Canny one, see
-[MODELS.md](MODELS.md#controlnet)), `POST /sdcpp/v1/img_gen` takes a guide image. With a model that has no
-ControlNet, the guide is ignored.
+**ControlNet**: with a model whose preset loads a ControlNet (the catalog's SDXL Canny one, or Z-Image
+Turbo's Union one, which takes a pose; see [MODELS.md](MODELS.md#controlnet)), `POST /sdcpp/v1/img_gen` takes
+a guide image. With a model that has no ControlNet, the guide is ignored.
 
 - `control_image`: the guide, a base64 PNG or a data URL.
 - `control_strength`: how closely the result follows the guide (the web UI offers 0.1 to 1.5). Left out, it
-  is the server's default, 0.9; the web UI sends 0.6 unless you change it.
+  is the server's default, 0.9. The web UI starts at 0.6 for SDXL's Canny ControlNet and at 0.9 for Z-Image's
+  Union one, which holds a pose from 0.9 on.
 - `image_preprocess`: `"target=control,canny=true"` runs Canny edge detection on the guide first. Leave it out
   when the guide is already an edge map, or a pose or depth image for a ControlNet of that kind.
 

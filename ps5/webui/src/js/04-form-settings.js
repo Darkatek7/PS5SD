@@ -166,7 +166,11 @@
     st.mid = entry ? entry.id : '';
     st.preset = presetFor(name, entry);
     $('resetpreset').title = presetNote(st.preset);
+    var cnBefore = st.cnModel;
     st.cnModel = entry && entry.control_net ? entry.control_net : '';
+    // The strength a ControlNet works best at (measured: CONSOLE.md): Z-Image's Union one holds a pose
+    // from 0.9 on, SDXL's Canny one follows the edges at 0.6.
+    if (st.cnModel && st.cnModel !== cnBefore) $('cn-str').value = /z.?image/i.test(st.cnModel) ? '0.9' : '0.6';
     drawStarters(entry);
     drawClipSkip(entry);
     drawVideoStart();

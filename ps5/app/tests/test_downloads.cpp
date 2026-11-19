@@ -150,6 +150,12 @@ int main() {
           "catalog ids are unique, the starters are there");
     check(find_catalog("sdxs-512") != nullptr && find_catalog("nope") == nullptr, "find_catalog");
     {
+        const CatalogEntry * zcn = find_catalog("z-image-turbo-controlnet");
+        check(zcn != nullptr && std::string(zcn->preset).find("--control-net\n") != std::string::npos &&
+                  std::string(zcn->preset).find("--vae-tiling") == std::string::npos,
+              "the Z-Image ControlNet preset loads the ControlNet, without VAE tiles");
+    }
+    {
         const CatalogEntry * canny = find_catalog("sdxl-canny");
         check(canny != nullptr && !canny->featured && canny->files.size() == 3 &&
                   std::string(canny->files[2].dest) == "controlnet/xinsir-canny-sdxl-v2.safetensors",

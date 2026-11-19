@@ -305,6 +305,41 @@ inline std::vector<CatalogEntry> entries() {
             "fast photoreal images",
         },
         {
+            "z-image-turbo-controlnet",
+            "Z-Image Turbo (Q4_K) + Union ControlNet",
+            "Z-Image Turbo with a ControlNet that takes a guide image: a pose skeleton, a depth map or edges (Canny) "
+            "set the layout. About 80 s an image at 1024x1024. 10.3 GB.",
+            {
+                { "https://huggingface.co/leejet/Z-Image-Turbo-GGUF/resolve/main/z_image_turbo-Q4_K.gguf",
+                  "diffusion_models/z_image_turbo-Q4_K.gguf", 3864250304ull, 0 },
+                PS5SD_QWEN3_4B,
+                { "https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/vae/ae.safetensors",
+                  "vae/flux1-ae.safetensors", 335304388ull, 0 },
+                // alibaba-pai's Z-Image-Turbo-Fun-Controlnet-Union 2.1 (2602, 8 steps; Apache 2.0) in Q8_0,
+                // converted by the author of sd.cpp's Z-Image ControlNet support (#2187). Version 1.0 has 16
+                // input channels where sd.cpp takes 33, and the lite file puts its layers elsewhere.
+                { "https://huggingface.co/Solictous/Z-Image-Turbo-Fun-Controlnet-Union-2.1-GGUF/resolve/main/"
+                  "Z-Image-Turbo-Fun-Controlnet-Union-2.1-2602-8steps_q8_0_akv.gguf",
+                  "controlnet/z-image-turbo-fun-controlnet-union-2.1-q8_0.gguf", 3567053024ull, 0 },
+            },
+            // No VAE tiling: tiles leave seams in the encoded guide image (#2187); a decode that does not fit
+            // falls back to tiles by itself.
+            "# name: Z-Image Turbo (Q4_K) + Union ControlNet\n"
+            "# defaults: steps=8 cfg=1 width=1024 height=1024 sampler=euler\n"
+            "--diffusion-model\n"
+            "diffusion_models/z_image_turbo-Q4_K.gguf\n"
+            "--llm\n"
+            "text_encoders/Qwen3-4B-Instruct-2507-Q4_K_M.gguf\n"
+            "--vae\n"
+            "vae/flux1-ae.safetensors\n"
+            "--control-net\n"
+            "controlnet/z-image-turbo-fun-controlnet-union-2.1-q8_0.gguf\n"
+            "--cache-mode\n"
+            "spectrum\n",
+            false,
+            "",
+        },
+        {
             "flux2-klein-4b",
             "FLUX.2 Klein 4B (Q8_0)",
             "Fast and detailed: 1024x1024 in 4 steps, about 22 s an image. Apache 2.0. 7.1 GB.",
