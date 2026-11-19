@@ -10,6 +10,8 @@ can rely on.
 
 ## Done
 
+- **1.5.0**: a pose with Z-Image Turbo's Union ControlNet, and a pose with a character in two steps
+  (issue 13); the upstream speed work measured.
 - **1.4.1**: the gallery shows every file, not only the newest 1000 (issue 22).
 - **1.4.0**: Edit by the prompt with every model that takes a reference (issue 21), the references sent at
   768 px (a third faster), a second picture, drag and drop and paste; the free space, and a download that does
@@ -583,6 +585,25 @@ Measured on the console on 2026-11-18 and 2026-11-19
   pages of 1000 (`offset`) until one is short. `scripts/webui-dev.py --mock-gallery N` tries it without a
   console.
 
+## 1.5.0: a pose with Z-Image's ControlNet ([issue 13](https://github.com/Darkatek7/PS5SD/issues/13)), done
+
+Measured on the console on 2026-11-19 ([CONSOLE.md](docs/CONSOLE.md#z-images-union-controlnet-and-adetailer-2026-11-19)).
+
+- [x] **Z-Image ControlNet** (#2187): the catalog's **Z-Image Turbo (Q4_K) + Union ControlNet** adds
+  alibaba-pai's Union ControlNet 2.1 in Q8_0 (3.6 GB). A pose skeleton, a depth map or edges set the layout;
+  about 80 s an image at 1024x1024. At 0.9 the figure takes the pose from a prompt that does not name it, so
+  the web UI starts at 0.9 for it (0.6 for SDXL's Canny one).
+- [x] **Issue 13's pose and character**, in two steps: the pose with this ControlNet, then the character
+  into it with Edit and two pictures on FLUX.2 Klein ("the goblin from image 2, in the same pose"). Klein 4B
+  took 51 s for the second step. `docs/MODELS.md` says how.
+- [x] **Speed** from upstream: in since 1.1.0 and on by default. Graph fusion saves about 2 per cent on
+  Z-Image; the transfer queue makes no difference; direct convolution fails sd.cpp's probe on the PS5 and
+  stays off; #2265 is CUDA only.
+- [x] **Fixes** that came with it (#2227, #2256, #2181, #2197): in since 1.1.0.
+- [x] **The gallery viewer in a browser**: the info and Use all of an image of 1.0 and one of 1.1 work.
+- [ ] **Fix faces** (ADetailer, #2164): it runs on the console, but the faces come out smeared or in blocks
+  of pixels, not sharper. Not offered; moved to 1.x below.
+
 ## After 1.0
 
 1.x adds what does not break a client of the API; a change that breaks one (a route, a field, an error
@@ -591,32 +612,9 @@ code that goes away or changes its meaning) waits for 2.0.
 The plan as of 2026-11-04, in order (1.1.0 was taken by the stable-diffusion.cpp of November on
 2026-11-12, 1.2.0 by faster loading on 2026-11-14 and 1.3.0 by the gallery as a ZIP on 2026-11-17, so the
 rest moved up three numbers; 1.4.0 took the web UI's storage and USB items on 2026-11-19, and the pose of
-issue 13 and the `sdxl-full` conversion moved on). 1.6.0 only touches the web UI and the app's own routes, so it can be worked
+issue 13 and the `sdxl-full` conversion moved on; 1.5.0 took the pose). 1.6.0 only touches the web UI and the app's own routes, so it can be worked
 on next to 1.4.0 and 1.5.0. The times below are those of 1.0.0 on the console ([CONSOLE.md](docs/CONSOLE.md));
 every new number goes there with its date and build.
-
-## 1.5.0: what the stable-diffusion.cpp of November brings
-
-1.1.0 moved PS5SD onto it with the times of 1.0, and 1.2.0 took Spectrum from it. This release uses
-the rest.
-
-- [ ] **Speed** from upstream, measured on the console, not assumed: Vulkan kernels, graph fusion and
-  reused workspaces (#2251, #2252), fused GEGLU and GLU (#2245, #2250; the SDXL and SD 1.5 UNets use
-  them), Z-Image fusions and BF16 GEMM (#2265), position embeddings kept between runs (#2211). The
-  baseline: Z-Image Turbo 1024x1024 89 s, SDXL Base 29 s, Klein 9B 49 s warm, Wan 2.1 1.3B (9 frames at
-  832x480) 87 s.
-- [ ] **Fixes** that come with it: the hires fix keeps the step count it was given (#2227), Vulkan's free
-  memory checked again after a reclaim (#2256), small-BAR heaps (#2181), Wan's VAE decode plans (#2197).
-- [ ] **Face and detail fix**: upstream's server does ADetailer now (#2164). A face detector in the
-  catalog, a **Fix faces** button under the result and in the viewer, and the field in
-  `/sdcpp/v1/img_gen` and the A1111 routes. Measure the time it adds on an SDXL picture with two faces.
-- [ ] **Z-Image ControlNet** (#2187): the Union model (pose, depth, edges) in the catalog, for Guide on
-  Z-Image Turbo. With a pose picture this is the way to issue 13's pose: 1.4.0 found that a reference
-  picture does not carry one. A preset "Pose and character" then gives it with a prompt and no setup.
-- [ ] **The gallery viewer in a browser**: its info and Use all on an image from 1.0 and one from 1.1. The
-  conversion of the new JSON (`infoShape` in `12b-gallery-info.js`) was tested with node only.
-- [ ] Soak test and update test again; the new times into CONSOLE.md and, where they changed, into the
-  catalog and `docs/MODELS.md`.
 
 ## 1.6.0: the web UI, smaller steps
 
@@ -652,6 +650,9 @@ and the PS5's own browser, which needs ES5.
 
 ## 1.x, no version yet
 
+- [ ] **Fix faces** (ADetailer): sd.cpp's detail pass smeared the faces on the console, or turned them into
+  blocks of pixels (CONSOLE.md, 2026-11-19). Find out why (the Vulkan backend, the VAE's tiles, the crop's
+  inpainting) before a face detector goes into the catalog.
 - [ ] **Image to text** ([issue 14](https://github.com/Darkatek7/PS5SD/issues/14)): a description or a prompt
   from a picture, with a button that writes it into the image's metadata and one that copies it.
   stable-diffusion.cpp only encodes text, so this needs a vision-language model that generates text, run with
