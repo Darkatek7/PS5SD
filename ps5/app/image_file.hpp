@@ -22,8 +22,10 @@ struct Rgba {
 // Decodes the file. An image larger than max_side on its longer side is
 // shrunk by whole-number box filters (never below max_side / 2), so a 1024
 // px picture becomes a 512 px texture rather than a 2 MiB one with aliasing.
-// Returns false when the file is missing or not an image.
-bool load_image_rgba(const std::string & path, int max_side, Rgba & out);
+// Returns false when the file is missing or not an image, or, with max_pixels > 0, when it has
+// more pixels than that (the header is read first, so nothing is allocated for it: decoding
+// takes 8 bytes a pixel at its peak, and the heap is shared with the model).
+bool load_image_rgba(const std::string & path, int max_side, Rgba & out, long long max_pixels = 0);
 
 // A copy of `in` whose longer side is at most max_side, by box filter.
 // Ratios between whole numbers only; an image already small enough is copied.

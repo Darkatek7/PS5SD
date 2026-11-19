@@ -102,6 +102,7 @@ std::string sd_server_failure_reason(const std::string & fallback);
 #ifndef PS5SD_NO_DISPLAY
 #include "display.hpp"
 #include "gfx/renderer.hpp"
+#include "pad_input.hpp"
 #include "status_view.hpp"
 #endif
 
@@ -2285,10 +2286,14 @@ int main(int, char **) {
         g_status.set_port(config.port);
     }
     watch_address();
+    view.set_gallery_dir(kOutputs);
+    PadInput pad;  // the DualSense: Triangle opens the gallery's slideshow (slideshow.hpp)
     auto last_frame = std::chrono::steady_clock::now();
     const auto render = [&] {
         const auto now = std::chrono::steady_clock::now();
-        view.update(g_status.snapshot(), std::chrono::duration<float>(now - last_frame).count());
+        const float dt = std::chrono::duration<float>(now - last_frame).count();
+        pad.poll(view, dt);
+        view.update(g_status.snapshot(), dt);
         last_frame = now;
         view.compose(renderer, PS5SD_VERSION);
         display.present(renderer);

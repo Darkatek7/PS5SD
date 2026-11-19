@@ -10,7 +10,9 @@
 #include "dashboard.hpp"
 #include "gfx/gl_program.hpp"
 #include "gfx/renderer.hpp"
+#include "core/input.hpp"
 #include "image_file.hpp"
+#include "slideshow.hpp"
 
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
@@ -19,11 +21,16 @@
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h"
 
+#include <dirent.h>
+
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <ctime>
 #include <string>
 #include <sys/stat.h>
+#include <sys/time.h>
+#include <unistd.h>
 #include <vector>
 
 namespace {
@@ -166,6 +173,49 @@ int main(int argc, char ** argv) {
         save_png(paths.back(), fake_picture(i, portrait ? 384 : 512, 512));
     }
 
+    // The gallery folder of the slideshow: pictures of several shapes with dates (newest first), and the
+    // files the slideshow must leave out (a video, a temporary image, the thumbnails' folder).
+    const std::string gallery = work + "/gallery", empty_gallery = work + "/gallery-empty";
+    mkdir(gallery.c_str(), 0777);
+    mkdir((gallery + "/.thumbs").c_str(), 0777);
+    // a folder from an earlier run is emptied: the checks count the pictures
+    if (DIR * d = opendir(gallery.c_str())) {
+        while (const dirent * e = readdir(d)) {
+            if (e->d_name[0] != '.') {
+                unlink((gallery + "/" + e->d_name).c_str());
+            }
+        }
+        closedir(d);
+    }
+    mkdir(empty_gallery.c_str(), 0777);
+    {
+        struct Shape {
+            const char * name;
+            int          w, h;
+        };
+        const Shape shapes[] = { { "sd_20261119_101500_000.png", 1280, 720 }, { "sd_20261119_101200_000.png", 720, 1280 },
+                                 { "sd_20261119_100900_000.png", 1024, 1024 }, { "sd_20261119_100600_000.png", 1280, 720 },
+                                 { "sd_20261119_100300_000.png", 960, 540 } };
+        long now = (long) time(nullptr);
+        int  seed = 11;
+        for (const Shape & shape : shapes) {
+            const std::string path = gallery + "/" + shape.name;
+            save_png(path, fake_picture(seed++, shape.w, shape.h));
+            struct timeval t[2] = { { now, 0 }, { now, 0 } };
+            utimes(path.c_str(), t);
+            now -= 180;
+        }
+        for (const char * other : { "sd_20261119_101600_000.webm", "tmp_sd_20261119_101700_000.png", ".thumbs/sd_20261119_101500_000.png.jpg" }) {
+            if (FILE * f = std::fopen((gallery + "/" + other).c_str(), "wb")) {
+                std::fputs("not a slide", f);
+                std::fclose(f);
+            }
+        }
+    }
+    dashboard.set_gallery_dir(gallery);
+    dashboard.set_pad_open(true);
+    dashboard.pad_sample(0, 128, true);
+
     ps5sd::AppStatus           status;
     std::vector<unsigned char> pixels((size_t) width * height * 4);
     const auto                 frames = [&](int n) {
@@ -198,6 +248,13 @@ int main(int argc, char ** argv) {
         return ok;
     };
     bool ok = true;
+    // A press of one button of the pad: down for a frame, then up.
+    const auto tap = [&](uint32_t bits, uint8_t x = 128) {
+        dashboard.pad_sample(bits, x, true);
+        frames(1);
+        dashboard.pad_sample(0, 128, true);
+        frames(1);
+    };
 
     // The log, as sd.cpp writes it.
     const char * const log[] = {
@@ -292,5 +349,100 @@ int main(int argc, char ** argv) {
     status.set_api_key("t3xq 7mfa k2pz vw4d nh6e y5cr ub2s gk7j qa3m xe4t wd6p hz2n rf5v");
     frames(30);
     ok = capture("09-api-key", 0, 18.6) && ok;
+
+    // 10. Triangle opens the slideshow on the newest picture of the gallery (the folder holds a video,
+    // a temporary image and the thumbnails too, which it leaves out).
+    status.set_api_key("");
+    tap(hui::pad_bits::kTriangle);
+    frames(70);
+    ok = dashboard.slideshow_open() && ok;
+    ok = capture("10-slideshow", 0, -1) && ok;
+
+    // 11. Right is the next one, an older picture: a portrait, fitted to the height.
+    tap(hui::pad_bits::kRight);
+    frames(60);
+    ok = capture("11-slideshow-portrait", 0, -1) && ok;
+
+    // 12. A job runs: its progress in the corner.
+    status.set_progress(0, 20, 0.0f);
+    status.set_phase("Generating", prompt);
+    status.set_progress(8, 20, 1.34f);
+    tap(hui::pad_bits::kRight, 128);
+    frames(60);
+    ok = capture("12-slideshow-job", 14.2, -1) && ok;
+
+    // 13. Options starts the automatic advance: a line along the bottom shows the time left.
+    status.set_progress(20, 20, 1.34f);
+    status.set_phase("Ready", "saved");
+    tap(hui::pad_bits::kOptions);
+    frames(100);
+    ok = capture("13-slideshow-auto", 0, -1) && ok;
+
+    // 14. Four seconds on, the hints have faded, the line is still there.
+    frames(160);
+    ok = capture("14-slideshow-auto-hints-off", 0, -1) && ok;
+
+    // 15. The model loads (the stick to the left steps back): the corner shows the loading.
+    status.set_phase("Loading the model", "then the API on port 7860");
+    status.set_progress(640, 1200, 0.0f);
+    tap(0, 0);  // the stick fully to the left, for a frame
+    frames(60);
+    ok = capture("15-slideshow-loading", 0, -1) && ok;
+
+    // 16. A picture arrives while it runs: the viewer on the newest one moves to it.
+    {
+        status.set_phase("Ready", "saved");
+        tap(hui::pad_bits::kOptions);  // stop the advance
+        // left goes to newer pictures, around the end, until the newest is shown
+        for (int i = 0; i < 8 && dashboard.slideshow_index() != 0; i++) {
+            tap(hui::pad_bits::kLeft);
+            frames(10);
+        }
+        ok = dashboard.slideshow_index() == 0 && dashboard.slideshow_size() == 5 && ok;
+        const std::string made = gallery + "/sd_20261119_102000_000.png";
+        save_png(made, fake_picture(21, 1024, 576));
+        status.set_result(made);  // a finished job: the list is read at once
+        frames(80);
+        ok = dashboard.slideshow_index() == 0 && dashboard.slideshow_size() == 6 && ok;
+        ok = capture("16-slideshow-new-picture", 0, -1) && ok;
+    }
+
+    // 17. Circle goes back to the dashboard.
+    tap(hui::pad_bits::kCircle);
+    frames(90);
+    ok = !dashboard.slideshow_open() && ok;
+    ok = capture("17-back-on-the-dashboard", 0, 18.6) && ok;
+
+    // 18. The switch that keeps images off the TV: Triangle does nothing and the tile says why.
+    status.set_tv_images(false);
+    tap(hui::pad_bits::kTriangle);
+    frames(30);
+    ok = !dashboard.slideshow_open() && ok;
+    ok = capture("18-images-hidden", 0, -1) && ok;
+    status.set_tv_images(true);
+
+    // 19. The switch is turned on while the slideshow is open: it closes.
+    tap(hui::pad_bits::kTriangle);
+    frames(30);
+    ok = dashboard.slideshow_open() && ok;
+    status.set_tv_images(false);
+    frames(60);
+    ok = !dashboard.slideshow_open() && ok;
+    status.set_tv_images(true);
+    frames(30);
+
+    // 20. An empty gallery.
+    dashboard.set_gallery_dir(empty_gallery);
+    tap(hui::pad_bits::kTriangle);
+    frames(60);
+    ok = capture("19-slideshow-empty", 0, -1) && ok;
+    tap(hui::pad_bits::kCircle);
+    frames(60);
+    dashboard.set_gallery_dir(gallery);
+
+    // 21. No controller: the tile says so.
+    dashboard.pad_sample(0, 128, false);
+    frames(30);
+    ok = capture("20-no-controller", 0, 18.6) && ok;
     return ok ? 0 : 1;
 }

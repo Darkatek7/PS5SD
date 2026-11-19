@@ -98,6 +98,11 @@ add_executable(test_prompt_history test_prompt_history.cpp)
 target_include_directories(test_prompt_history PRIVATE .. "${SD_DIR}/thirdparty")
 add_test(NAME prompt_history COMMAND test_prompt_history)
 
+# The slideshow on the TV: the list, the controller's steps, the show (slideshow.hpp, header-only).
+add_executable(test_slideshow test_slideshow.cpp)
+target_include_directories(test_slideshow PRIVATE ..)
+add_test(NAME slideshow COMMAND test_slideshow)
+
 # sd-server's one error shape (patches/sdcpp/0076), when SD_DIR is patched (CI applies the series).
 if(EXISTS "${SD_DIR}/examples/server/api_error.cpp")
     find_package(Threads REQUIRED)

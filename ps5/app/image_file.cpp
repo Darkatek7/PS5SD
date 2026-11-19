@@ -52,8 +52,11 @@ Rgba shrink_to(const Rgba & in, int max_side) {
     return out;
 }
 
-bool load_image_rgba(const std::string & path, int max_side, Rgba & out) {
+bool load_image_rgba(const std::string & path, int max_side, Rgba & out, long long max_pixels) {
     int         w = 0, h = 0, channels = 0;
+    if (max_pixels > 0 && (!stbi_info(path.c_str(), &w, &h, &channels) || (long long) w * h > max_pixels)) {
+        return false;
+    }
     stbi_uc *   data = stbi_load(path.c_str(), &w, &h, &channels, 4);
     if (data == nullptr || w <= 0 || h <= 0) {
         if (data != nullptr) {

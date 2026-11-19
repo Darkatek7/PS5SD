@@ -342,6 +342,32 @@ instead of trapping, so `main.cpp` reports an out-of-memory load or generation a
   runtime's empty thread-local initialiser.
 - `status_view.cpp`: the screen for now, one monospaced font drawn with ps5-homebrew-ui into a
   DrawList, the slot a dashboard takes later.
+- The slideshow (the gallery in full screen on the TV, driven by the DualSense):
+  - `slideshow.hpp`, header-only and host-tested (`tests/test_slideshow.cpp`): `GalleryScan` lists the
+    outputs folder (PNG, not `tmp_`, not hidden; one `readdir`, and a file's date is asked for once),
+    `SlideInput` folds the pad's samples of a frame into steps, Options, Circle and Triangle (the D-pad
+    and the left stick with a dead zone and hysteresis, a repeat after 0.45 s every 0.22 s, a tap between
+    two frames kept, no press when the pad comes back with a button down), and `Slideshow` holds the list,
+    the current picture, the automatic advance (5 s, counted while the picture is on the screen), new
+    pictures joining (the newest one on the screen moves to a newer one) and the window of pictures that
+    stay decoded: the current one and its two neighbours, the one it is heading for first.
+  - `pad_input.cpp` is console code: ps5-homebrew-ui's `hui::ps5::Pad` (`sceUserServiceInitialize`,
+    `sceUserServiceGetInitialUser`, `scePadInit`, `scePadOpen`, then `scePadRead` of up to 64 samples a
+    frame) and the samples go to `Dashboard::pad_sample`. It needs `libScePad` and `libSceUserService`;
+    both are in the SDK's stubs and `--as-needed` links them (they are not the null modules that
+    `build-app.sh` warns about). It opens on the first frame, and again every 30 s while it is not open
+    (a failed `scePadOpen` takes up to a second, in the kit's retry). `main.cpp` has three lines for it
+    (`set_gallery_dir`, a `PadInput`, `pad.poll` before `view.update`). The kit's pad code was in the kit
+    archive already; nothing of it was linked before. Not run on the console yet.
+  - `dashboard.cpp` opens the slideshow on Triangle when `tv_images` is on (the hint is in the recent
+    images' tile, `draw_slide_hint`), reads the folder again every 3 s and when `AppStatus::images`
+    changes, decodes one picture a frame (`sync_slides`, at most 1920 px and 4096 x 4096 pixels
+    in the file; `load_image_rgba` reads the header first, and a `bad_alloc` marks the picture as not
+    readable), and draws it over a black screen (`draw_slideshow`): hints and place for four seconds after a
+    press, a line for the time left, the job's progress in the top right corner. While it is open the
+    dashboard's own thumbnails are not decoded. It fades in and out; when closed it lets go of its
+    textures. Circle, or `tv_images` turned off, closes it. A video has no poster the slideshow can use
+    (the gallery's thumbnails are 320 px), so videos are skipped.
 - `tests/`: host-side tests for the parts with no console code (the argument parser, the model
   library, the downloader's URLs, catalog and queue in `test_downloads.cpp`), and
   `smoke_downloader.cpp`, the downloader against the real Hugging Face and Civitai from the PC

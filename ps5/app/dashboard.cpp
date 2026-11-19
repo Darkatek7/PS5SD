@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <new>
 #include <utility>
 
 namespace ps5sd {
@@ -54,6 +55,16 @@ constexpr Rect kLogTile{ 1284, 892, 540, 92 };
 constexpr float kRadius = 28.0f;
 constexpr float kPad    = 32.0f;
 constexpr int   kThumbs = 6;
+
+// The slideshow: the screen, how often the gallery's folder is read again, how long the hints stay after
+// a press, the largest side a picture is decoded to (a 1080p screen shows no more than 1920 across;
+// a picture is shrunk by whole numbers, so 2048 becomes 1024), and the most pixels a file may have
+// (4096 x 4096: the decode takes 8 bytes a pixel for a moment, from the heap the model shares).
+constexpr Rect      kScreen{ 0, 0, 1920, 1080 };
+constexpr float     kRescanSeconds = 3.0f;
+constexpr float     kHudSeconds    = 4.0f;
+constexpr int       kSlideMaxSide  = 1920;
+constexpr long long kSlideMaxPixels = 4096LL * 4096LL;
 
 constexpr const char * kDot = "\xC2\xB7";  // middle dot
 
@@ -161,6 +172,9 @@ Dashboard::~Dashboard() {
             release(p.thumb);
             release(p.large);
         }
+        for (SlideTex & t : slide_tex_) {
+            release(t.tex);
+        }
     }
 }
 
@@ -254,6 +268,8 @@ bool Dashboard::load(hui::gfx::Renderer & renderer, const std::string & font_pat
     accent_.snap(state_color(State::starting));
     accent_set_ = true;
     reveal_.snap(1.0f);
+    show_vis_.snap(0.0f);
+    slide_fade_.snap(1.0f);
     loaded_ = true;
     return true;
 }
@@ -368,6 +384,109 @@ void Dashboard::sync_pictures(const AppStatus::Snapshot & s) {
     }
 }
 
+// ---- the slideshow -----------------------------------------------------------------
+
+const Dashboard::SlideTex * Dashboard::slide_tex(const std::string & path) const {
+    for (const SlideTex & t : slide_tex_) {
+        if (t.path == path) {
+            return &t;
+        }
+    }
+    return nullptr;
+}
+
+// Keeps the textures of the show's window (the current picture and its two neighbours) and no
+// others, and decodes one missing picture a frame, the most wanted first.
+void Dashboard::sync_slides() {
+    const std::vector<std::string> window = show_.window();
+    for (auto it = slide_tex_.begin(); it != slide_tex_.end();) {
+        if (std::find(window.begin(), window.end(), it->path) == window.end()) {
+            release(it->tex);
+            it = slide_tex_.erase(it);
+        } else {
+            ++it;
+        }
+    }
+    for (const std::string & path : window) {
+        if (slide_tex(path) != nullptr) {
+            continue;
+        }
+        SlideTex t;
+        t.path = path;
+        Rgba image;
+        bool ok = false;
+        try {
+            ok = load_image_rgba(path, kSlideMaxSide, image, kSlideMaxPixels);
+        } catch (const std::bad_alloc &) {
+            ok = false;  // the heap is full: this one is not shown, the app goes on
+        }
+        if (ok) {
+            upload(t.tex, image.width, image.height, image.pixels.data());
+        } else {
+            std::printf("ps5sd: slideshow: cannot show %s\n", path.c_str());
+            t.failed = true;
+        }
+        slide_tex_.push_back(std::move(t));
+        break;  // one decode a frame
+    }
+}
+
+void Dashboard::update_slideshow(const AppStatus::Snapshot & s, float dt) {
+    const SlideInput::Frame in = input_.frame(dt);
+    if (!show_.is_open()) {
+        if (in.open && s.tv_images) {
+            scan_age_    = 0;
+            scan_images_ = s.images;
+            show_.open(scan_.scan());
+            shown_slide_.clear();
+            hud_             = kHudSeconds;
+            show_vis_.target = 1.0f;
+        }
+    } else if (!s.tv_images || in.back) {
+        // Circle, or the switch that keeps images off the TV was turned on.
+        show_.close();
+        show_vis_.target = 0.0f;
+    } else {
+        // The folder again every few seconds, and at once when a job has finished.
+        scan_age_ += dt;
+        if (scan_age_ >= kRescanSeconds || s.images != scan_images_) {
+            scan_age_    = 0;
+            scan_images_ = s.images;
+            show_.update_list(scan_.scan());
+        }
+        if (in.toggle_auto) {
+            show_.toggle_auto();
+        }
+        if (in.steps != 0) {
+            show_.step(in.steps);
+        }
+        hud_ = in.toggle_auto || in.steps != 0 || show_.empty() ? kHudSeconds : std::max(0.0f, hud_ - dt);
+        sync_slides();
+        // The picture on the screen is the current one as soon as it is decoded; until then the
+        // last one stays (it is a neighbour, so it is kept), and with none, a spinner shows.
+        if (const Slide * cur = show_.current()) {
+            const SlideTex * t = slide_tex(cur->path);
+            if (t != nullptr && shown_slide_ != cur->path) {
+                shown_slide_      = cur->path;
+                slide_fade_.snap(0.2f);
+                slide_fade_.target = 1.0f;
+            }
+        }
+        const Slide * cur = show_.current();
+        show_.tick(dt, cur != nullptr && shown_slide_ == cur->path);
+        show_.take_changed();
+    }
+    show_vis_.update(dt, 12.0f);
+    slide_fade_.update(dt, 14.0f);
+    if (!show_.is_open() && show_vis_.target == 0.0f && show_vis_.value <= 0.002f && !slide_tex_.empty()) {
+        for (SlideTex & t : slide_tex_) {
+            release(t.tex);  // the dashboard is back: no memory kept for the show
+        }
+        slide_tex_.clear();
+        shown_slide_.clear();
+    }
+}
+
 // ---- the frame's state ------------------------------------------------------------
 
 void Dashboard::update(const AppStatus::Snapshot & s, float dt) {
@@ -388,8 +507,11 @@ void Dashboard::update(const AppStatus::Snapshot & s, float dt) {
     accent_.target(state_color(s.state));
     accent_.update(dt, 6.0f);
     sync_preview(snap_);
-    sync_pictures(snap_);
+    if (!show_.is_open()) {
+        sync_pictures(snap_);  // the slideshow decodes its own, one a frame as well
+    }
     sync_qr();
+    update_slideshow(snap_, dt);
 
     std::string key = "none";
     if (s.state == State::generating && preview_.id != 0) {
@@ -411,6 +533,8 @@ void Dashboard::settle() {
     age_ = 10.0f;
     accent_.snap(state_color(snap_.state));
     reveal_.snap(1.0f);
+    show_vis_.snap(show_vis_.target);
+    slide_fade_.snap(1.0f);
 }
 
 void Dashboard::sync_components(float dt) {
@@ -546,6 +670,10 @@ void Dashboard::compose(hui::gfx::Renderer & renderer, const char * version) {
 }
 
 void Dashboard::draw(DrawList & list, const char * version) const {
+    if (show_vis_.value >= 0.999f) {
+        draw_slideshow(list);  // the whole screen: nothing under it to draw
+        return;
+    }
     // The parts arrive one after the other, each rising a little.
     int         index = 0;
     const auto  begin = [&] {
@@ -576,6 +704,7 @@ void Dashboard::draw(DrawList & list, const char * version) const {
     draw_memory(list, kMemory);
     draw_log_tile(list, kLogTile);
     end();
+    draw_slideshow(list);  // fading in or out over the dashboard
 }
 
 void Dashboard::draw_header(DrawList & list, const char * version) const {
@@ -871,6 +1000,7 @@ void Dashboard::draw_recent(DrawList & list, const Rect & r) const {
         std::snprintf(count, sizeof(count), "none yet");
     }
     hui::ui::text(list, fonts_.mono, count, r.x + r.w - kPad, r.y + 40, 20, with_a(kInk, kMuted), Align::right);
+    draw_slide_hint(list, r, r.x + r.w - kPad - fonts_.mono.font->measure(count, 20) - 40);
 
     const float size = 160, gap = (r.w - 2 * kPad - kThumbs * size) / (kThumbs - 1);
     if (pictures_.empty()) {
@@ -895,6 +1025,144 @@ void Dashboard::draw_recent(DrawList & list, const Rect & r) const {
         list.bordered_rect(slot, 16, kClear, i == 0 && have ? 2.5f : 1.5f,
                            i == 0 && have ? with_a(kLime, 0.8f) : with_a(kInk, have ? 0.1f : 0.06f));
     }
+}
+
+// The hint in the recent images' tile: which button opens the slideshow, or why it will not.
+void Dashboard::draw_slide_hint(DrawList & list, const Rect & r, float right) const {
+    const float base = r.y + 40;
+    const float room = right - (r.x + 270);
+    if (!snap_.tv_images || !pad_open_ || !pad_connected_) {
+        const char * why = !snap_.tv_images ? "No slideshow: the images are hidden on this screen"
+                                            : "No slideshow: no controller found";
+        hui::ui::text(list, fonts_.regular, fonts_.regular.font->fit(why, 19, room), right, base, 19,
+                      with_a(kInk, kFaint), Align::right);
+        return;
+    }
+    const std::string label = "Slideshow of the gallery";
+    const float       lw    = fonts_.regular.font->measure(label, 20);
+    const float       cw    = fonts_.semibold.font->measure(hui::ui::upper("Triangle"), 14, 3.0f) + 26;
+    const float       x     = right - lw - 16 - cw;
+    if (x < r.x + 270) {
+        return;
+    }
+    const Rect cap{ x, base - 24, cw, 32 };
+    list.bordered_rect(cap, 10, with_a(kLime, 0.10f), 1.5f, with_a(kLime, 0.7f));
+    caps(list, "Triangle", cap.x + 13, base - 2, 14, kLime);
+    hui::ui::text(list, fonts_.regular, label, cap.x + cw + 16, base, 20, with_a(kInk, kMuted));
+}
+
+// The gallery in full screen: the picture, then (for a few seconds after a press) the hints, and
+// the job's progress in a corner. Nothing here is read from the files: the pictures are textures.
+void Dashboard::draw_slideshow(DrawList & list) const {
+    const float vis = std::clamp(show_vis_.value, 0.0f, 1.0f);
+    if (vis <= 0.002f) {
+        return;
+    }
+    list.push_opacity(vis);
+    list.rounded_rect(kScreen, 0, kBlack);
+
+    const bool       open    = show_.is_open();
+    const SlideTex * shown   = shown_slide_.empty() ? nullptr : slide_tex(shown_slide_);
+    const Color      accent  = accent_.value();
+    if (shown != nullptr && shown->tex.id != 0) {
+        list.image(shown->tex.id, contain(kScreen, shown->tex.width, shown->tex.height), hui::gfx::kFullUv,
+                   Color{ 1, 1, 1, slide_fade_.value }, 0);
+    } else if (shown != nullptr && shown->failed) {
+        hui::ui::text(list, fonts_.semibold, "This picture cannot be shown", kScreen.cx(), 520, 44, kInk, Align::center);
+        hui::ui::text(list, fonts_.regular, "It is damaged, or larger than 4096 x 4096 pixels.", kScreen.cx(), 570, 26,
+                      with_a(kInk, kMuted), Align::center);
+    } else if (open && show_.empty()) {
+        hui::ui::text(list, fonts_.semibold, "No images yet", kScreen.cx(), 520, 52, kInk, Align::center);
+        hui::ui::text(list, fonts_.regular, "Pictures you make show up here. Circle goes back to the dashboard.",
+                      kScreen.cx(), 574, 26, with_a(kInk, kMuted), Align::center);
+    } else if (open) {
+        hui::ui::Spinner spinner = spinner_;  // the next picture is being read
+        spinner.style.color      = with_a(accent, 1.0f);
+        spinner.set_bounds({ kScreen.cx() - 36, kScreen.cy() - 36, 72, 72 });
+        hui::ui::Canvas c = canvas(list);
+        spinner.draw(c);
+    }
+    if (!open) {
+        list.pop_opacity();  // closing: the picture fades out, nothing else is drawn
+        return;
+    }
+
+    const AppStatus::Snapshot & s = snap_;
+
+    // The hints and the place in the gallery.
+    const float hud = std::clamp(hud_ / 0.6f, 0.0f, 1.0f);
+    if (hud > 0.01f) {
+        list.push_opacity(hud);
+        list.gradient_rect({ 0, kScreen.h - 250, kScreen.w, 250 }, 0, with_a(kBlack, 0.0f), with_a(kBlack, 0.8f));
+        if (const Slide * cur = show_.current()) {
+            char place[48];
+            std::snprintf(place, sizeof(place), "%zu / %zu", show_.index() + 1, show_.size());
+            hui::ui::text(list, fonts_.mono, place, 80, 986, 38, kInk);
+            hui::ui::text(list, fonts_.regular,
+                          fonts_.regular.font->fit(AppStatus::display_name(cur->path) + ".png", 22, 760), 80, 1022, 22,
+                          with_a(kInk, kMuted));
+        }
+        // AUTO or PAUSED, and the buttons.
+        char mode[48];
+        if (show_.auto_on()) {
+            std::snprintf(mode, sizeof(mode), "AUTO  %.0f s", Slideshow::kInterval);
+        } else {
+            std::snprintf(mode, sizeof(mode), "PAUSED");
+        }
+        const Color  mc = show_.auto_on() ? kLime : kSteel;
+        const float  mw = fonts_.semibold.font->measure(mode, 20, 3.0f);
+        const Rect   pill{ kScreen.w - 80 - mw - 56, 946, mw + 56, 44 };
+        list.rounded_rect(pill, 22, with_a(kBlack, 0.5f));
+        list.bordered_rect(pill, 22, kClear, 1.5f, with_a(mc, 0.7f));
+        list.circle(pill.x + 24, pill.cy(), 6, mc);
+        hui::ui::text(list, fonts_.semibold, mode, pill.x + 40, pill.cy() + 7, 20, mc, Align::left, 3.0f);
+        caps(list, "Left / Right  step      Options  auto      Circle  back", kScreen.w - 80, 1022, 16,
+             with_a(kInk, 0.6f), Align::right);
+        list.pop_opacity();
+    }
+
+    // Time left of the picture, a thin line along the bottom while it runs by itself (over the hints' shade).
+    if (show_.auto_on() && !show_.empty()) {
+        const float frac = std::clamp(show_.shown_for() / Slideshow::kInterval, 0.0f, 1.0f);
+        list.rounded_rect({ 0, kScreen.h - 7, kScreen.w * frac, 7 }, 0, with_a(kLime, 0.9f));
+    }
+
+    // The job, in the top right corner: what the model is doing, and how far it is.
+    const bool generating = s.state == State::generating;
+    if (generating || s.state == State::loading) {
+        char label[48];
+        float frac = -1;  // -1: no figure to show, a moving bar instead
+        if (generating && s.steps > 0 && s.step >= s.steps) {
+            std::snprintf(label, sizeof(label), "Decoding");
+            frac = 1;
+        } else if (generating && s.steps > 0 && s.step > 0) {
+            std::snprintf(label, sizeof(label), "Step %d of %d", s.step, s.steps);
+            frac = (float) s.step / (float) s.steps;
+        } else if (generating) {
+            std::snprintf(label, sizeof(label), "Starting");
+        } else {
+            frac = s.steps > 0 ? (float) s.step / (float) s.steps : -1.0f;
+            std::snprintf(label, sizeof(label), "%s", frac >= 0 ? (std::to_string((int) (frac * 100)) + "%").c_str() : "");
+        }
+        const Rect pill{ kScreen.w - 64 - 440, 56, 440, 92 };
+        list.shadow({ pill.x, pill.y + 8, pill.w, pill.h }, 24, 28, with_a(kBlack, 0.5f));
+        list.rounded_rect(pill, 24, with_a(Color::rgb(0x0a0e1a), 0.82f));
+        list.bordered_rect(pill, 24, kClear, 1.5f, with_a(accent, 0.55f));
+        const float breath = hui::ui::breathe(clock_);
+        list.circle(pill.x + 30, pill.y + 34, 6 + 1.5f * breath, accent);
+        caps(list, generating ? "Generating" : "Loading the model", pill.x + 50, pill.y + 40, 16, accent);
+        hui::ui::text(list, fonts_.mono, label, pill.x + pill.w - 24, pill.y + 40, 20, kInk, Align::right);
+        const Rect track{ pill.x + 24, pill.y + 62, pill.w - 48, 10 };
+        list.rounded_rect(track, 5, with_a(kInk, 0.14f));
+        if (frac >= 0) {
+            list.rounded_rect({ track.x, track.y, std::max(track.h, track.w * frac), track.h }, 5, accent);
+        } else {
+            const float seg = track.w * 0.3f;
+            const float at  = (track.w - seg) * (0.5f + 0.5f * std::sin(clock_ * 3.0f));
+            list.rounded_rect({ track.x + at, track.y, seg, track.h }, 5, accent);
+        }
+    }
+    list.pop_opacity();
 }
 
 void Dashboard::draw_memory(DrawList & list, const Rect & r) const {

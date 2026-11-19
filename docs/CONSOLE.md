@@ -1508,3 +1508,23 @@ A 1.6.0 build, the web UI in headless Chrome at 1440x900, SDXL Base 1.0 (Q8_0), 
   picture next to the mask, and the model drew a scene of its own there (another car, other mountains).
   With as much of the picture as the new part is wide, it went on with the road and the forest; a seam
   stays faintly visible with SDXL Base. 48 s for 576x1792, the result put back and saved as one file.
+
+## The slideshow on the TV (2026-11-19)
+
+A 1.7.0 build, driven with a virtual DualSense (RemoteEye) on FW 13.00.
+
+- **Open and close**: Triangle opens the slideshow on the newest of 573 pictures, Circle goes back. With
+  `tv_images` off the dashboard says why there is none, and Triangle does nothing.
+- **Steps**: Right and Left step one picture a press. Held while nothing runs, Right went 13 pictures in
+  3 s, the stick 8 in 2 s. While FLUX.2 Klein 9B decoded, a frame took long enough that a 4 s hold went
+  2 pictures.
+- **Options**: 5 s a picture with a line along the bottom; again, and it stops.
+- **A job**: its step showed in the top right corner, and the new picture took the newest's place when it
+  ended (SDXL Base, 768x768).
+- **The PS menu**: the pad keeps the system's bit on its last sample until a button changes, so the first
+  sample after the menu is a new press. The first build took it for a button still down and dropped it:
+  Triangle right after the menu did nothing. Now only what was down under the menu stays down. Closing the
+  menu with Circle does not close the slideshow.
+- **Memory**: FLUX.2 Klein 9B with its two LoRAs made a 1024x1024 image while the slideshow stepped
+  through 17 pictures: the CPU heap was 0.55 GiB after the request, and its peak stayed at 0.81 GiB,
+  where an SDXL run before had put it.

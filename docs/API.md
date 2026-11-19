@@ -829,6 +829,30 @@ writes through ftpsrv, as the downloader does. 43 files (79 MB) took about 6 s t
 The setting `usb_copy` (see [App settings](#app-settings)) copies each new image or video to a drive as it is
 saved. [Storage](#storage) lists the drives that are plugged in.
 
+### The gallery on the TV
+
+With a DualSense, the TV shows the gallery as a slideshow. **Triangle** on the dashboard opens it. The dashboard
+says so in the tile of the recent images, or says why it cannot: no controller was found, or the images are
+hidden on the TV (`tv_images`, see [App settings](#app-settings)). Then:
+
+| Button | |
+|---|---|
+| Right (D-pad or left stick) | the next picture, an older one; held, it repeats |
+| Left (D-pad or left stick) | a newer picture; after the newest it goes round to the oldest |
+| Options | starts and stops the automatic advance (5 seconds a picture); a line along the bottom shows the time left |
+| Circle | back to the dashboard |
+
+The slideshow starts on the newest picture. The pictures are the gallery's PNG files, newest first, as the
+web UI lists them. Videos are left out (the TV shows no video, and a video's thumbnail is too small for the
+screen), and so are images made with `"temporary"`. The folder is read again every few seconds and when a job
+ends, so new pictures join: if the newest picture is on the screen, the new one takes its place. While a job
+runs, its progress shows in the top right corner. The hints at the bottom fade four seconds after the last
+press. A picture larger than 4096 x 4096 pixels, or one that cannot be read, shows as a note; the automatic
+advance moves on after its time as for any picture.
+
+Turning `tv_images` off while the slideshow is open closes it. The slideshow keeps the picture on the screen
+and its two neighbours in memory, decoded to at most 1920 pixels, and lets go of them when it closes.
+
 ## App settings
 
 Kept in `/data/PS5SD/settings.json` on the console, so they hold for every browser and survive a
@@ -840,7 +864,7 @@ restart.
 | `POST /ps5sd/v1/app/settings` | change what the body sets, like `{"tv_images": false}`; the answer is the settings as `GET` gives them, 400 for a field of the wrong type |
 
 `tv_images` false: the dashboard on the TV shows no images (no live preview, no last image, no
-thumbnails) and no prompts. The web UI's switch is in Settings, "Show images and prompts on the TV".
+thumbnails, no slideshow) and no prompts. The web UI's switch is in Settings, "Show images and prompts on the TV".
 
 `tv_api_key` false: the TV does not show the API key. The switch is in Settings, under API key.
 

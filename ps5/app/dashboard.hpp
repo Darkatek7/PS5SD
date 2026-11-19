@@ -6,7 +6,9 @@
 //   - the app, its state and the address to type into a browser;
 //   - the running job: prompt, progress, speed, time left, the live preview;
 //   - the last finished image, and a strip of the recent ones;
-//   - the direct memory pool and the tail of the log.
+//   - the direct memory pool and the tail of the log;
+//   - on a button of the controller (Triangle), the gallery in full screen, a slideshow
+//     (slideshow.hpp has the logic; the hint is in the recent images' tile).
 //
 // One frame is update(snapshot, dt), then compose(renderer, version), then the
 // platform presents the renderer. main.cpp and scripts/preview-app-ui.sh make
@@ -16,6 +18,7 @@
 #pragma once
 
 #include "app_status.hpp"
+#include "slideshow.hpp"
 #include "core/tween.hpp"
 #include "gfx/backdrop_spec.hpp"
 #include "gfx/draw_list.hpp"
@@ -26,6 +29,7 @@
 #include "ui/fonts.hpp"
 #include "ui/motion.hpp"
 
+#include <cstddef>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -60,6 +64,19 @@ class Dashboard {
     void toggle_log() { log_open_ = !log_open_; }
     bool log_open() const { return log_open_; }
 
+    // The controller (pad_input.cpp reads it, the preview makes it up): the gallery's folder, whether
+    // a pad is open, and one sample of it, as many a frame as were read (a tap is kept). Triangle
+    // opens the slideshow, then left and right, Options and Circle (slideshow.hpp).
+    void set_gallery_dir(const std::string & dir) { scan_.set_dir(dir); }
+    void set_pad_open(bool open) { pad_open_ = open; }
+    void pad_sample(uint32_t buttons, uint8_t left_x, bool connected) {
+        pad_connected_ = connected;
+        input_.sample(buttons, left_x, connected);
+    }
+    bool slideshow_open() const { return show_.is_open(); }
+    std::size_t slideshow_index() const { return show_.index(); }  // 0 is the newest
+    std::size_t slideshow_size() const { return show_.size(); }
+
     // Skips the entrance animation and the springs' travel (the PC preview
     // calls it before a picture; the console never does).
     void settle();
@@ -81,12 +98,22 @@ class Dashboard {
         bool        failed = false;
     };
 
+    // A picture of the slideshow, decoded.
+    struct SlideTex {
+        std::string path;
+        Texture     tex;
+        bool        failed = false;  // not readable, or too large
+    };
+
     bool load_font(const std::string & path, hui::gfx::Font & font, hui::ui::FontRef & ref);
     void upload(Texture & texture, int width, int height, const uint8_t * rgba);
     void release(Texture & texture);
     void sync_pictures(const AppStatus::Snapshot & s);
     void sync_preview(const AppStatus::Snapshot & s);
     void sync_components(float dt);
+    void update_slideshow(const AppStatus::Snapshot & s, float dt);
+    void sync_slides();
+    const SlideTex * slide_tex(const std::string & path) const;
 
     // Drawing, all const: the frame is a pure function of the state.
     void draw(hui::gfx::DrawList & list, const char * version) const;
@@ -98,6 +125,8 @@ class Dashboard {
     void draw_activity(hui::gfx::DrawList & list, const hui::gfx::Rect & r) const;
     void draw_image(hui::gfx::DrawList & list, const hui::gfx::Rect & r) const;
     void draw_recent(hui::gfx::DrawList & list, const hui::gfx::Rect & r) const;
+    void draw_slideshow(hui::gfx::DrawList & list) const;
+    void draw_slide_hint(hui::gfx::DrawList & list, const hui::gfx::Rect & r, float right) const;
     void draw_log_tile(hui::gfx::DrawList & list, const hui::gfx::Rect & r) const;
     void draw_memory(hui::gfx::DrawList & list, const hui::gfx::Rect & r) const;
     void draw_stat(hui::gfx::DrawList & list, const char * name, const std::string & value, float x,
@@ -140,6 +169,21 @@ class Dashboard {
     std::vector<uint8_t>   scratch_;  // RGBA of a preview frame
     std::vector<Picture>   pictures_;  // newest first, the snapshot's recent list
     std::string            shown_key_;  // what the large image area shows, to fade on a change
+
+    // The slideshow (slideshow.hpp): the gallery's list, the controller, and the pictures decoded for
+    // it, which are the current one and its two neighbours at most.
+    GalleryScan            scan_;
+    Slideshow              show_;
+    SlideInput             input_;
+    bool                   pad_open_      = false;
+    bool                   pad_connected_ = false;
+    float                  scan_age_      = 0;   // seconds since the list was read
+    int                    scan_images_   = 0;   // snapshot.images then: a finished job reads it again
+    std::vector<SlideTex>  slide_tex_;
+    std::string            shown_slide_;         // the picture on the screen (it waits for the next one's decode)
+    float                  hud_           = 0;   // seconds the hints stay after the last press
+    hui::tween::Spring     show_vis_;            // the slideshow's fade in and out
+    hui::tween::Spring     slide_fade_;          // a picture's fade in
 
     // The address as a QR code (qrcodegen), made again only when the text changes.
     std::string            qr_text_;

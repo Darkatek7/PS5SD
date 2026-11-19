@@ -44,6 +44,10 @@ ar=$(command -v "${HOST_AR:-ar}")
 # kit, GL or sd.cpp header on the include path.
 "$cxx" -std=c++17 -Wall -Wextra -Werror -fsyntax-only -I "$app" "$app/app_status.cpp"
 echo "preview-app-ui: app_status.cpp compiles without the kit (the no-display build)"
+# The console's pad reader (it needs libScePad on the console, so it is only compiled here).
+"$cxx" -std=c++20 -Wall -Wextra -Werror -fsyntax-only -I "$app" -I "$kit/src" -I "$kit/third_party" \
+    -isystem "$sd/thirdparty" "$app/pad_input.cpp"
+echo "preview-app-ui: pad_input.cpp compiles against the kit's pad code"
 
 ninja_begin "$build/build.ninja"
 
