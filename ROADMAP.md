@@ -10,6 +10,7 @@ can rely on.
 
 ## Done
 
+- **1.7.0**: the gallery as a slideshow on the TV, with the DualSense.
 - **1.6.0**: the web UI's smaller steps: the result's buttons in one row, the prompt history, favourites,
   Extend (outpainting) and wildcards.
 - **1.5.0**: a pose with Z-Image Turbo's Union ControlNet, and a pose with a character in two steps
@@ -614,9 +615,9 @@ code that goes away or changes its meaning) waits for 2.0.
 The plan as of 2026-11-04, in order (1.1.0 was taken by the stable-diffusion.cpp of November on
 2026-11-12, 1.2.0 by faster loading on 2026-11-14 and 1.3.0 by the gallery as a ZIP on 2026-11-17, so the
 rest moved up three numbers; 1.4.0 took the web UI's storage and USB items on 2026-11-19, and the pose of
-issue 13 and the `sdxl-full` conversion moved on; 1.5.0 took the pose, 1.6.0 the web UI's smaller steps).
-The times below are those of 1.0.0 on the console ([CONSOLE.md](docs/CONSOLE.md)); every new number goes
-there with its date and build.
+issue 13 and the `sdxl-full` conversion moved on; 1.5.0 took the pose, 1.6.0 the web UI's smaller steps,
+1.7.0 the slideshow). The times below are those of 1.0.0 on the console ([CONSOLE.md](docs/CONSOLE.md));
+every new number goes there with its date and build.
 
 ## 1.6.0: the web UI, smaller steps, done
 
@@ -643,9 +644,11 @@ Each one tested in a browser with `scripts/webui-dev.py` (`--mock-*` without a c
   keeps the expanded prompt.
 - [x] `docs/API.md` for the new routes and fields; the Help tab shows it.
 
-## 1.7.0: the gallery on the TV
+## 1.7.0: the gallery on the TV, done
 
-- [ ] **A slideshow with the DualSense**: the gallery in full screen on the TV. Left and right step
+Tested on the console with a DualSense ([CONSOLE.md](docs/CONSOLE.md#the-slideshow-on-the-tv-2026-11-19)).
+
+- [x] **A slideshow with the DualSense**: the gallery in full screen on the TV. Left and right step
   through it, Options starts and stops it, Circle goes back to the dashboard; new images join it while it
   runs, and a running job shows its progress in a corner. `third_party/ps5-homebrew-ui/src/platform/ps5/pad.hpp`
   reads the pad; `ps5/app/dashboard.cpp` already decodes the gallery's PNGs one per frame. The dashboard
