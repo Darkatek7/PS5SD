@@ -25,6 +25,10 @@ setting (GET /ps5sd/v1/app/settings of the console, with usb_copy added; a POST 
 answered here, even with --read-only), the title's icon.png and manifest.webmanifest, and a download that does
 not fit fails at once. Everything else is still forwarded.
 
+--mock-gallery N answers the gallery with N mock images: the list (paged as the server pages it, at most 1000 an
+answer, with X-Total-Count), each file and thumbnail (the title's icon), its info, a delete, and the labels. With
+more than 1000 it shows whether the page reads the whole gallery.
+
 --mock-standby starts like a fresh install: no model is loaded, the library answers
 "standby": true, and every route outside /ps5sd/ answers 503 as sd-server --standby does,
 until a switch (Use) has loaded a model. It implies --mock-downloads.
@@ -613,6 +617,64 @@ class MockStorage:
         return None
 
 
+class MockGallery:
+    """--mock-gallery N: a gallery of N images in memory, newest first, paged as the server pages it
+    (limit 1 to 1000, default 100, offset, X-Total-Count). Every image and thumbnail is the title's icon."""
+
+    def __init__(self, count):
+        self.lock = threading.Lock()
+        now = int(time.time())
+        self.items = [{"name": "mock_%05d.png" % i, "created": now - i * 60, "size": 1500000, "type": "image",
+                       "prompt": "mock image %d" % i} for i in range(count)]
+
+    def names(self):
+        with self.lock:
+            return [x["name"] for x in self.items]
+
+    def handle(self, method, path):
+        """Returns (status, object, headers), ("png", None, None) for a picture, or None for another route."""
+        u = urllib.parse.urlparse(path)
+        q = urllib.parse.parse_qs(u.query)
+        route = u.path
+        if method == "GET" and route == APP + "gallery/labels":
+            return 200, {"labels": {}}, {}
+        if route == "/ps5sd/v1/gallery" and method == "GET":
+            def number(key, default, lo, hi):
+                try:
+                    return max(lo, min(hi, int(q.get(key, [default])[0])))
+                except ValueError:
+                    return default
+            limit, offset = number("limit", 100, 1, 1000), number("offset", 0, 0, 1 << 30)
+            with self.lock:
+                items = list(self.items)
+            if q.get("temporary", [""])[0] == "1":
+                items = []
+            kind = q.get("type", [""])[0]
+            if kind:
+                items = [x for x in items if x["type"] == kind]
+            if q.get("order", [""])[0] == "oldest":
+                items.reverse()
+            page = [{"name": x["name"], "url": "/ps5sd/v1/gallery/" + x["name"],
+                     "thumb": "/ps5sd/v1/gallery/thumb/" + x["name"], "size": x["size"], "created": x["created"],
+                     "type": x["type"], "prompt": x["prompt"]} for x in items[offset:offset + limit]]
+            return 200, page, {"X-Total-Count": str(len(items))}
+        m = re.match(r"^/ps5sd/v1/gallery/(info/|thumb/)?(mock_\d+\.png)$", route)
+        if not m:
+            return None
+        with self.lock:
+            there = any(x["name"] == m.group(2) for x in self.items)
+            if method == "DELETE" and not m.group(1) and there:
+                self.items = [x for x in self.items if x["name"] != m.group(2)]
+                return 200, {"deleted": m.group(2)}, {}
+        if not there:
+            return 404, {"error": "not found"}, {}
+        if method == "GET" and m.group(1) == "info/":
+            return 200, {"name": m.group(2)}, {}
+        if method == "GET":
+            return "png", None, None
+        return None
+
+
 class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
     target = None
@@ -620,6 +682,7 @@ class Handler(BaseHTTPRequestHandler):
     models = None
     loras = None
     storage = None
+    gallery = None
     read_only = False
 
     def log_message(self, fmt, *args):
@@ -680,7 +743,7 @@ class Handler(BaseHTTPRequestHandler):
         except OSError:
             pass
 
-    def _json(self, code, obj):
+    def _json(self, code, obj, headers=None):
         # Every error of the API is {"error": {"code", "message"}}; the mocks write {"error": "text"}.
         if code >= 400 and isinstance(obj, dict) and isinstance(obj.get("error"), str):
             kind = "standby" if obj.get("standby") else ERROR_CODES.get(code, "http_%d" % code)
@@ -689,6 +752,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(code)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(data)))
+        for k, v in (headers or {}).items():
+            self.send_header(k, v)
         self.end_headers()
         self.wfile.write(data)
 
@@ -706,6 +771,8 @@ class Handler(BaseHTTPRequestHandler):
 
     @classmethod
     def _gallery_names(cls):
+        if cls.gallery is not None:
+            return cls.gallery.names()
         code, data = cls._target_json("/ps5sd/v1/gallery?limit=1000")
         if code == 200 and isinstance(data, list) and data:
             return [x["name"] for x in data if isinstance(x, dict) and "name" in x]
@@ -769,6 +836,14 @@ class Handler(BaseHTTPRequestHandler):
         length = int(self.headers.get("Content-Length") or 0)
         body = self.rfile.read(length) if length else None
         res = None
+        if self.gallery is not None:
+            g = self.gallery.handle(self.command, self.path)
+            if g is not None and g[0] == "png":
+                self._file(os.path.join(HERE, "..", "ps5", "app", "sce_sys", "icon0.png"), "image/png")
+                return
+            if g is not None:
+                self._json(g[0], g[1], g[2])
+                return
         if self.storage is not None and self._storage(body):
             return
         if self.models is not None and self.path.split("?")[0] == APP + "info":
@@ -824,12 +899,17 @@ if __name__ == "__main__":
     ap.add_argument("--mock-storage", action="store_true",
                     help="answer the storage and USB routes (storage, gallery/copy, the usb_copy setting, icon.png,"
                          " manifest.webmanifest) here, even with --read-only")
+    ap.add_argument("--mock-gallery", type=int, metavar="N",
+                    help="answer the gallery's list, files, info and labels here with N mock images (paged as the"
+                         " server pages them: at most 1000 an answer)")
     ap.add_argument("--mock-standby", action="store_true",
                     help="start without a model, as sd-server --standby does; implies --mock-downloads")
     a = ap.parse_args()
     a.mock_downloads = a.mock_downloads or a.mock_standby
     Handler.target = a.target
     Handler.read_only = a.read_only
+    if a.mock_gallery is not None:
+        Handler.gallery = MockGallery(max(0, a.mock_gallery))
     if a.mock_storage:
         Handler.storage = MockStorage(lambda: Handler._gallery_names())
     if a.mock_downloads:
@@ -841,5 +921,5 @@ if __name__ == "__main__":
         Handler.models.standby = True
         Handler.models.active = Handler.models.loaded = ""
     print("serving %s on http://127.0.0.1:%d -> %s%s" % (SRC, a.port, a.target,
-                                                      (" (mock downloads)" if a.mock_downloads else "") + (" (mock models)" if Handler.models else "") + (" (mock storage)" if Handler.storage else "")))
+                                                      (" (mock downloads)" if a.mock_downloads else "") + (" (mock models)" if Handler.models else "") + (" (mock storage)" if Handler.storage else "") + (" (mock gallery)" if Handler.gallery else "")))
     ThreadingHTTPServer(("127.0.0.1", a.port), Handler).serve_forever()

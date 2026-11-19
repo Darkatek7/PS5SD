@@ -16,6 +16,8 @@
   // The list and the labels, asked for together; the list is drawn when both are in. shared: join a load
   // that is already on its way (the start and a tab switch ask at the same time) instead of asking again.
   var galleryWait = null;
+  var GALLERY_PAGE = 1000;     // the most the server gives in one answer
+  var GALLERY_MAX = 100000;    // a stop, should a server ignore offset
   function loadGallery(cb, shared) {
     if (shared && galleryWait) { if (cb) galleryWait.push(cb); return; }
     var waiters = galleryWait = cb ? [cb] : [];
@@ -33,7 +35,26 @@
       if (galleryWait === waiters) galleryWait = null;
       for (var w = 0; w < waiters.length; w++) waiters[w](code === 200 ? galleryList : null);
     }
-    req('GET', '/ps5sd/v1/gallery?limit=1000', null, function (c, data) { code = c; list = data; both(); });
+    // The server gives at most 1000 entries an answer (issue 22), so the list comes in pages, newest
+    // first, until a page is short. A file made between two pages moves the rest by one: the names
+    // already in are skipped.
+    var all = [], seen = {};
+    function page(offset) {
+      req('GET', '/ps5sd/v1/gallery?limit=' + GALLERY_PAGE + '&offset=' + offset, null, function (c, data) {
+        if (c !== 200 || !data || data.length === undefined) {
+          // a later page that fails keeps what came in
+          if (offset) { code = 200; list = all; } else { code = c; list = data; }
+          both();
+          return;
+        }
+        for (var i = 0; i < data.length; i++) {
+          if (data[i] && !seen[data[i].name]) { seen[data[i].name] = true; all.push(data[i]); }
+        }
+        if (data.length >= GALLERY_PAGE && offset + data.length < GALLERY_MAX) { page(offset + data.length); return; }
+        code = 200; list = all; both();
+      });
+    }
+    page(0);
     req('GET', APP + '/gallery/labels', null, function (c, data) {
       if (c === 200 && data && data.labels) galleryLabels = data.labels;
       labelsIn = true;
