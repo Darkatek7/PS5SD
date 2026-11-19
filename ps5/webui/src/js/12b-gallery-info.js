@@ -72,15 +72,31 @@
     lbClass($('lb').className.indexOf('withinfo') >= 0);
   }
 
+  // What made a file, from the cache or the console: cb(info) with {} when it has none. A second ask while
+  // the first is on its way waits for it.
+  var infoWait = {};
+  function fetchInfo(it, cb) {
+    var data = infoCache[it.name];
+    if (data) { cb(data); return; }
+    if (!infoWait[it.name]) infoWait[it.name] = [];
+    infoWait[it.name].push(cb);
+    if (infoWait[it.name].length > 1 || data === null) return;
+    infoCache[it.name] = null;   // asked
+    req('GET', '/ps5sd/v1/gallery/info/' + encodeURIComponent(it.name), null, function (code, d) {
+      if (code === 200 && d) d.sdcpp = infoShape(d.sdcpp);
+      infoCache[it.name] = code === 200 && d ? d : {};
+      var list = infoWait[it.name] || [];
+      delete infoWait[it.name];
+      for (var i = 0; i < list.length; i++) list[i](infoCache[it.name]);
+    });
+  }
+
   function drawLbInfo(it) {
     var data = infoCache[it.name];
     if (data === undefined) {
-      infoCache[it.name] = null;   // asked
       show('lb-info', false);
       lbClass(false);
-      req('GET', '/ps5sd/v1/gallery/info/' + encodeURIComponent(it.name), null, function (code, d) {
-        if (code === 200 && d) d.sdcpp = infoShape(d.sdcpp);
-        infoCache[it.name] = code === 200 && d ? d : {};
+      fetchInfo(it, function () {
         var cur = st.lb >= 0 ? lbItem() : null;
         if (cur && cur.name === it.name) drawLbInfo(cur);
       });
@@ -153,8 +169,9 @@
   // Use all: the model and the preset the image was made with, then its prompt and settings in the
   // Create tab. When a switch is needed, the settings follow once it is done (pendingInfo, from
   // applyModel), so the preset's own defaults do not replace them.
-  function useSettings() {
-    var it = lbItem();
+  // item: a gallery item outside the viewer (the Create tab's last image); without it, the one in the viewer.
+  function useSettings(item) {
+    var it = item && item.name ? item : lbItem();
     var d = it ? infoCache[it.name] : null;
     var j = d && d.sdcpp;
     if (!j) return;

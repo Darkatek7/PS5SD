@@ -1,0 +1,43 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: ps5sd <ps5sd@localhost>
+Date: Thu, 19 Nov 2026 12:00:00 +0100
+Subject: [PATCH] server: the app's icon and manifest open without the key
+
+GET /ps5sd/v1/app/icon.png and GET /ps5sd/v1/app/manifest.webmanifest need
+no API key: a browser fetches a page's icon and manifest without it. Like
+the OpenAPI description, they say nothing a client could misuse.
+---
+ examples/server/auth.cpp | 3 ++-
+ examples/server/auth.h   | 2 ++
+ 2 files changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/examples/server/auth.cpp b/examples/server/auth.cpp
+index 65d01af..3d89255 100644
+--- a/examples/server/auth.cpp
++++ b/examples/server/auth.cpp
+@@ -247,7 +247,8 @@ bool is_open_route(const httplib::Request& req) {
+     const std::string& p = req.path;
+     const std::string& m = req.method;
+     if (m == "GET" || m == "HEAD") {
+-        return p == "/" || p == "/ps5sd/v1/health" || p == "/ps5sd/v1/auth" || p == "/ps5sd/v1/app/openapi.json";
++        return p == "/" || p == "/ps5sd/v1/health" || p == "/ps5sd/v1/auth" || p == "/ps5sd/v1/app/openapi.json" ||
++               p == "/ps5sd/v1/app/icon.png" || p == "/ps5sd/v1/app/manifest.webmanifest";
+     }
+     return m == "POST" && (p == "/ps5sd/v1/auth/login" || p == "/ps5sd/v1/auth/logout");
+ }
+diff --git a/examples/server/auth.h b/examples/server/auth.h
+index 222682d..b9b6097 100644
+--- a/examples/server/auth.h
++++ b/examples/server/auth.h
+@@ -18,6 +18,8 @@
+ // Open without a key: GET / (the web UI, which then asks for the key),
+ // GET /ps5sd/v1/health, GET /ps5sd/v1/auth, GET /ps5sd/v1/app/openapi.json (the
+ // description of the API, which says nothing a client could misuse),
++// GET /ps5sd/v1/app/icon.png and GET /ps5sd/v1/app/manifest.webmanifest (a browser
++// fetches a page's icon and manifest without the key),
+ // POST /ps5sd/v1/auth/login and
+ // /logout, and every OPTIONS (CORS preflight).
+ #pragma once
+-- 
+2.43.0
+

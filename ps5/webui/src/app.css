@@ -529,6 +529,10 @@
   .initrow { display: flex; align-items: center; }
   #init-thumb, #cn-thumb { flex: none; width: 7rem; height: 7rem; object-fit: contain; background: var(--field); border: 1px solid var(--border);
     border-radius: 10px; margin-right: 1rem; }
+  #init2-thumb { flex: none; width: 7rem; height: 7rem; object-fit: contain; background: var(--field); border: 1px solid var(--border);
+    border-radius: 10px; margin-right: 1rem; }
+  #init-bar.dropping, #init-box.dropping, #init2-sect.dropping, #cn-bar.dropping, #cn-box.dropping {
+    outline: 2px dashed var(--accent, #4c8dff); outline-offset: 4px; border-radius: 10px; }
   .initmain { flex: 1; min-width: 0; }
   .initbtns { display: flex; flex-wrap: wrap; margin: 0.4rem -0.25rem 0; }
   .initbtns button { margin: 0.25rem; min-height: 2.75rem; }
@@ -540,6 +544,23 @@
   .arow { display: flex; justify-content: space-between; align-items: baseline; padding: 0.55rem 0; border-bottom: 1px solid var(--border); }
   .arow span:first-child { color: var(--muted); }
   .arow span:last-child { color: var(--text); text-align: right; min-width: 0; overflow-wrap: anywhere; margin-left: 1rem; }
+  /* Settings, Storage: the console's bar, what takes the space, the USB drives, the copy */
+  .stline { color: var(--text); font-size: 1.05rem; }
+  .usbdrive { padding: 0.8rem 0; border-top: 1px solid var(--border); }
+  .usbdrive:first-child { border-top: 0; }
+  .usbhead { display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; margin-bottom: 0.2rem; }
+  .usbhead span:first-child { color: var(--text); font-weight: 500; margin-right: 1rem; }
+  .usbhead span:last-child { color: var(--muted); font-size: 0.9rem; }
+  .usbdrive > button { margin: 0.4rem 0 0.2rem; }
+  .cpline { color: var(--muted); font-size: 0.9rem; margin: 0.5rem 0 0; }
+  .cpline.bad { color: var(--bad); }
+  .usbdrive .bar { margin: 0.5rem 0 0; }
+  .gcopy { margin: 0 0 0.9rem; padding: 0.6rem 0.75rem; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; }
+  .gcopy .bar { margin: 0.5rem 0 0.1rem; }
+  #gsel-drives span { flex: 1 1 100%; margin-bottom: 0.3rem; }
+  #gsel-drives button { margin: 0.2rem 0.5rem 0.2rem 0; }
+  .freeline { color: var(--muted); font-size: 0.9rem; margin: 0.2rem 0 0.7rem; }
+  .freeline.low, .lowspace, .stline.low { color: var(--bad); }
   /* the ⓘ buttons: a small round button that opens Help at its section (it comes after the .hint and .ph buttons) */
   button.info { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 2.4rem; min-width: 2.4rem;
     height: 2.4rem; min-height: 2.4rem; margin: 0 0 0 0.45rem; padding: 0; border-radius: 50%; background: transparent;
@@ -755,6 +776,13 @@
     .lb-info .lb-copy button { margin-top: 0.4rem; }
     .lb.infohide .lb-info { display: none !important; }
     #lb-infobtn[aria-pressed="true"] { background: var(--sel-bg); color: var(--text); }
+  }
+  /* Wide enough (a PC, a TV): the info stands beside the picture, under the bar and clear of the arrow, and the
+     picture gets the room that is left; Info hides it and the picture takes the whole width again. */
+  @media (min-width: 1100px) and (orientation: landscape) {
+    .lb.withinfo:not(.infohide) .lb-body { padding-right: 26.25rem; }
+    .lb-info { top: 5.25rem; right: 1rem; bottom: auto; width: 24rem; max-width: none; max-height: calc(100vh - 6.25rem); }
+    .lb-info .lb-prompt { max-height: none; }
   }
   @media (max-width: 720px), (orientation: portrait) { #lb-infobtn { display: none !important; } }
   /* Create tab on a PC: settings on the left, the result large on the right, in view while the settings scroll */

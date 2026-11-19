@@ -80,7 +80,8 @@
     if (loraBody(p).length) body.lora = loraBody(p);
     if (p.nometa) body.embed_image_metadata = false;
     if (p.req && p.req.ref) {
-      body.ref_images = [p.req.init];
+      body.ref_images = p.req.refs;
+      if (p.req.refArgs) body.ref_image_args = p.req.refArgs;
       body.width = p.req.w;
       body.height = p.req.h;
     } else if (p.req) {
@@ -266,7 +267,7 @@
     if (p.clip > 0) body.clip_skip = p.clip;
     var route = '/sdapi/v1/txt2img';
     if (p.req && p.req.ref) {
-      body.extra_images = [p.req.init];
+      body.extra_images = p.req.refs;
       body.width = p.req.w;
       body.height = p.req.h;
     } else if (p.req) {

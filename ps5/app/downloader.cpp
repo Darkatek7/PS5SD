@@ -28,6 +28,7 @@
 #include "ftp_writer.hpp"
 #include "https_client.hpp"
 #include "models.hpp"
+#include "storage.hpp"
 #include "thread_guard.hpp"
 #include "version.hpp"
 
@@ -615,6 +616,23 @@ void run_one(Item & item) {
     const std::string part = dest + ".part";
     std::error_code   ec;
     fs::create_directories(fs::u8path(dest).parent_path(), ec);
+    // The size is known from the response: fail at once when it plus a margin
+    // does not fit (what a .part holds already is not needed again). ftpsrv
+    // tells the free space (AVBL); the title's own statvfs does not know it.
+    {
+        uint64_t       volume_free = 0;
+        std::string    space_error;
+        const uint64_t have = std::min(file_size_of(part), p.total);
+        if (p.total > 0 && ftp_free_space(fs::u8path(dest).parent_path().string(), volume_free, space_error)) {
+            const std::string shortfall = space_shortfall(p.total - have, volume_free);
+            if (!shortfall.empty()) {
+                if (!stopping(item)) {
+                    set_failed(item, shortfall);
+                }
+                return;
+            }
+        }
+    }
     const uint64_t piece = static_cast<uint64_t>(std::max(1u, g_cfg.piece_mib)) << 20;
     bool           fresh = false;  // nothing of the .part is kept
     // Through ftpsrv when it answers, or PS5SD's own copy, started here if

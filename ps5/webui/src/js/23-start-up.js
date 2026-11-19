@@ -7,6 +7,8 @@
         text($('ver'), 'v' + data.version);
         $('ver').title = 'stable-diffusion.cpp ' + (sd.commit || '');
         text($('about-ver'), 'v' + data.version);
+        st.version = data.version;
+        checkUpdate();
         var sdText = sd.version || '';
         if (sd.commit) sdText += (sdText ? ', ' : '') + 'commit ' + sd.commit;
         text($('about-sd'), sdText || 'not reported');
@@ -184,6 +186,7 @@
     $('up-pick').onclick = function () { $('up-file').click(); };
     $('up-file').onchange = upStart;
     $('lfind').oninput = drawLoraList;
+    $('mfind').oninput = drawModels;
     $('up-cancel').onclick = upCancel;
     window.onbeforeunload = function () { return upXhr ? 'An upload is still running.' : undefined; };
     $('dl-url').onkeydown = function (e) { e = e || window.event; if (e.keyCode === 13) { addByUrl(); return false; } return true; };
@@ -202,7 +205,9 @@
     $('gsel-dl').onclick = downloadSelected;
     $('gdlall').onclick = function () { downloadAll(); return false; };
     $('gsel-del').onclick = askDeleteSelected;
-    $('lb-use').onclick = useSettings;
+    $('gsel-usb').onclick = copySelected;
+    $('st-refresh').onclick = enterStorage;
+    $('lb-use').onclick = function () { useSettings(); };
     $('lb-infobtn').onclick = toggleLbInfo;
     $('prompt-copy').onclick = function () { copyText($('prompt').value, 'The prompt'); };
     $('neg-copy').onclick = function () { copyText($('neg').value, 'The negative prompt'); };
@@ -235,7 +240,7 @@
     setPill();
     health();
     queueWatch();
-    loadGallery(null);
+    loadGallery(function () { lastItemReady(1); }, true);
     drawModels();
     dlPoll();
     // The tab open last time comes back; an address with #models, #help or #settings wins over it.

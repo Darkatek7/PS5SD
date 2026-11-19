@@ -297,6 +297,23 @@ bool FtpWriter::rename(const std::string & from, const std::string & to, std::st
     return true;
 }
 
+bool FtpWriter::mkdir(const std::string & path, std::string & error) {
+    if (!connect(error)) {
+        return false;
+    }
+    int         code = 0;
+    std::string text;
+    if (!command("MKD " + path, code, text, error)) {
+        close();
+        return false;
+    }
+    if (code != 257) {
+        error = "ftpsrv: " + text;
+        return false;
+    }
+    return true;
+}
+
 bool FtpWriter::size(const std::string & path, uint64_t & out, std::string & error) {
     if (!connect(error)) {
         return false;
@@ -304,6 +321,24 @@ bool FtpWriter::size(const std::string & path, uint64_t & out, std::string & err
     int         code = 0;
     std::string text;
     if (!command("SIZE " + path, code, text, error)) {
+        close();
+        return false;
+    }
+    if (code != 213 || text.size() < 5) {
+        error = "ftpsrv: " + text;
+        return false;
+    }
+    out = std::strtoull(text.c_str() + 4, nullptr, 10);
+    return true;
+}
+
+bool FtpWriter::avbl(const std::string & path, uint64_t & out, std::string & error) {
+    if (!connect(error)) {
+        return false;
+    }
+    int         code = 0;
+    std::string text;
+    if (!command("AVBL " + path, code, text, error)) {
         close();
         return false;
     }
@@ -432,4 +467,10 @@ bool connect_ftp_writer(FtpWriter & ftp, std::string & error) {
     }
     std::printf("ps5sd: ftpsrv: PS5SD's own copy does not answer on %d: %s\n", kOwnFtpsrvPort, error_2122.c_str());
     return none(error_2122 + "; sent to the ELF loader, but it did not start within 5 s");
+}
+
+bool ftp_free_space(const std::string & path, uint64_t & free_bytes, std::string & error) {
+    FtpWriter ftp;
+    ftp.set_timeout(10);
+    return connect_ftp_writer(ftp, error) && ftp.avbl(path, free_bytes, error);
 }

@@ -97,7 +97,8 @@
   // the presets that load it under it (groupsOf); a model with one way to load it is one row.
   function drawModels() {
     var d = st.mdl;
-    var sig = String(st.app) + '|' + JSON.stringify(d) + '|' + JSON.stringify(st.defp) + '|' + (st.sw ? st.sw.id : '') + '|' +
+    var q = trim($('mfind').value).toLowerCase();
+    var sig = q + '|' + String(st.app) + '|' + JSON.stringify(d) + '|' + JSON.stringify(st.defp) + '|' + (st.sw ? st.sw.id : '') + '|' +
       (st.delErr ? st.delErr.id + st.delErr.msg : '') + '|' + (st.video ? 'v' : '');
     if (sig === mlistSig) return;
     mlistSig = sig;
@@ -118,13 +119,30 @@
       box.appendChild(el('div', 'empty-note', 'No models installed yet. Get one under Get more.'));
       return;
     }
-    var gs = groupsOf(d), imgs = 0, vids = 0;
+    var gs = groupsOf(d), imgs = 0, vids = 0, shown = [];
+    // the search: over the model's name, its family and the names of its presets
+    show('mfind', gs.length > 6, 'block');
+    if (gs.length <= 6) q = '';
     for (var i = 0; i < gs.length; i++) {
+      if (q && !groupMatches(gs[i], d, q)) continue;
+      shown.push(gs[i]);
       if (videoOf(gs[i].main, d)) { vbox.appendChild(groupItem(gs[i], d)); vids++; }
       else { box.appendChild(groupItem(gs[i], d)); imgs++; }
     }
-    if (!imgs) box.appendChild(el('div', 'empty-note', 'No image models installed yet. Get one under Get more.'));
+    if (q && !shown.length) box.appendChild(el('div', 'empty-note', 'No model or preset matches "' + q + '".'));
+    else if (!imgs && !q) box.appendChild(el('div', 'empty-note', 'No image models installed yet. Get one under Get more.'));
     show('gh-vid', vids > 0);
+  }
+
+  // Does a model match the words of the search (q, lower case)? Its name, its family and the name of each
+  // preset under it; every word has to be in one of them.
+  function groupMatches(g, d, q) {
+    var hay = [g.title, familyOf(g.main, g.main.base ? findModel(g.main.base) : null), g.key], i;
+    for (i = 0; i < g.items.length; i++) hay.push(titleOf(g.items[i]));
+    hay = hay.join('\n').toLowerCase();
+    var words = q.split(/\s+/);
+    for (i = 0; i < words.length; i++) if (words[i] && hay.indexOf(words[i]) < 0) return false;
+    return true;
   }
 
   // The main model file of an entry (the server's model_file; older servers: its first file).
@@ -476,13 +494,13 @@
 
   // The defaults (settings: default_presets); null on a server without them.
   function loadDefaults() {
-    req('GET', APP + '/settings', null, function (code, data) {
+    loadSettings(function (code, data) {
       var defp = code === 200 && data && data.default_presets && typeof data.default_presets === 'object' ? data.default_presets : null;
       if (JSON.stringify(defp) === JSON.stringify(st.defp)) return;
       st.defp = defp;
       drawModels();
       drawCurrent();
-    }, 8000);
+    });
   }
 
   // ---- the ⋯ button of a row: a small menu. Escape, or a click outside it, shuts it.

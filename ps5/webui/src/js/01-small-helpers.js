@@ -67,10 +67,29 @@
     return e && typeof e === 'object' && typeof e.code === 'string' ? e.code : '';
   }
 
+  // GET /ps5sd/v1/app/settings, asked once for all: a call that comes while the answer is on its way, or
+  // within 10 s after it, gets that answer. A POST to the settings (req) makes it stale. cb(code, data).
+  var setCache = null, setWait = null;
+  function loadSettings(cb) {
+    if (setCache && new Date().getTime() - setCache.t < 10000) {
+      var hit = setCache;
+      setTimeout(function () { cb(hit.code, hit.data); }, 0);
+      return;
+    }
+    if (setWait) { setWait.push(cb); return; }
+    var waiters = setWait = [cb];
+    req('GET', '/ps5sd/v1/app/settings', null, function (code, data) {
+      if (setWait === waiters) setWait = null;
+      setCache = code === 200 || code === 404 ? { t: new Date().getTime(), code: code, data: data } : null;
+      for (var i = 0; i < waiters.length; i++) waiters[i](code, data);
+    }, 8000);
+  }
+
   // Every call to the server. X-PS5SD-Request lets a POST with the login cookie through (a page of
   // another site cannot add it). A 401 that asks for the API key shows the login; until it is done,
   // nothing else goes out, so the old cookie of a changed key does not count as wrong keys.
   function req(method, url, body, cb, timeout) {
+    if (method !== 'GET' && url.indexOf('/ps5sd/v1/app/settings') === 0) setCache = null;   // the next look is a new one
     if (auth.locked && url.indexOf('/ps5sd/v1/auth') !== 0) {
       setTimeout(function () { cb(401, { error: { code: 'unauthorized', message: 'API key needed' } }); }, 0);
       return;

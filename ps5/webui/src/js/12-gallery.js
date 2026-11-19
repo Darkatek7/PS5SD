@@ -13,8 +13,12 @@
   // The names and tags of the files (GET /ps5sd/v1/app/gallery/labels): {name: {title, tags}}.
   var galleryLabels = {};
 
-  // The list and the labels, asked for together; the list is drawn when both are in.
-  function loadGallery(cb) {
+  // The list and the labels, asked for together; the list is drawn when both are in. shared: join a load
+  // that is already on its way (the start and a tab switch ask at the same time) instead of asking again.
+  var galleryWait = null;
+  function loadGallery(cb, shared) {
+    if (shared && galleryWait) { if (cb) galleryWait.push(cb); return; }
+    var waiters = galleryWait = cb ? [cb] : [];
     var list = null, code = -1, labelsIn = false;
     function both() {
       if (code < 0 || !labelsIn) return;
@@ -26,7 +30,8 @@
       }
       for (var i = 0; i < galleryList.length; i++) labelItem(galleryList[i]);
       drawGallery();
-      if (cb) cb(code === 200 ? galleryList : null);
+      if (galleryWait === waiters) galleryWait = null;
+      for (var w = 0; w < waiters.length; w++) waiters[w](code === 200 ? galleryList : null);
     }
     req('GET', '/ps5sd/v1/gallery?limit=1000', null, function (c, data) { code = c; list = data; both(); });
     req('GET', APP + '/gallery/labels', null, function (c, data) {
@@ -42,7 +47,7 @@
     it.tags = l && l.tags ? l.tags : [];
   }
 
-  function refreshGallery() { loadGallery(null); }
+  function refreshGallery() { loadGallery(null, true); }
 
   // A video in the gallery: by its type (the server's), else its name.
   function isVideo(item) {
@@ -225,6 +230,7 @@
     gsel = on ? {} : null;
     text($('gsel'), on ? 'Cancel' : 'Select');
     $('gsel').setAttribute('aria-pressed', on ? 'true' : 'false');
+    if (on) enterStorage();   // the drives for Copy to USB, and a copy that already runs
     drawGallery();
   }
 
@@ -244,6 +250,7 @@
 
   function drawSelBar() {
     show('gselbar', !!gsel, 'flex');
+    drawSelUsb();
     if (!gsel) return;
     var n = selNames().length;
     text($('gsel-n'), n ? n + ' selected' : 'Press the images to select them.');

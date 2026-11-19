@@ -6,6 +6,9 @@
   // is the start. A masked result is always blended back over the start image with a soft edge, so the
   // rest of the image stays exactly as it was, and saved to the gallery in place of the raw result.
   var INIT_MAX = 4096;
+  // The longest side of a reference sent to a "flux2" model, which takes it as it is, with no scaling to
+  // the output's area (ref_image_args resize_before_vae=false): a smaller reference is faster.
+  var REF_SIDE = 768;
   var me = { brush: 48, erase: false, down: false, last: null, scale: 1 };
 
   function canvasOf(w, h) {
@@ -61,10 +64,139 @@
     r.readAsDataURL(f);
   }
 
-  // FLUX.2 edits by the prompt: the start image goes as a reference (ref_images), with no strength and no
-  // mask. sd.cpp ignores references for other families, so the choice shows only for FLUX.2.
-  function refCapable() { return /^FLUX\.2/.test(loadedFamily()); }
+  // Edits by the prompt: the start image goes as a reference (ref_images), with no strength and no mask,
+  // and an optional second picture after it. The server names the model's reference preset in its
+  // capabilities (st.refPreset: "flux2", "qwen", ..., "default" for none); an older server has no field,
+  // so the family of the loaded model decides: FLUX.2 and FLUX.3 take references as "flux2".
+  function refPreset() {
+    if (typeof st.refPreset === 'string') return st.refPreset;
+    return /^FLUX\.[23]/.test(loadedFamily()) ? 'flux2' : 'default';
+  }
+  function refCapable() { return refPreset() !== 'default'; }
   function refEdit() { return !!st.init && refCapable() && $('init-ref').checked; }
+
+  // The second picture {canvas, name}, as the start image is, without a size of its own.
+  function setInit2(src, name) {
+    var img = new Image();
+    img.onload = function () {
+      var w = img.naturalWidth || img.width, h = img.naturalHeight || img.height;
+      var k = Math.min(1, INIT_MAX / Math.max(w, h));
+      var c = canvasOf(Math.max(1, Math.round(w * k)), Math.max(1, Math.round(h * k)));
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      st.init2 = { canvas: c, name: name || 'image' };
+      drawInit();
+      toast('Second picture set.', 4000);
+    };
+    img.onerror = function () { toast('Could not read that image.', 6000); };
+    img.src = src;
+  }
+
+  function dropInit2() {
+    st.init2 = null;
+    drawInit();
+  }
+
+  function readPicture(f, cb) {
+    var r = new FileReader();
+    r.onload = function () { cb(r.result, f.name || 'pasted image'); };
+    r.onerror = function () { toast('Could not read ' + (f.name || 'the picture') + '.', 6000); };
+    r.readAsDataURL(f);
+  }
+
+  function init2File() {
+    var input = $('init2-file');
+    var f = input.files && input.files[0];
+    input.value = '';
+    if (f) readPicture(f, setInit2);
+  }
+
+  // A reference picture as a data URL: the part `box` of `src`. With "flux2" (small) it is scaled to
+  // REF_SIDE at most and never enlarged; else it gets the output's area, w x h pixels.
+  function refPicture(src, box, w, h, small) {
+    var k = small ? Math.min(1, REF_SIDE / Math.max(box.w, box.h)) : Math.sqrt(w * h / (box.w * box.h));
+    var tw = Math.max(1, Math.round(box.w * k)), th = Math.max(1, Math.round(box.h * k));
+    var c = canvasOf(tw, th);
+    c.getContext('2d').drawImage(src, box.x, box.y, box.w, box.h, 0, 0, tw, th);
+    return c.toDataURL('image/png');
+  }
+
+  // The largest centred part of a W x H picture with the aspect of w x h.
+  function centredBox(W, H, w, h) {
+    return W / H > w / h ? { x: Math.round((W - H * w / h) / 2), y: 0, w: Math.round(H * w / h), h: H }
+      : { x: 0, y: Math.round((H - W * h / w) / 2), w: W, h: Math.round(W * h / w) };
+  }
+
+  // ---- pictures by drop and by paste
+  function hasFiles(e) {
+    var t = e.dataTransfer && e.dataTransfer.types;
+    if (!t) return false;
+    for (var i = 0; i < t.length; i++) if (t[i] === 'Files') return true;
+    return false;
+  }
+
+  function pictureOf(list) {
+    for (var i = 0; list && i < list.length; i++) {
+      var f = list[i].kind === 'file' && list[i].getAsFile ? list[i].getAsFile() : list[i];
+      if (f && /^image\//.test(f.type || '')) return f;
+    }
+    return null;
+  }
+
+  // Drop target: a picture file over `el` gets class "dropping", and a drop calls fn(file).
+  function dropTarget(el, fn) {
+    var depth = 0;
+    function over(e) {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+      el.className = el.className.replace(/ ?dropping/, '') + ' dropping';
+    }
+    function clear() { depth = 0; el.className = el.className.replace(/ ?dropping/, ''); }
+    el.addEventListener('dragenter', function (e) { if (hasFiles(e)) depth++; over(e); }, false);
+    el.addEventListener('dragover', over, false);
+    el.addEventListener('dragleave', function (e) {
+      if (!hasFiles(e)) return;
+      e.stopPropagation();
+      if (--depth <= 0) clear();
+    }, false);
+    el.addEventListener('drop', function (e) {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      clear();
+      var f = pictureOf(e.dataTransfer.files);
+      if (f) fn(f); else toast('That is not a picture.', 4000);
+    }, false);
+  }
+
+  // A pasted picture: the start image if it is empty, else the second picture if that is shown and empty,
+  // else it replaces the start image. Text stays with the field it is pasted into.
+  function pasteWhere(e) {
+    var cd = e.clipboardData;
+    if (!cd || st.view !== 'create' || $('me').style.display !== 'none') return;
+    var f = pictureOf(cd.items) || pictureOf(cd.files);
+    if (!f) return;
+    var tg = e.target, field = tg && /^(INPUT|TEXTAREA)$/.test(tg.tagName || '');
+    var types = cd.types || [];
+    for (var i = 0; field && i < types.length; i++) if (types[i] === 'text/plain') return;
+    e.preventDefault();
+    var two = !!st.init && !st.init2 && !st.video && refEdit();
+    readPicture(f, two ? setInit2 : setInit);
+  }
+
+  function initDropAndPaste() {
+    dropTarget($('init-bar'), function (f) { readPicture(f, setInit); });
+    dropTarget($('init-box'), function (f) { readPicture(f, setInit); });
+    dropTarget($('init2-sect'), function (f) { readPicture(f, setInit2); });
+    dropTarget($('cn-bar'), function (f) { readPicture(f, setGuide); });
+    dropTarget($('cn-box'), function (f) { readPicture(f, setGuide); });
+    $('init2-pick').onclick = function () { $('init2-file').click(); };
+    $('init2-file').onchange = init2File;
+    $('init2-drop').onclick = dropInit2;
+    document.addEventListener('paste', pasteWhere, false);
+  }
+  initDropAndPaste();
 
   function drawInit() {
     var i = st.init, ref = refEdit();
@@ -87,12 +219,24 @@
         : 'no mask: the whole image changes'));
       text($('init-mask'), i.mask ? 'Edit the mask' : 'Paint a mask');
       show('init-ref-row', refCapable(), 'flex');
+      var i2 = st.init2;
+      show('init2-sect', ref);
+      show('init2-bar', ref && !i2, 'flex');
+      show('init2-box', ref && !!i2);
+      if (ref && i2) {
+        var k2 = Math.min(1, 240 / Math.max(i2.canvas.width, i2.canvas.height));
+        var t2 = canvasOf(Math.max(1, Math.round(i2.canvas.width * k2)), Math.max(1, Math.round(i2.canvas.height * k2)));
+        t2.getContext('2d').drawImage(i2.canvas, 0, 0, t2.width, t2.height);
+        $('init2-thumb').src = t2.toDataURL('image/png');
+        text($('init2-meta'), i2.canvas.width + '×' + i2.canvas.height + ' · image 2 of the prompt');
+      }
       show('init-str-row', !ref, 'flex');
       show('init-mask', !ref, 'inline-block');
       show('init-crop-row', !!i.mask && !ref, 'flex');
       text($('init-hint'), ref
         ? 'Say what to change, for example "the same house in winter, snow on the roof". The layout and the rest stay. ' +
-          'It takes longer than an image of its own: about a minute at 4 steps, two at 8.'
+          'The prompt can name the pictures "image 1" and "image 2", for example "the cat from image 1 on the sofa of image 2". ' +
+          'It takes about one and a half to two times as long as an image of its own, and a second picture adds to it.'
         : i.mask && $('init-crop').checked
         ? 'A box around the mask is made with as many pixels as Width × Height, then put back into the image: small fixes in large images are quick and sharp.'
         : 'Strength 0.3 to 0.5 keeps the picture and changes details; 0.7 and up changes much more.' +
@@ -346,12 +490,22 @@
     } else {
       crop = false;
       // the largest centred part of the start image with the form's aspect
-      box = W / H > gw / gh ? { x: Math.round((W - H * gw / gh) / 2), y: 0, w: Math.round(H * gw / gh), h: H }
-        : { x: 0, y: Math.round((H - W * gh / gw) / 2), w: W, h: Math.round(W * gh / gw) };
+      box = centredBox(W, H, gw, gh);
     }
     var ic = canvasOf(gw, gh);
     ic.getContext('2d').drawImage(i.canvas, box.x, box.y, box.w, box.h, 0, 0, gw, gh);
-    var out = { init: ic.toDataURL('image/png'), mask: null, soft: null, w: gw, h: gh, box: box, crop: crop, source: i.canvas, ref: ref };
+    var out = { init: ic.toDataURL('image/png'), refs: null, refArgs: '', mask: null, soft: null, w: gw, h: gh, box: box, crop: crop, source: i.canvas, ref: ref };
+    if (ref) {
+      // "flux2" takes the references as they are, small; any other preset has them at the output's size
+      var small = refPreset() === 'flux2';
+      out.refs = [small ? refPicture(i.canvas, box, gw, gh, true) : out.init];
+      if (st.init2) {
+        // the second picture whole, with its own aspect: a scene or a thing in it is not cut
+        var s2 = st.init2.canvas;
+        out.refs.push(refPicture(s2, { x: 0, y: 0, w: s2.width, h: s2.height }, gw, gh, small));
+      }
+      if (small) out.refArgs = 'resize_before_vae=false';
+    }
     if (i.mask && !ref) {
       out.soft = softMask(i.mask, box, gw, gh);
       out.mask = out.soft.toDataURL('image/png');

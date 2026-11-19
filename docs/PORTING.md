@@ -239,6 +239,13 @@ instead of trapping, so `main.cpp` reports an out-of-memory load or generation a
   gallery's size. The form's `POST` with only the login cookie needs no `X-PS5SD-Request` header (a form
   cannot add one); the route only reads. `ps5/app/tests/test_zip_stream.cpp` tests it when `SD_DIR` is
   patched.
+  `patches/sdcpp/0087` adds `sd_get_ref_image_preset()` and puts it in `GET /sdcpp/v1/capabilities` as
+  `model.ref_image_preset`: the reference preset sd.cpp uses for the loaded model (`"flux2"`, `"qwen"`,
+  `"fibo2"`, …; `"default"` for a model that takes no reference). The web UI offers Edit by the prompt
+  for every model with a preset of its own, and for `"flux2"` sends the references at most 768 px a side
+  with `resize_before_vae=false`.
+  `patches/sdcpp/0088` lets `GET /ps5sd/v1/app/icon.png` and `GET /ps5sd/v1/app/manifest.webmanifest`
+  through without the API key: a browser fetches a page's icon and manifest without it.
   The request's own settings (steps, CFG, size) win over the server's defaults, which are sd.cpp's, not
   the one-shot's SD-Turbo ones. `main.cpp` defines the activity hooks of `server_hooks.h` (in its own
   object: from an archive, lld could take the weak no-ops instead), which feed the status and the
@@ -296,6 +303,18 @@ instead of trapping, so `main.cpp` reports an out-of-memory load or generation a
   1.0 `patches/sdcpp/0058` did that; upstream does it since #2176. Upstream checks each LoRA path
   with `fs::canonical`, and `realpath()` fails on the PS5; `patches/sdcpp/0084` takes an absolute path
   that exists as it is then.
+- Storage (`storage.hpp`, `GET /ps5sd/v1/app/storage`): the sizes of the models, LoRAs, gallery and
+  upscalers folders (kept 30 s), the free space, and the USB drives. The title cannot read the free space
+  itself: its `statvfs` answers 64 GiB with 16 GiB free for every path, and `statfs` is in no module it
+  loads. So `ftp_free_space` (`ftp_writer.cpp`) asks ftpsrv with `AVBL`. A drive at `/mnt/usb0` to `usb7`
+  is told from an empty mount point by its `st_dev`. The downloader asks the same before a download and
+  fails it at once when its size plus 1 GiB is not free (`space_shortfall`).
+- Copies on a USB drive (`usb_copy.hpp`, `POST` and `GET /ps5sd/v1/app/gallery/copy`, the setting
+  `usb_copy`): one thread copies gallery files and their parameters to `/mnt/<drive>/PS5SD/`, through
+  ftpsrv as the downloader writes (`FtpSink`, with `MKD` for the folders), skipping a file that is there
+  with the same size. `sd_activity_job_end` queues each new file when `usb_copy` names a drive.
+- `pwa.hpp`: the web app manifest (`GET /ps5sd/v1/app/manifest.webmanifest`) and the size of the title's
+  icon, which `GET /ps5sd/v1/app/icon.png` serves from `/app0/sce_sys/icon0.png`.
 - Without a display (`PS5SD_NO_DISPLAY`): no `Display`, no renderer. Every phase (`set_phase`)
   goes to `app.log` as `ps5sd: status: ...`, to the kernel log through `sceKernelDebugOutText`
   (klogsrv, `scripts/ps5sd-app.sh log -f`) and to a system notification; the sampling progress

@@ -1,0 +1,99 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: ps5sd <ps5sd@localhost>
+Date: Thu, 19 Nov 2026 12:00:00 +0100
+Subject: [PATCH] server: the model's reference image preset in the capabilities
+
+sd_get_ref_image_preset(ctx) returns the loaded model's default reference
+image preset ("flux2", "qwen", "fibo2", "flux_kontext", ...; "default" for a
+model without one), a static string of the model definition, or nullptr
+without a context. GET /sdcpp/v1/capabilities has it as
+model.ref_image_preset (null when no model is loaded). It is read from the
+context that is loaded when the request comes, so a model loaded with
+/models/load shows its own. A page uses it to offer reference images for
+every model that takes them.
+---
+ examples/server/api.md           |  1 +
+ examples/server/routes_sdcpp.cpp |  2 ++
+ include/stable-diffusion.h       |  4 ++++
+ src/stable-diffusion.cpp         | 12 ++++++++++++
+ 4 files changed, 19 insertions(+)
+
+diff --git a/examples/server/api.md b/examples/server/api.md
+index 9c4af0a..7986de7 100644
+--- a/examples/server/api.md
++++ b/examples/server/api.md
+@@ -883,6 +883,7 @@ Top-level fields:
+ | `model.name` | `string` |
+ | `model.stem` | `string` |
+ | `model.path` | `string` |
++| `model.ref_image_preset` | `string` or `null` | The loaded model's reference image preset (`flux2`, `qwen`, ..., `default` for a model without one); `null` without a model |
+ 
+ Compatibility rules:
+ 
+diff --git a/examples/server/routes_sdcpp.cpp b/examples/server/routes_sdcpp.cpp
+index f72545a..eaa2b81 100644
+--- a/examples/server/routes_sdcpp.cpp
++++ b/examples/server/routes_sdcpp.cpp
+@@ -253,6 +253,7 @@ static json make_capabilities_json(ServerRuntime& runtime) {
+     AsyncJobManager& manager  = *runtime.async_job_manager;
+     const SDGenerationParams defaults = request_defaults(runtime);
+     const fs::path model_path = resolve_display_model_path(runtime);
++    const char* ref_preset    = sd_get_ref_image_preset(runtime.sd_ctx);
+     const bool supports_img   = runtime_supports_generation_mode(runtime, IMG_GEN);
+     const bool supports_vid   = runtime_supports_generation_mode(runtime, VID_GEN);
+     json samplers             = json::array();
+@@ -415,6 +416,7 @@ static json make_capabilities_json(ServerRuntime& runtime) {
+         {"name", model_path.filename().u8string()},
+         {"stem", model_path.stem().u8string()},
+         {"path", model_path.u8string()},
++        {"ref_image_preset", ref_preset != nullptr ? json(ref_preset) : json(nullptr)},
+     };
+     result["generation_features"] = generation_features;
+     result["runtime"]             = model_status(runtime);
+diff --git a/include/stable-diffusion.h b/include/stable-diffusion.h
+index 7453a3f..e5ddf0c 100644
+--- a/include/stable-diffusion.h
++++ b/include/stable-diffusion.h
+@@ -580,6 +580,10 @@ SD_API char* sd_sample_params_to_str(const sd_sample_params_t* sample_params);
+ // Requires a loaded context; returns a static string owned by the library, or "Unknown".
+ SD_API const char* sd_get_model_version_name(const sd_ctx_t* sd_ctx);
+ 
++// The loaded model's reference image preset ("flux2", "qwen", ..., "default" for a model without one).
++// A static string owned by the library; nullptr without a context or a model.
++SD_API const char* sd_get_ref_image_preset(const sd_ctx_t* sd_ctx);
++
+ SD_API enum sample_method_t sd_get_default_sample_method(const sd_ctx_t* sd_ctx);
+ SD_API enum scheduler_t sd_get_default_scheduler(const sd_ctx_t* sd_ctx, enum sample_method_t sample_method);
+ 
+diff --git a/src/stable-diffusion.cpp b/src/stable-diffusion.cpp
+index 4a7af2a..2b9c83c 100644
+--- a/src/stable-diffusion.cpp
++++ b/src/stable-diffusion.cpp
+@@ -1,5 +1,6 @@
+ #include "stable-diffusion.h"
+ #include "generation_info.h"
++#include "model_definition.h"
+ 
+ #include <algorithm>
+ #include <cinttypes>
+@@ -806,6 +807,17 @@ const char* sd_get_model_version_name(const sd_ctx_t* sd_ctx) {
+     return sd_version_name(sd_ctx->sd->version);
+ }
+ 
++const char* sd_get_ref_image_preset(const sd_ctx_t* sd_ctx) {
++    if (sd_ctx == nullptr || sd_ctx->sd == nullptr || sd_ctx->sd->version >= VERSION_COUNT) {
++        return nullptr;
++    }
++    const ModelDefinition* definition = find_model_definition(sd_ctx->sd->version);
++    if (definition == nullptr || definition->ref_image_preset == nullptr) {
++        return nullptr;
++    }
++    return definition->ref_image_preset;
++}
++
+ enum sample_method_t sd_get_default_sample_method(const sd_ctx_t* sd_ctx) {
+     return sd::pipeline::default_sample_method(sd_ctx != nullptr ? sd_ctx->sd : nullptr);
+ }
+-- 
+2.43.0
+

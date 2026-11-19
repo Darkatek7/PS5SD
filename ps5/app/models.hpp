@@ -262,6 +262,9 @@ struct AppSettings {
     std::string fan        = "quiet";  // "quiet" (the console's own), "balanced", "cool", "manual"
     int         fan_target = 85;       // manual's target temperature, 70..95 C (ps5/fan/fan_policy.h)
     bool        image_metadata = true;  // the web UI writes the settings into the PNG (false: it asks the server to leave them out)
+    // A drive id ("usb0" to "usb7") that each image or video the server saves is
+    // copied to, in the background; "" is off (usb_copy.hpp).
+    std::string usb_copy;
     // The preset the web UI loads for a model (model_file -> preset id), set
     // with its "Make default". Only the web UI reads it; the APIs switch to the
     // id they name.
@@ -269,11 +272,11 @@ struct AppSettings {
 };
 
 // {"tv_images": true, "tv_api_key": true, "fan": "quiet", "fan_target": 85,
-// "image_metadata": true, "default_presets": {"model.gguf": "preset-id"}}.
+// "image_metadata": true, "usb_copy": "", "default_presets": {"model.gguf": "preset-id"}}.
 std::string settings_json(const AppSettings & settings);
 
 // Applies what a body (or the settings file) sets to settings; a field it
-// leaves out keeps its value. default_presets is merged: a model file with an
+// leaves out keeps its value. usb_copy is "", null (off) or a drive id usb0 to usb7. default_presets is merged: a model file with an
 // id sets its default, one with "" or null drops it. False, with error, when the body is not a JSON
 // object or a field has the wrong type (settings is then unchanged).
 bool apply_settings(const std::string & body, AppSettings & settings, std::string & error);

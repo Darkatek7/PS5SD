@@ -18,6 +18,13 @@ and docs/API.md from this checkout for the Help tab. --mock-models alone fakes o
 "fail" makes the download fail at 30 percent, "big" makes it 8 GB, "slow" makes it slow.
 In a search, "err" gives an error and "none" gives no results.
 
+--mock-storage fakes the storage and USB routes of a newer app: GET /ps5sd/v1/app/storage (the console's space,
+what the models, LoRAs, gallery and upscalers take, two USB drives), POST and GET /ps5sd/v1/app/gallery/copy
+(a copy that advances over a few seconds; the drive usb1 is nearly full and fails half way), the usb_copy
+setting (GET /ps5sd/v1/app/settings of the console, with usb_copy added; a POST that holds only usb_copy is
+answered here, even with --read-only), the title's icon.png and manifest.webmanifest, and a download that does
+not fit fails at once. Everything else is still forwarded.
+
 --mock-standby starts like a fresh install: no model is loaded, the library answers
 "standby": true, and every route outside /ps5sd/ answers 503 as sd-server --standby does,
 until a switch (Use) has loaded a model. It implies --mock-downloads.
@@ -102,7 +109,8 @@ class MockDownloads:
                     "dest": "sdxs-512-tinySDdistilled_Q8_0.gguf", "bytes": 683 * MB}]},
     ]
 
-    def __init__(self):
+    def __init__(self, storage=None):
+        self.storage = storage
         self.lock = threading.Lock()
         self.items = []
         self.next_id = 1
@@ -188,6 +196,10 @@ class MockDownloads:
                 item = {"id": str(self.next_id), "url": url, "dest": dest, "bytes": 0, "total": total,
                         "state": "queued", "error": "", "bytes_per_second": 0, "catalog": req.get("catalog") or ""}
                 self.next_id += 1
+                if self.storage is not None and total > self.storage.free():
+                    item["state"] = "failed"
+                    item["error"] = "Not enough space on the console: it needs %.1f GB, %.1f GB are free." % (
+                        total / 1e9, self.storage.free() / 1e9)
                 self.items.append(item)
                 self._advance()
                 return 202, dict(item)
@@ -527,12 +539,87 @@ ERROR_CODES = {400: "invalid_request", 401: "unauthorized", 403: "forbidden", 40
                503: "unavailable", 507: "storage_full"}
 
 
+class MockStorage:
+    """In-memory stand-in for the storage routes: the console's space, two USB drives, the gallery copy
+    and the usb_copy setting. The copy advances with the clock, so a poll sees it move."""
+
+    CONSOLE = {"path": "/data", "free": 6400 * MB}
+    USED = {"models": 512 * GB, "loras": 4200 * MB, "gallery": 3100 * MB, "upscalers": 200 * MB}
+    USB = [{"id": "usb0", "path": "/mnt/usb0", "free": 91 * GB},
+           {"id": "usb1", "path": "/mnt/usb1", "free": 800 * MB}]
+
+    def __init__(self, gallery_names):
+        self.lock = threading.Lock()
+        self.gallery_names = gallery_names   # callable: the names of the gallery, newest first
+        self.usb_copy = ""
+        self.job = None
+
+    def free(self):
+        return self.CONSOLE["free"]
+
+    def _state(self):
+        j = self.job
+        if j is None:
+            return {"state": "idle", "to": "", "done": 0, "total": 0, "skipped": 0, "bytes": 0, "error": ""}
+        now = time.time()
+        n = min(j["total"], int((now - j["t0"]) * j["rate"]))
+        state, error = "copying", ""
+        if j["fail_at"] is not None and n >= j["fail_at"]:
+            n, state, error = j["fail_at"], "failed", "The drive is full (no space left on %s)." % j["to"]
+        elif n >= j["total"]:
+            state = "done"
+        j["state"] = state
+        skipped = n // 5 if j["whole"] else 0   # done counts the skipped files too
+        done = n
+        return {"state": state, "to": j["to"], "done": done, "total": j["total"], "skipped": skipped,
+                "bytes": (done - skipped) * 2500 * 1000, "error": error}
+
+    def handle(self, method, path, body):
+        """Returns (status, object) or None when the path is not one of these routes."""
+        route = path.split("?")[0]
+        if not route.startswith(APP):
+            return None
+        route = route[len(APP):]
+        with self.lock:
+            if method == "GET" and route == "storage":
+                return 200, {"console": dict(self.CONSOLE), "used": dict(self.USED), "usb": [dict(u) for u in self.USB]}
+            if method == "GET" and route == "gallery/copy":
+                return 200, self._state()
+            if method == "POST" and route == "gallery/copy":
+                try:
+                    req = json.loads(body or b"{}")
+                except ValueError:
+                    return 400, {"error": "body is not JSON"}
+                drive = str(req.get("to") or "")
+                if drive not in [u["id"] for u in self.USB]:
+                    return 400, {"error": "no such drive: %s" % drive}
+                names = req.get("names")
+                have = self.gallery_names()
+                if names is not None:
+                    if not isinstance(names, list) or not names or any(not isinstance(x, str) for x in names):
+                        return 400, {"error": "names must be a list of file names"}
+                    bad = [x for x in names if x not in have]
+                    if bad:
+                        return 400, {"error": "not in the gallery: %s" % bad[0]}
+                if self.job is not None and self._state()["state"] == "copying":
+                    return 409, {"error": "a copy is already running"}
+                total = len(names) if names else len(have)
+                # about 8 seconds for a whole gallery; usb1 is full at 60 percent
+                self.job = {"to": drive, "total": total, "t0": time.time(), "rate": max(total / 8.0, 1.5),
+                            "whole": not names, "fail_at": int(total * 0.6) if drive == "usb1" and total > 1 else None}
+                return 202, self._state()
+            if route == "settings":
+                return None
+        return None
+
+
 class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
     target = None
     mock = None
     models = None
     loras = None
+    storage = None
     read_only = False
 
     def log_message(self, fmt, *args):
@@ -605,6 +692,76 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
+    @classmethod
+    def _target_json(cls, path):
+        """GET path from the console: (status, object), (0, None) when it does not answer."""
+        t = urllib.parse.urlparse(cls.target)
+        try:
+            conn = http.client.HTTPConnection(t.hostname, t.port or 80, timeout=10)
+            conn.request("GET", path, headers={"X-PS5SD-Request": "1"})
+            r = conn.getresponse()
+            return r.status, json.loads(r.read() or b"null")
+        except Exception:
+            return 0, None
+
+    @classmethod
+    def _gallery_names(cls):
+        code, data = cls._target_json("/ps5sd/v1/gallery?limit=1000")
+        if code == 200 and isinstance(data, list) and data:
+            return [x["name"] for x in data if isinstance(x, dict) and "name" in x]
+        return ["mock_%03d.png" % i for i in range(40)]
+
+    def _file(self, path, ctype):
+        data = open(path, "rb").read()
+        self.send_response(200)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def _storage(self, body):
+        """--mock-storage: True when the request was answered here, else None."""
+        route = self.path.split("?")[0]
+        if self.command == "GET" and route == APP + "icon.png":
+            self._file(os.path.join(HERE, "..", "ps5", "app", "sce_sys", "icon0.png"), "image/png")
+            return True
+        if self.command == "GET" and route == APP + "manifest.webmanifest":
+            icon = {"src": APP + "icon.png", "sizes": "512x512", "type": "image/png"}
+            data = json.dumps({"name": "PS5SD", "short_name": "PS5SD", "start_url": "/", "display": "standalone",
+                               "background_color": "#000000", "theme_color": "#000000", "icons": [icon]}).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/manifest+json")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+            return True
+        if route == APP + "settings":
+            st = self.storage
+            if self.command == "POST":
+                try:
+                    req = json.loads(body or b"{}")
+                except ValueError:
+                    return None
+                if not isinstance(req, dict) or list(req.keys()) != ["usb_copy"]:
+                    return None
+                v = req["usb_copy"]
+                if v != "" and v not in [u["id"] for u in st.USB]:
+                    self._json(400, {"error": "no such drive: %s" % v})
+                    return True
+                st.usb_copy = v
+            elif self.command != "GET":
+                return None
+            code, data = self._target_json(APP + "settings")
+            data = data if code == 200 and isinstance(data, dict) else {}
+            data["usb_copy"] = st.usb_copy
+            self._json(200, data)
+            return True
+        res = self.storage.handle(self.command, self.path, body)
+        if res is not None:
+            self._json(res[0], res[1])
+            return True
+        return None
+
     def _dispatch(self):
         if self.command == "GET" and self.path.split("?")[0] in ("/", "/index.html"):
             self._page()
@@ -612,6 +769,8 @@ class Handler(BaseHTTPRequestHandler):
         length = int(self.headers.get("Content-Length") or 0)
         body = self.rfile.read(length) if length else None
         res = None
+        if self.storage is not None and self._storage(body):
+            return
         if self.models is not None and self.path.split("?")[0] == APP + "info":
             src = open(VERSION_HPP, encoding="utf-8").read()
             version = re.search(r'PS5SD_VERSION "([^"]*)"', src).group(1)
@@ -662,14 +821,19 @@ if __name__ == "__main__":
                          " implied by --mock-downloads")
     ap.add_argument("--read-only", action="store_true",
                     help="send only GET to the console: no job, cancel, delete or setting reaches it (the mocks still answer)")
+    ap.add_argument("--mock-storage", action="store_true",
+                    help="answer the storage and USB routes (storage, gallery/copy, the usb_copy setting, icon.png,"
+                         " manifest.webmanifest) here, even with --read-only")
     ap.add_argument("--mock-standby", action="store_true",
                     help="start without a model, as sd-server --standby does; implies --mock-downloads")
     a = ap.parse_args()
     a.mock_downloads = a.mock_downloads or a.mock_standby
     Handler.target = a.target
     Handler.read_only = a.read_only
+    if a.mock_storage:
+        Handler.storage = MockStorage(lambda: Handler._gallery_names())
     if a.mock_downloads:
-        Handler.mock = MockDownloads()
+        Handler.mock = MockDownloads(Handler.storage)
     if a.mock_downloads or a.mock_models:
         Handler.models = MockModels(Handler.mock)
         Handler.loras = MockLoras()
@@ -677,5 +841,5 @@ if __name__ == "__main__":
         Handler.models.standby = True
         Handler.models.active = Handler.models.loaded = ""
     print("serving %s on http://127.0.0.1:%d -> %s%s" % (SRC, a.port, a.target,
-                                                      (" (mock downloads)" if a.mock_downloads else "") + (" (mock models)" if Handler.models else "")))
+                                                      (" (mock downloads)" if a.mock_downloads else "") + (" (mock models)" if Handler.models else "") + (" (mock storage)" if Handler.storage else "")))
     ThreadingHTTPServer(("127.0.0.1", a.port), Handler).serve_forever()

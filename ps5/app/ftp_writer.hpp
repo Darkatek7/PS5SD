@@ -40,8 +40,12 @@ public:
     bool send(const char * data, size_t n, std::string & error);
     bool end(std::string & error);
     bool rename(const std::string & from, const std::string & to, std::string & error);
+    // MKD: false with error when the server refuses, also for a folder that is there.
+    bool mkdir(const std::string & path, std::string & error);
     // The file's size; false if it is not there (550) or the server is gone.
     bool size(const std::string & path, uint64_t & out, std::string & error);
+    // AVBL: the bytes free on the file system that holds path.
+    bool avbl(const std::string & path, uint64_t & out, std::string & error);
     void close();
 
     void set_timeout(int seconds) { timeout_ = seconds; }
@@ -83,3 +87,9 @@ constexpr const char * kFtpCheckFile = "/data/PS5SD/.ps5sd-ftp-check";
 // once. False with error when no server answers: the caller writes the file
 // itself then.
 bool connect_ftp_writer(FtpWriter & ftp, std::string & error);
+
+// The bytes free on the file system that holds path, as ftpsrv sees it (AVBL).
+// The title cannot tell itself: its statvfs answers 64 GiB with 16 GiB free for
+// every path, and statfs is in no module it loads (docs/CONSOLE.md). False
+// when no ftpsrv answers.
+bool ftp_free_space(const std::string & path, uint64_t & free_bytes, std::string & error);

@@ -4834,6 +4834,404 @@
           }
         }
       }
+    },
+    "/ps5sd/v1/app/storage": {
+      "get": {
+        "tags": [
+          "web UI"
+        ],
+        "operationId": "getStorage",
+        "summary": "Storage on the console",
+        "description": "How much room `/data` has free, what the models, LoRAs, gallery and upscalers use (the folder sizes are kept for 30 seconds), and the USB drives that are mounted with their free space. There is no total: the title cannot read it, so it asks ftpsrv, which tells only the free space.",
+        "responses": {
+          "200": {
+            "description": "The storage.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "console": {
+                      "type": "object",
+                      "properties": {
+                        "path": {
+                          "type": "string",
+                          "example": "/data"
+                        },
+                        "free": {
+                          "type": [
+                            "integer",
+                            "null"
+                          ],
+                          "description": "Bytes free, as ftpsrv tells it (AVBL); null when no FTP server answers."
+                        }
+                      },
+                      "additionalProperties": true
+                    },
+                    "used": {
+                      "type": "object",
+                      "description": "Bytes the app's folders use under `/data/PS5SD`.",
+                      "properties": {
+                        "models": {
+                          "type": "integer"
+                        },
+                        "loras": {
+                          "type": "integer"
+                        },
+                        "gallery": {
+                          "type": "integer",
+                          "description": "`outputs`, with the thumbnails."
+                        },
+                        "upscalers": {
+                          "type": "integer"
+                        }
+                      },
+                      "additionalProperties": true
+                    },
+                    "usb": {
+                      "type": "array",
+                      "description": "The USB drives that are mounted (`/mnt/usb0` to `/mnt/usb7`).",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "example": "usb0"
+                          },
+                          "path": {
+                            "type": "string",
+                            "example": "/mnt/usb0"
+                          },
+                          "free": {
+                            "type": [
+                              "integer",
+                              "null"
+                            ],
+                            "description": "Bytes free on the drive; null when not known."
+                          }
+                        },
+                        "additionalProperties": true
+                      }
+                    }
+                  },
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key is needed, or it is wrong (code `unauthorized`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ps5sd/v1/app/gallery/copy": {
+      "get": {
+        "tags": [
+          "gallery"
+        ],
+        "operationId": "getGalleryCopy",
+        "summary": "State of the copy to a USB drive",
+        "description": "The state of the last copy that `POST` started (`idle` before the first one).",
+        "responses": {
+          "200": {
+            "description": "The state.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "state": {
+                      "type": "string",
+                      "enum": [
+                        "idle",
+                        "copying",
+                        "done",
+                        "failed"
+                      ]
+                    },
+                    "to": {
+                      "type": "string",
+                      "example": "usb0"
+                    },
+                    "done": {
+                      "type": "integer",
+                      "description": "Files handled (copied or skipped)."
+                    },
+                    "total": {
+                      "type": "integer",
+                      "description": "Files to copy."
+                    },
+                    "skipped": {
+                      "type": "integer",
+                      "description": "Files that were on the drive already, with the same size."
+                    },
+                    "bytes": {
+                      "type": "integer",
+                      "description": "Bytes written."
+                    },
+                    "error": {
+                      "type": "string",
+                      "description": "Why it failed; empty otherwise."
+                    }
+                  },
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key is needed, or it is wrong (code `unauthorized`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "gallery"
+        ],
+        "operationId": "copyGallery",
+        "summary": "Copy the gallery to a USB drive",
+        "description": "Copies gallery files to `/mnt/<to>/PS5SD/` under the same names, in the background, through ftpsrv. A file that is there with the same size is skipped. A file's parameters (`.thumbs/<name>.txt`) go along. Files that are not kept (`tmp_`) are not copied. Poll `GET` for the progress.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "to"
+                ],
+                "properties": {
+                  "to": {
+                    "type": "string",
+                    "enum": [
+                      "usb0",
+                      "usb1",
+                      "usb2",
+                      "usb3",
+                      "usb4",
+                      "usb5",
+                      "usb6",
+                      "usb7"
+                    ],
+                    "example": "usb0"
+                  },
+                  "names": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "description": "Gallery file names. Without it, or empty: the whole gallery.",
+                    "example": [
+                      "sd_20261028_120000_0.png"
+                    ]
+                  }
+                },
+                "additionalProperties": true
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "The copy has started.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "state": {
+                      "type": "string",
+                      "enum": [
+                        "idle",
+                        "copying",
+                        "done",
+                        "failed"
+                      ]
+                    },
+                    "to": {
+                      "type": "string",
+                      "example": "usb0"
+                    },
+                    "done": {
+                      "type": "integer",
+                      "description": "Files handled (copied or skipped)."
+                    },
+                    "total": {
+                      "type": "integer",
+                      "description": "Files to copy."
+                    },
+                    "skipped": {
+                      "type": "integer",
+                      "description": "Files that were on the drive already, with the same size."
+                    },
+                    "bytes": {
+                      "type": "integer",
+                      "description": "Bytes written."
+                    },
+                    "error": {
+                      "type": "string",
+                      "description": "Why it failed; empty otherwise."
+                    }
+                  },
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request is not valid (code `invalid_request`): `to` is not usb0 to usb7, no drive is mounted there, or a name is not a gallery file.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key is needed, or it is wrong (code `unauthorized`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A request with the login cookie lacks the header `X-PS5SD-Request` (code `forbidden`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A copy is running (code `busy`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ps5sd/v1/app/icon.png": {
+      "get": {
+        "tags": [
+          "web UI"
+        ],
+        "operationId": "getAppIcon",
+        "summary": "The title's icon",
+        "description": "The icon of the title (`sce_sys/icon0.png`). Open without the API key.",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "The icon.",
+            "content": {
+              "image/png": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The title carries no icon (code `not_found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ps5sd/v1/app/manifest.webmanifest": {
+      "get": {
+        "tags": [
+          "web UI"
+        ],
+        "operationId": "getWebManifest",
+        "summary": "The web app manifest",
+        "description": "The manifest that lets a browser install the web UI as an app. Open without the API key.",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "The manifest.",
+            "content": {
+              "application/manifest+json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    },
+                    "short_name": {
+                      "type": "string"
+                    },
+                    "start_url": {
+                      "type": "string"
+                    },
+                    "display": {
+                      "type": "string"
+                    },
+                    "background_color": {
+                      "type": "string"
+                    },
+                    "theme_color": {
+                      "type": "string"
+                    },
+                    "icons": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "src": {
+                            "type": "string"
+                          },
+                          "sizes": {
+                            "type": "string",
+                            "example": "512x512"
+                          },
+                          "type": {
+                            "type": "string"
+                          }
+                        },
+                        "additionalProperties": true
+                      }
+                    }
+                  },
+                  "additionalProperties": true
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -4938,6 +5336,21 @@
               "type": "string"
             },
             "description": "`{\"<model_file>\": \"<preset id>\"}`: the preset the web UI loads when you press Use on a model."
+          },
+          "usb_copy": {
+            "type": "string",
+            "enum": [
+              "",
+              "usb0",
+              "usb1",
+              "usb2",
+              "usb3",
+              "usb4",
+              "usb5",
+              "usb6",
+              "usb7"
+            ],
+            "description": "A drive id: each image or video the server saves is copied to `/mnt/<id>/PS5SD/` in the background. `\"\"`: off."
           }
         },
         "additionalProperties": true
@@ -4978,6 +5391,13 @@
               ]
             },
             "description": "Merged: a preset id sets one, `\"\"` or `null` drops one."
+          },
+          "usb_copy": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "A drive id from `usb0` to `usb7`, or `\"\"` or `null` for off."
           }
         },
         "additionalProperties": true

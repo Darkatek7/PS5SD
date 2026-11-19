@@ -4,10 +4,17 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>PS5SD</title>
+<link rel="icon" href="/ps5sd/v1/app/icon.png">
+<link rel="apple-touch-icon" href="/ps5sd/v1/app/icon.png">
+<link rel="manifest" href="/ps5sd/v1/app/manifest.webmanifest">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" id="tc-dark" content="#000000" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" id="tc-light" content="#f2f2f7" media="(prefers-color-scheme: light)">
 <!--
   The page sd-server serves on the PS5 (embedded into ps5sd.elf; see
   scripts/embed-file.sh and the SD_SERVER_EMBED_INDEX CMake option).
-  Plain ES5 and XMLHttpRequest, one file and no external requests, because the
+  Plain ES5 and XMLHttpRequest, one file and no external script, font or image (the one external request is the update check in Settings), because the
   PS5 browser renders modern bundles blank: no modules, no arrow functions, no
   let/const, no fetch, no CSS grid. Flexbox, sized from the viewport, so it
   works with a DualSense cursor on a TV (large controls, a white focus frame)
@@ -40,6 +47,10 @@
     GET, POST /ps5sd/v1/gallery/archive                                (Download all, and Download on a selection: a ZIP)
     GET  /ps5sd/v1/app/catalog, GET/POST /ps5sd/v1/app/downloads,      (downloads; a 404 hides that part)
          DELETE .../downloads/<id>, POST .../app/hf/search
+    GET  /ps5sd/v1/app/storage                                         (Settings: space; Get more: free space; a 404 hides it)
+    GET, POST /ps5sd/v1/app/gallery/copy                               (copy the gallery or a selection to a USB drive)
+    GET  /ps5sd/v1/app/icon.png, .../app/manifest.webmanifest          (the tab's icon; the "install as app" manifest)
+    GET  https://api.github.com/repos/Darkatek7/PS5SD/releases/latest  (Settings, About: is a newer release out; once a day, from the browser)
   SPDX-License-Identifier: MIT
 -->
 <script>
@@ -50,7 +61,10 @@
     if (/PlayStation/i.test(navigator.userAgent || '')) h.className += ' tv';
     try {
       var t = localStorage.getItem('ps5sd.theme');
-      if (t === 'light' || t === 'dark') h.setAttribute('data-theme', t);
+      if (t === 'light' || t === 'dark') {
+        h.setAttribute('data-theme', t);
+        document.getElementById('tc-dark').content = document.getElementById('tc-light').content = t === 'dark' ? '#000000' : '#f2f2f7';
+      }
       if (localStorage.getItem('ps5sd.sideMini') === '1') h.className += ' side-mini';
     } catch (e) {}
   })();
@@ -74,7 +88,7 @@
   <button type="button" class="on" id="tab-create"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 4l5 5L9 20l-5-5z"/><path d="M13.5 5.5l5 5"/><path d="M19 2v3M17.5 3.5h3M4 3v2M3 4h2"/></svg><span>Create</span></button>
   <button type="button" id="tab-gallery"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M21 16l-5-5-8 8"/></svg><span>Gallery <span id="gcount"></span></span></button>
   <button type="button" id="tab-models"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 8l-9-5-9 5v8l9 5 9-5z"/><path d="M3 8l9 5 9-5M12 13v8"/></svg><span>Models<span class="tabdot" id="mdot"></span></span></button>
-  <button type="button" id="tab-settings"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/></svg><span>Settings</span></button>
+  <button type="button" id="tab-settings"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/></svg><span>Settings<span class="tabdot" id="sdot"></span></span></button>
   <button type="button" id="tab-help"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6V14"/><path d="M12 17.5h.01"/></svg><span>Help</span></button>
   <button type="button" class="sidefold" id="sidefold" aria-pressed="false" title="Fold the sidebar to its icons"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg><span>Fold</span></button>
 </nav>
@@ -147,6 +161,22 @@
           </div>
         </div>
         <label class="opt" id="init-ref-row" style="display:none"><input type="checkbox" id="init-ref" checked> Edit by the prompt: say what to change, the rest of the picture stays</label>
+        <div id="init2-sect" style="display:none">
+          <div class="initbar" id="init2-bar">
+            <button type="button" id="init2-pick">Second picture (optional)</button>
+          </div>
+          <input id="init2-file" type="file" accept="image/*" style="display:none">
+          <div id="init2-box" style="display:none">
+            <div class="lbl">Second picture (optional)</div>
+            <div class="initrow">
+              <img id="init2-thumb" alt="second picture">
+              <div class="initmain">
+                <div class="mmeta" id="init2-meta"></div>
+                <div class="initbtns"><button type="button" id="init2-drop">Remove</button></div>
+              </div>
+            </div>
+          </div>
+        </div>
         <div class="row" id="init-str-row">
           <div>
             <div class="lbl">Strength (how much changes)</div>
@@ -365,6 +395,7 @@
           <div class="bar ind"><div></div></div>
           <div class="hint" id="swsub"></div>
         </div>
+        <input type="search" id="mfind" class="lfind" placeholder="Find a model or a preset" autocomplete="off" aria-label="Find a model or a preset" style="display:none">
         <div class="ghead">Image models</div>
         <div id="mlist"></div>
         <div class="ghead" id="gh-vid" style="display:none">Video models</div>
@@ -400,6 +431,7 @@
     <div class="mcol wide">
       <section class="panel" id="pnl-cat" style="display:none">
         <div class="ph"><h2>Catalog</h2></div>
+        <div class="freeline" style="display:none"></div>
         <div id="catlist"></div>
       </section>
       <section class="panel" id="pnl-sugg" style="display:none">
@@ -413,6 +445,7 @@
       </section>
       <section class="panel" id="pnl-url" style="display:none">
       <div class="ph"><h2>Add by link</h2><button type="button" class="info" data-help="help-link" aria-label="More about adding by link">&#9432;</button></div>
+      <div class="freeline" style="display:none"></div>
       <div class="inrow"><select id="dl-kind" class="upkind" aria-label="What it is"><option value="">Model</option><option value="loras">LoRA</option><option value="upscalers">Upscaler</option></select><input id="dl-url" type="text" placeholder="Hugging Face or Civitai link to a model file" autocomplete="off" autocapitalize="off" spellcheck="false"><button type="button" id="dl-go">Download</button></div>
     </section>
     <section class="panel" id="pnl-up" style="display:none">
@@ -438,6 +471,7 @@
     <div class="mcol wide">
       <section class="panel" id="pnl-dl">
         <div class="ph"><h2>Downloads</h2><button type="button" id="dl-clear">Clear finished</button></div>
+        <div class="freeline" style="display:none"></div>
         <div id="dlist"></div>
       </section>
     </div>
@@ -485,6 +519,14 @@
     </section>
   </div>
   <div class="mcol">
+    <section class="panel" id="pnl-storage" style="display:none">
+      <div class="ph"><h2>Storage</h2><button type="button" id="st-refresh">Refresh</button></div>
+      <div class="stline" id="st-line"></div>
+      <div id="st-used"></div>
+      <div class="sublabel">USB drives</div>
+      <div id="st-usb"></div>
+      <p class="hint">Copies go to the folder PS5SD on the drive, which must be formatted exFAT or FAT32. A file that is already there with the same size is skipped.</p>
+    </section>
     <section class="panel" id="pnl-fan" style="display:none">
       <div class="ph"><h2>Fan</h2><button type="button" class="info" data-help="help-fan" aria-label="More about the fan modes">&#9432;</button></div>
       <div class="mseg crange fanmodes" id="fan-mode" role="group" aria-label="Fan mode">
@@ -512,6 +554,7 @@
       <div class="ph"><h2>About</h2></div>
       <div class="arow"><span>PS5SD</span><span id="about-ver">&hellip;</span></div>
       <div class="arow"><span>stable-diffusion.cpp</span><span id="about-sd">&hellip;</span></div>
+      <div class="arow" id="about-upd-row" style="display:none"><span>Update</span><span><a id="about-upd" href="#" target="_blank" rel="noopener"></a></span></div>
       <div class="docbar" style="margin-top:0.9rem">
         <button type="button" id="about-models">Getting models</button>
         <button type="button" id="about-api">HTTP API</button>
@@ -608,8 +651,11 @@
     <span id="gsel-n"></span>
     <button type="button" id="gsel-all">All</button>
     <button type="button" id="gsel-dl" title="One file as it is, several as one ZIP">Download</button>
+    <button type="button" id="gsel-usb" title="Copy the selected files to a USB drive, into the folder PS5SD">Copy to USB</button>
     <button type="button" class="danger" id="gsel-del">Delete</button>
   </div>
+  <div class="gselbar" id="gsel-drives" style="display:none" role="group" aria-label="USB drive"></div>
+  <div class="gcopy" id="gcopy" style="display:none"><div id="gcopy-text"></div><div class="bar"><div id="gcopy-fill"></div></div></div>
   <div class="thumbs" id="thumbs"></div>
   <div class="none" id="none">Nothing saved yet.</div>
   <div class="more"><button type="button" id="more" style="display:none">Show more</button></div>
@@ -765,6 +811,8 @@
 @@include js/22b-console.js
 @@include js/22c-fan.js
 @@include js/22d-appearance.js
+@@include js/22e-storage.js
+@@include js/22f-updates.js
 @@include js/23-start-up.js
 </script>
 </body>

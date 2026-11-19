@@ -11,6 +11,7 @@
           st.useJobs = false;
           st.video = false;
           st.serverRepeat = false;
+          st.refPreset = undefined;   // the model's reference preset; undefined: the server does not tell
           if (c3 === 200 && caps) {
             var modes = caps.supported_modes || [];
             var hasImg = false, hasVid = false;
@@ -20,6 +21,7 @@
             }
             st.useJobs = hasImg || hasVid;
             st.video = hasVid && !hasImg;
+            if (caps.model && typeof caps.model.ref_image_preset === 'string') st.refPreset = caps.model.ref_image_preset;
             st.canCancelGen = !!(caps.features && caps.features.cancel_generating);
             setUpscalers(caps.upscalers || []);
             // "repeat" on img_gen (the count next to Generate); without it the page makes the run itself
@@ -44,7 +46,9 @@
               // the same names as the Models tab (titleOf, readable: 13-models.js)
               st.label = entry ? titleOf(entry) : (name ? readable(name) : 'no model loaded');
               applyModel(name, entry);
+              drawInit();   // the reference edit follows the model's reference preset
               drawCurrent();
+              lastItemReady(2);
               resume();
             });
           });

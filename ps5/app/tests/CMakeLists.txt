@@ -115,3 +115,10 @@ endif()
 add_executable(test_prompt_tags test_prompt_tags.cpp ../prompt_tags.cpp)
 target_include_directories(test_prompt_tags PRIVATE .. "${SD_DIR}/thirdparty")
 add_test(NAME prompt_tags COMMAND test_prompt_tags)
+
+# Space on the console, the gallery's copy on a USB drive, the manifest (storage.hpp,
+# usb_copy.hpp, pwa.hpp; header only). FtpSink needs ftp_writer.cpp only to link.
+add_executable(test_storage test_storage.cpp ../models.cpp ../net_family.cpp ../download_core.cpp ../gallery_labels.cpp ../ftp_writer.cpp)
+target_include_directories(test_storage PRIVATE .. "${SD_DIR}/thirdparty")
+target_link_libraries(test_storage PRIVATE Threads::Threads)
+add_test(NAME storage COMMAND test_storage)

@@ -136,3 +136,56 @@
     }, 30000);
   }
 
+
+  // The last image is shown when the gallery (bit 1) and the server's info (bit 2: Upscale and Guide depend
+  // on it) are both in.
+  var lastReady = 0;
+  function lastItemReady(bit) {
+    lastReady |= bit;
+    if (lastReady === 3) { lastReady = 4; showLastItem(); }
+  }
+
+  // After a reload the stage is empty although the gallery has files: the newest one stands there, with the
+  // actions of a gallery file (the viewer's: Edit, Upscale, Use all). Called once, when the gallery is in.
+  // Not while a job runs or is followed, and not over a result.
+  function showLastItem() {
+    var stage = $('stage');
+    if (st.busy || st.results || st.vidResult || st.run || load('job') || !galleryList.length) return;
+    if (!stage.getElementsByClassName('empty')[0]) return;
+    var it = galleryList[0];
+    if (isVideo(it)) {
+      freeVideo();
+      clear(stage);
+      var v = document.createElement('video');
+      v.controls = true;
+      v.loop = true;
+      v.muted = true;
+      v.setAttribute('muted', '');
+      v.setAttribute('playsinline', '');
+      v.setAttribute('preload', 'metadata');
+      if (it.thumb) v.poster = it.thumb;
+      v.src = it.url;
+      stage.appendChild(v);
+    } else {
+      showImage(it.url, 'last image', null);
+    }
+    text($('sub'), 'Last ' + (isVideo(it) ? 'video' : 'image') + ' · ' + it.name + ' · ' + when(it.created));
+    showActions(it.url, it.name, it.url, false);
+    var box = $('actions'), mine = box.firstChild, del = box.lastChild, vid = isVideo(it);
+    function before(b) { box.insertBefore(b, del); }
+    if (!vid) {
+      if (upModels.length) {
+        var ub = actionButton('Upscale', function () { upscale(it.url, ub); });
+        before(ub);
+      }
+      before(actionButton('Edit', function () { setInit(it.url, it.name); }));
+      if (st.cnModel) before(actionButton('Guide', function () { setGuide(it.url, it.name); }));
+    }
+    // Use all needs what made it; files without that (an upscale, an old file) get no button
+    fetchInfo(it, function (info) {
+      if (!info.sdcpp || box.firstChild !== mine) return;
+      var ab = actionButton('Use all', function () { useSettings(it); });
+      ab.title = 'The model, the preset, the prompt and the settings this image was made with';
+      before(ab);
+    });
+  }

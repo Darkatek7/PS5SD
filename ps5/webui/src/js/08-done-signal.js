@@ -74,7 +74,7 @@
 
   // The app's switch for the PS5 screen (GET/POST /ps5sd/v1/app/settings); hidden on servers without it.
   function loadTvOption() {
-    req('GET', APP + '/settings', null, function (code, data) {
+    loadSettings(function (code, data) {
       if (code !== 200 || !data || typeof data.tv_images !== 'boolean') return;
       $('opt-tv').checked = data.tv_images;
       $('opt-tvkey').checked = data.tv_api_key !== false;

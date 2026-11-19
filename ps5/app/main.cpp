@@ -78,6 +78,11 @@
 #include "downloader.hpp"
 #include "https_client.hpp"
 #include "upload.hpp"
+#include "pwa.hpp"
+#include "storage.hpp"
+#include "usb_copy.hpp"
+#include <filesystem>
+#include <system_error>
 #include "models.hpp"
 #include "json.hpp"
 #include "mem_fit.hpp"
@@ -192,6 +197,55 @@ ConsoleStats g_console;  // the temperature, power, fan and load (console_stats.
 const ModelLibrary g_library{ kModels, kPresets };
 // The names and tags of the gallery's files (gallery_labels.hpp).
 GalleryLabels g_labels{ kOutputs };
+
+// The copier of the gallery to a USB drive (usb_copy.hpp), made on first use
+// and never destroyed: its thread ends on request_stop, and the title ends
+// without waiting for it.
+GalleryCopier & gallery_copier() {
+    static GalleryCopier * copier = new GalleryCopier(kOutputs, "/mnt", [](std::string & error) -> std::unique_ptr<CopySink> {
+        auto ftp = std::make_unique<FtpSink>();
+        if (ftp->open(error)) {
+            return ftp;
+        }
+        // not ftpsrv: the title writes the files itself (slow after 1.4 GB, but a picture is small)
+        std::printf("ps5sd: usb copy: %s; the app writes the files itself\n", error.c_str());
+        error.clear();
+        return std::make_unique<LocalSink>();
+    });
+    return *copier;
+}
+
+// GET storage: the console's room, what the app's folders use (kept for 30 s:
+// walking the gallery takes a while) and the USB drives that are mounted.
+// The free space comes from ftpsrv (AVBL): the title's own statvfs answers
+// 64 GiB with 16 GiB free for every path.
+std::string storage_info_json() {
+    static SizeCache cache(30);
+    const auto       now = std::chrono::steady_clock::now();
+    StorageInfo      s;
+    std::string      error;
+    uint64_t         free_bytes = 0;
+    if (ftp_free_space(s.console_path, free_bytes, error)) {
+        s.console_free = static_cast<int64_t>(free_bytes);
+    } else {
+        std::printf("ps5sd: storage: no free space from ftpsrv: %s\n", error.c_str());
+    }
+    s.models    = cache.get("models", now, [] { return dir_bytes(kModels); });
+    s.loras     = cache.get("loras", now, [] { return dir_bytes(kLoras); });
+    s.gallery   = cache.get("gallery", now, [] { return dir_bytes(kOutputs); });
+    s.upscalers = cache.get("upscalers", now, [] { return dir_bytes(kUpscalers); });
+    s.usb       = usb_drives("/mnt");
+    for (UsbDrive & d : s.usb) {
+        if (s.console_free >= 0 && ftp_free_space(d.path, free_bytes, error)) {
+            d.free_bytes = static_cast<int64_t>(free_bytes);
+        }
+    }
+    return storage_json(s);
+}
+
+// GET icon.png: the title's icon, as the title carries it.
+constexpr const char * kIcon = "/app0/sce_sys/icon0.png";
+
 // The tags the prompt fields suggest, from the files in kTags (prompt_tags.hpp).
 TagIndex g_tags{ kTags };
 std::mutex         g_settings_mutex;  // the HTTP threads read and change g_settings
@@ -388,6 +442,7 @@ void quit_if_asked() {
         // Downloads stop where they are (the queue keeps what is on disk) and
         // carry on at the next start; the quit does not wait for them.
         downloader_stop();
+        gallery_copier().request_stop();
         if (g_server_started && !g_server_done) {
             set_phase("Stopping the server");
             sd_server_terminate();
@@ -1467,6 +1522,16 @@ bool set_api_key(bool on, std::string & error) {
 //                       with {"name", "title", "tags"} as kept.
 //   gallery/keep (POST) {"name": "tmp_<file>"}: keeps an image made with
 //                       "temporary" ({"kept": "<file>"}).
+//   gallery/copy (POST) {"to": "usb0", "names": [...]}: copies gallery files
+//                       (all without names) to /mnt/<to>/PS5SD/ (202, 409 while
+//                       one runs); (GET) {"state": "idle"|"copying"|"done"|
+//                       "failed", "to", "done", "total", "skipped", "bytes",
+//                       "error"} (usb_copy.hpp).
+//   storage (GET)       {"console": {"path", "total", "free"}, "used": {"models",
+//                       "loras", "gallery", "upscalers"}, "usb": [{"id", "path",
+//                       "total", "free"}]} (storage.hpp).
+//   icon.png, manifest.webmanifest (GET): the title's icon and the web
+//                       manifest (pwa.hpp), open without the API key.
 //   tags (GET)          {"files": [...], "tags": n}: the tag files in
 //                       /data/PS5SD/tags; (POST) {"q": "...", "limit": n}:
 //                       {"tags": [{"tag", "count", "alias"}]}, the tags that
@@ -1474,7 +1539,8 @@ bool set_api_key(bool on, std::string & error) {
 //   upscalers (GET), upscalers/<file> (DELETE): the upscaler models in
 //                       /data/PS5SD/upscalers.
 //   settings (GET, POST) the app's settings (AppSettings): {"tv_images": bool,
-//                       "tv_api_key": bool, "image_metadata": bool, ...}.
+//                       "tv_api_key": bool, "image_metadata": bool,
+//                       "usb_copy": "" or "usb0" to "usb7", ...}.
 //   auth (GET), auth/enable, auth/disable (POST): the API key; enable makes
 //                       a new one (also when there is one).
 //   presets (POST), presets/<id> (GET, POST, DELETE): saved presets, the
@@ -1557,6 +1623,7 @@ extern "C" int sd_app_request(const char * method, const char * path, const char
         return doc_request("openapi.json", out_body, out_len, content_type);
     }
     std::string       out;
+    const char *      ctype = "application/json";
     // The downloader's routes (downloader.hpp: catalog, downloads, hf/search);
     // it catches its own errors.
     int status = downloader_route(m, p, body != nullptr ? std::string(body, body_len) : std::string(), out);
@@ -1574,6 +1641,32 @@ extern "C" int sd_app_request(const char * method, const char * path, const char
         } else {
             status = ask_switch(id, out);
         }
+    } else if (m == "GET" && p == "storage") {
+        out    = storage_info_json();
+        status = 200;
+    } else if (m == "GET" && p == "icon.png") {
+        std::ifstream      in(kIcon, std::ios::binary);
+        std::ostringstream bytes;
+        bytes << in.rdbuf();
+        uint32_t w = 0, h = 0;
+        if (!png_dimensions(bytes.str(), w, h)) {
+            out    = error_json(std::string("cannot read ") + kIcon);
+            status = 404;
+        } else {
+            out    = bytes.str();
+            ctype  = "image/png";
+            status = 200;
+        }
+    } else if (m == "GET" && p == "manifest.webmanifest") {
+        // the icon's real size from its header; no size if it cannot be read
+        std::ifstream      in(kIcon, std::ios::binary);
+        std::string        head(32, '\0');
+        in.read(&head[0], static_cast<std::streamsize>(head.size()));
+        head.resize(static_cast<size_t>(in.gcount()));
+        uint32_t w = 0, h = 0;
+        out    = manifest_json(png_dimensions(head, w, h) ? std::to_string(w) + "x" + std::to_string(h) : std::string());
+        ctype  = "application/manifest+json";
+        status = 200;
     } else if (m == "GET" && p == "console") {
         out    = g_console.json();
         status = 200;
@@ -1877,6 +1970,40 @@ extern "C" int sd_app_request(const char * method, const char * path, const char
                 -1, ' ', false, nlohmann::json::error_handler_t::replace);
             status = 200;
         }
+    } else if (m == "GET" && p == "gallery/copy") {
+        out    = gallery_copier().status_json();
+        status = 200;
+    } else if (m == "POST" && p == "gallery/copy") {
+        // Copies of the gallery on a USB drive, made by the copier's own thread.
+        std::string              to, error;
+        std::vector<std::string> names;
+        if (!parse_copy_request(body != nullptr ? std::string(body, body_len) : std::string(), to, names, error)) {
+            out    = error_json(error);
+            status = 400;
+        } else if (!usb_mounted("/mnt", to)) {
+            out    = error_json("no drive is mounted at /mnt/" + to);
+            status = 400;
+        } else {
+            std::string missing;
+            for (const std::string & n : names) {
+                std::error_code ec;
+                if (!std::filesystem::is_regular_file(std::string(kOutputs) + "/" + n, ec)) {
+                    missing = n;
+                    break;
+                }
+            }
+            bool busy = false;
+            if (!missing.empty()) {
+                out    = error_json("not a gallery file: " + missing);
+                status = 400;
+            } else if (!gallery_copier().start(to, names, busy)) {
+                out    = error_json(busy ? "a copy is running" : "the app is stopping", busy ? "busy" : "stopping");
+                status = busy ? 409 : 503;
+            } else {
+                out    = gallery_copier().status_json();
+                status = 202;
+            }
+        }
     } else if (m == "POST" && p == "gallery/keep") {
         // An image made with "temporary" (patches/sdcpp/0069) kept after all.
         const nlohmann::json j = nlohmann::json::parse(body != nullptr ? std::string(body, body_len) : std::string(), nullptr, false);
@@ -1957,7 +2084,7 @@ extern "C" int sd_app_request(const char * method, const char * path, const char
         std::memcpy(*out_body, out.data(), out.size());
         *out_len = out.size();
     }
-    *content_type = "application/json";
+    *content_type = ctype;
     return status;
 }
 
@@ -1992,6 +2119,12 @@ extern "C" void sd_activity_job_end(int ok, const char * output_path) {
         set_phase("Generation failed", reason.empty() ? "See /data/PS5SD/app.log" : reason);
         return;
     }
+    // The drive the setting usb_copy names, "" when it is off.
+    std::string usb_copy;
+    {
+        std::lock_guard<std::mutex> lock(g_settings_mutex);
+        usb_copy = g_settings.usb_copy;
+    }
     // One path a line: every image of a batch, in order (patches/sdcpp/0059).
     std::string        first;
     std::istringstream paths(output_path);
@@ -2002,6 +2135,11 @@ extern "C" void sd_activity_job_end(int ok, const char * output_path) {
             }
             if (first.empty()) {
                 first = path;
+            }
+            // to the drive, in the background; "tmp_" files are not kept, so not copied
+            const std::string name = path.substr(path.find_last_of('/') == std::string::npos ? 0 : path.find_last_of('/') + 1);
+            if (!usb_copy.empty() && copyable_name(name)) {
+                gallery_copier().enqueue(usb_copy, name);
             }
         }
     }

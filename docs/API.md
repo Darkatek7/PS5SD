@@ -117,7 +117,8 @@ curl -u any:<key> http://<console>:7860/sdapi/v1/sd-models
   the address in `CF-Connecting-IP` or `X-Forwarded-For`.
 - Open without the key: `GET /` (the web UI, which then asks for the key), `GET /ps5sd/v1/health`
   (`{"status": "ok"}`, for a proxy or a monitor), `GET /ps5sd/v1/app/openapi.json` (see
-  [OpenAPI](#openapi)) and the routes below.
+  [OpenAPI](#openapi)), `GET /ps5sd/v1/app/icon.png` and `GET /ps5sd/v1/app/manifest.webmanifest` (the title's
+  icon and the web app manifest, which a browser fetches without the key) and the routes below.
 
 | Route | |
 |---|---|
@@ -393,6 +394,20 @@ survives a restart of the title (`/data/PS5SD/downloads.json`).
 A Hugging Face or Civitai token for gated models goes in `/data/PS5SD/hf-token.txt` or
 `/data/PS5SD/civitai-token.txt`.
 
+A download fails at once when it does not fit: its size plus 1 GiB must be free on `/data`. Its `error` then
+says so, for example "Not enough space on the console: it needs 7.3 GB, 5.1 GB are free."
+
+### Storage
+
+| Route | |
+|---|---|
+| `GET /ps5sd/v1/app/storage` | `{"console": {"path": "/data", "free": 88116887552}, "used": {"models": ..., "loras": ..., "gallery": ..., "upscalers": ...}, "usb": [{"id": "usb0", "path": "/mnt/usb0", "free": 15370747904}]}`, in bytes |
+
+- `free` comes from ftpsrv (its `AVBL`): the title cannot read it itself. It is `null` when no FTP server
+  answers. There is no total for the same reason.
+- `used` is what the folders under `/data/PS5SD` hold; the sizes are kept for 30 s.
+- `usb` lists the drives that are plugged in (`/mnt/usb0` to `/mnt/usb7`).
+
 ## Uploading files
 
 `PUT /ps5sd/v1/app/uploads/<folder>/<name>` with the file as the body puts a file from the client
@@ -545,7 +560,7 @@ The `model` of a request (a field of the JSON body, or of `/v1/images/edits`' fo
 
 | Route | |
 |---|---|
-| `GET /sdcpp/v1/capabilities` | the defaults and what the server supports |
+| `GET /sdcpp/v1/capabilities` | the defaults and what the server supports; `model.ref_image_preset` names how the loaded model takes reference images (see [Edit by the prompt](#edit-by-the-prompt)) |
 | `POST /sdcpp/v1/img_gen` | queue an image job: `202 {"id", "status", ...}`; `429` `queue_full` when the queue is full |
 | `POST /sdcpp/v1/vid_gen` | queue a video job (video models only) |
 | `GET /sdcpp/v1/jobs/<id>` | the job: `status` is `queued`, `generating`, `completed`, `failed` or `cancelled`; the images, or the video, are in `result` |
@@ -698,23 +713,35 @@ to the gallery through:
 |---|---|
 | `POST /ps5sd/v1/app/gallery` | `{"image": "<base64 PNG or data URL>", "parameters": "<A1111's text>"}`: saved to `/data/PS5SD/outputs` as `sd_<date>_<time>_edit.png`, with the parameters (optional) in the PNG; `201 {"saved": "<name>"}`, `400` for anything that is not a PNG |
 
-## Edit by the prompt (FLUX.2 Klein)
+## Edit by the prompt
 
-FLUX.2 Klein changes an image by a sentence, without a mask: the image goes as a reference, and the
-prompt says what to change ("the same house in winter, snow on the roof"). The layout and the rest stay.
+FLUX.2 Klein, FLUX.3 Klein and other edit models change an image by a sentence, without a mask: the image
+goes as a reference, and the prompt says what to change ("the same house in winter, snow on the roof"). The
+layout and the rest stay.
 
 ```json
 {"prompt": "the same house at night, light in the windows", "ref_images": ["data:image/png;base64,..."],
+ "ref_image_args": "resize_before_vae=false",
  "width": 1024, "height": 1024, "sample_params": {"sample_steps": 4, "guidance": {"txt_cfg": 1}}}
 ```
 
 - No `init_image` and no `strength`: with them it is image to image again.
-- `/sdapi/v1/txt2img` takes the reference as `extra_images`.
-- Other model families ignore the reference and make an image of the prompt alone.
-- The reference adds as many tokens as its pixels, so it is best no larger than the image made; the web
-  UI crops it to the aspect of the form and scales it to that size.
-- Measured with FLUX.2 Klein 4B at 1024x1024 and a 1024x1024 reference (FW 13.00, 0.9.0): about 65 s at
-  4 steps and 2 minutes at 8, against 30 and 48 s without one. It runs in segments, even right after a start.
+- `/sdapi/v1/txt2img` takes the references as `extra_images`.
+- `GET /sdcpp/v1/capabilities` says whether the loaded model takes references: `model.ref_image_preset` is
+  `"flux2"` for FLUX.2 and FLUX.3 Klein, `"qwen"` for Qwen Image Edit, `"fibo2"` for FIBO 2.0, and so on, and
+  `"default"` for a model that takes none. It is `null` without a model. A model with `"default"` ignores
+  the reference and makes an image of the prompt alone. The web UI offers the reference for every model
+  that has a preset of its own.
+- A second reference goes after the first. The prompt can name them "image 1" and "image 2": "the cat from
+  image 1 on the sofa of image 2". It puts a thing or a figure into a scene; it does not carry a pose over
+  (see [CONSOLE.md](CONSOLE.md)).
+- A reference adds as many tokens as its pixels. With `"flux2"`, sd.cpp scales each reference to the area of
+  the image made, unless `"ref_image_args": "resize_before_vae=false"` keeps its size. The web UI sends each
+  reference at most 768 px a side with that argument; the first is cropped to the aspect of the form, the
+  second keeps its own. For other presets it sends the references at the size of the image made.
+- Measured on 1.3.1 at 1024x1024 with one reference (2026-11-19): FLUX.2 Klein 4B 52 s with a 1024 px
+  reference and 36 s with a 768 px one, Klein 9B at 4 steps 95 and 64 s, FLUX.3 Klein 148 and 102 s.
+  Without a reference they take 22, 40 and 56 s. Klein 4B with two 768 px references: 51 s.
 
 ## Gallery
 
@@ -745,6 +772,8 @@ from what the run used: A1111's sampler names (`Sampler: Euler a, Schedule type:
 | `GET /ps5sd/v1/app/gallery/labels` | `{"labels": {"<file>": {"title": "Old town at night", "tags": ["night", "houses"]}}}`: the names and tags of the files that have any |
 | `POST /ps5sd/v1/app/gallery/labels` | `{"name": "<file>", "title": "...", "tags": ["..."]}`: sets a file's name (one line, at most 100 characters) and tags (at most 20, each at most 40 characters, no commas; one that is there twice in any case counts once). An empty title without tags removes them. `200 {"name", "title", "tags"}` as kept; `404` for a file that is not there |
 | `POST /ps5sd/v1/app/gallery/keep` | `{"name": "tmp_<file>"}`: keeps a file that was made with `"temporary": true`; it becomes `<file>`, with its thumbnail and parameters. `200 {"kept": "<file>"}`, `404` when there is no such file, `409` when `<file>` is taken |
+| `POST /ps5sd/v1/app/gallery/copy` | `{"to": "usb0", "names": ["<file>", ...]}`: copies files to a USB drive (see below); without `names`, or with an empty list, the whole gallery. `202` with the state as `GET` gives it, `409` while a copy runs, `400` for a drive that is not `usb0` to `usb7` or has nothing mounted, and for a name the gallery does not list |
+| `GET /ps5sd/v1/app/gallery/copy` | the last copy: `{"state": "idle", "to": "usb0", "done": 0, "total": 0, "skipped": 0, "bytes": 0, "error": ""}`; `state` is `idle`, `copying`, `done` or `failed`. `done` counts the files copied and skipped |
 
 The archive is made while it is sent, so the console holds one piece of a file in memory, whatever the size
 of the gallery, and the answer has no `Content-Length`. The files are stored, not compressed (a PNG and a WebM
@@ -758,6 +787,18 @@ The web UI's Download all is a link to the `GET` route, and its Download on a se
 The names and tags are kept in `/data/PS5SD/outputs/.labels.json`, not in the files, so a PNG stays as it
 was made. The web UI's search finds them; the gallery's `q` does not.
 
+### Copies on a USB drive
+
+A recovery of the console can wipe `/data`, and the gallery with it. A copy goes to the folder `PS5SD` on a
+USB drive (`/mnt/usb0/PS5SD/` for `usb0`), under the same names. A file's parameters, when the gallery keeps
+them in `.thumbs/<name>.txt`, go to `PS5SD/.thumbs/` on the drive. A file that is there already with the
+same size is skipped, so a second copy of the whole gallery only adds what is new. Files made with
+`"temporary"` are not copied. The drive must be formatted exFAT or FAT32. The copy runs on its own thread and
+writes through ftpsrv, as the downloader does. 43 files (79 MB) took about 6 s to a USB stick.
+
+The setting `usb_copy` (see [App settings](#app-settings)) copies each new image or video to a drive as it is
+saved. [Storage](#storage) lists the drives that are plugged in.
+
 ## App settings
 
 Kept in `/data/PS5SD/settings.json` on the console, so they hold for every browser and survive a
@@ -765,7 +806,7 @@ restart.
 
 | Route | |
 |---|---|
-| `GET /ps5sd/v1/app/settings` | `{"tv_images": true, "tv_api_key": true, "fan": "quiet", "fan_target": 85, "image_metadata": true, "default_presets": {}}` |
+| `GET /ps5sd/v1/app/settings` | `{"tv_images": true, "tv_api_key": true, "fan": "quiet", "fan_target": 85, "image_metadata": true, "usb_copy": "", "default_presets": {}}` |
 | `POST /ps5sd/v1/app/settings` | change what the body sets, like `{"tv_images": false}`; the answer is the settings as `GET` gives them, 400 for a field of the wrong type |
 
 `tv_images` false: the dashboard on the TV shows no images (no live preview, no last image, no
@@ -776,6 +817,11 @@ thumbnails) and no prompts. The web UI's switch is in Settings, "Show images and
 `image_metadata` false: the web UI sends `"embed_image_metadata": false` with each image, so the PNG
 carries no prompt and no settings (see [Gallery](#gallery)). Only the web UI reads it; an API client sends
 the field itself.
+
+`usb_copy`: `""` (off) or a drive, `usb0` to `usb7`. Each image or video the server saves is copied to the
+folder `PS5SD` on that drive, in the background (see [Copies on a USB drive](#copies-on-a-usb-drive)). When
+the drive is not plugged in, the file is skipped and the log says so. The web UI's switch is in Settings,
+under Storage.
 
 `default_presets`: `{"<model_file>": "<preset id>"}`, the preset the web UI loads when you press **Use** on a
 model (Models, the ☆ of a preset). A `POST` merges it: `{"default_presets": {"model.gguf": "fast"}}` sets

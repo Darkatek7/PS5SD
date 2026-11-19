@@ -25,7 +25,9 @@ There are four ways to get a model there:
 1. **Download in the web UI.** On the Models tab, under **Get more**, install from the catalog, paste a
    Hugging Face or Civitai file link, or search Hugging Face; **Downloads** shows how far they are. The console downloads the files itself, so the PC can
    be off. For a gated or login-only model, put a token in `/data/PS5SD/hf-token.txt` or
-   `/data/PS5SD/civitai-token.txt`.
+   `/data/PS5SD/civitai-token.txt`. **Get more** and **Downloads** show how much is free on the console, and
+   a catalog entry that does not fit says so. A download that does not fit (its size plus 1 GB) stops at
+   once with an error. Settings, under **Storage**, shows what the models, LoRAs and the gallery take.
 2. **Upload in the web UI.** For any file on the computer the browser runs on: models from other
    sites, your own merges and trainings, files you already downloaded. See below.
 3. **FTP from the PC.** The same, with an FTP client or a script. See below.
@@ -245,7 +247,8 @@ ilustmix_v111.safetensors
 The web UI makes these: set up the Create tab, then press **Save as preset** under the model's name. It
 copies the model's own options (VAE, tiling, `--type`) and its prompt starters into the preset. On the
 Models tab, under **Installed**, each model is listed once (by its main model file), with all its presets
-under it: the ones it came with and the ones you saved. The list under the model's name on the Create
+under it: the ones it came with and the ones you saved. With more than six models, a field above the list
+finds a model or a preset by its name or family. The list under the model's name on the Create
 tab shows the same, each preset as a button.
 
 - **Use** on a preset switches to it. When it loads the same files with the same options as the model
@@ -472,16 +475,26 @@ A normal model inpaints too: SDXL Base at its 10 steps took 53 s for 1024x1024 o
 An inpainting checkpoint from elsewhere (a Civitai model whose name ends in "inpainting") works too; sd.cpp
 recognises it by its weights.
 
-## Edit by the prompt (FLUX.2 Klein)
+## Edit by the prompt
 
-FLUX.2 Klein can change an image by a sentence, without a mask. On the Create tab, put an image under
-**Start from an image**: with a FLUX.2 model loaded (Klein 4B or 9B), the box **Edit by the prompt** shows,
-on by default. The image goes to the model as a reference, and the prompt says what to change ("the same
-house in winter, snow on the roof"); the layout and the rest stay. The reference is cropped to the aspect
-of the form's size and scaled to it. Other models do not offer the box. A run takes longer than an image of
-its own: about a minute at 4 steps with Klein 4B at 1024×1024. Turn the box off to use the image as an
-ordinary start image, with a strength and a mask. [API.md](API.md#edit-by-the-prompt-flux2-klein) has the
-request.
+FLUX.2 Klein, FLUX.3 Klein and other edit models can change an image by a sentence, without a mask. On the
+Create tab, choose **Edit** and put an image under **Start from an image**. A picture can also be dropped
+on the box or pasted with Ctrl+V. With a model that takes references loaded, the box **Edit by the prompt**
+shows, on by default. The image goes to the model as a reference, and the prompt says what to change ("the
+same house in winter, snow on the roof"); the layout and the rest stay. Turn the box off to use the image
+as an ordinary start image, with a strength and a mask.
+
+Which models take a reference: the server says it for the loaded one. In the catalog these are FLUX.2 Klein
+4B and 9B and FLUX.3 Klein. Edit models you set up yourself, like Qwen Image Edit or FIBO 2.0 Edit, take
+one as well.
+
+A **Second picture (optional)** puts a figure or a thing into a scene: "the goblin from image 1 stands on
+the cliff in front of the lighthouse from image 2". It does not carry a pose over: a skeleton or a posed
+figure as the second picture was ignored by every Klein model we tried.
+
+An edit takes longer than an image of its own. At 1024×1024 with one reference: Klein 4B about 36 s,
+Klein 9B at 4 steps about 64 s, FLUX.3 Klein about 100 s. A second picture adds to it: Klein 4B took 51 s
+with two. [API.md](API.md#edit-by-the-prompt) has the request.
 
 ## ControlNet
 
@@ -598,3 +611,8 @@ Measured with SDXS (683 MB) on an exFAT USB stick: the weights were read in 7.5 
 so a 7 GB SDXL checkpoint needs over a minute just to read. The weights are read at the first image
 after a switch, not at the switch itself. Writing to the stick over FTP ran at about 6 MB/s. A file
 on USB is listed only through a preset.
+
+The gallery can go to a USB drive too, so a recovery of the console that wipes `/data` does not take the
+pictures with it. In Settings, under **Storage**, each drive that is plugged in has **Copy the gallery here**
+and **Copy each new image to this drive**. In the gallery, **Select** has **Copy to USB** for the chosen
+files. The copies go to the folder `PS5SD` on the drive; a file that is there already is skipped.

@@ -15,7 +15,7 @@
   // The featured entries as cards, then the rest as rows.
   function drawCatalog() {
     if (st.cat !== true) return;
-    var sig = JSON.stringify(catList);
+    var sig = JSON.stringify(catList) + '|' + storFree();
     if (sig !== catSig) {
       catSig = sig;
       var box = $('catlist');
@@ -45,7 +45,11 @@
     addTags(main, tagsOf(e.name, dests, false, false));
     if (e.description) main.appendChild(el('div', 'mmeta desc', e.description));
     if (e.good_for) main.appendChild(el('div', 'mmeta good', 'Good for: ' + e.good_for));
-    main.appendChild(el('div', 'mmeta', bytes(e.bytes) + (files.length > 1 ? ' · ' + files.length + ' files' : '')));
+    var size = el('div', 'mmeta', bytes(e.bytes) + (files.length > 1 ? ' · ' + files.length + ' files' : ''));
+    if (!e.installed && fits(e.bytes) === false) {
+      size.appendChild(el('span', 'lowspace', ' · Needs more space than the console has free (' + bytes(storFree()) + ').'));
+    }
+    main.appendChild(size);
     row.appendChild(main);
     var b = actionButton('Download', function () { installEntry(e); });
     row.appendChild(b);

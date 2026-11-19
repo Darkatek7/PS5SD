@@ -15,6 +15,10 @@
     var h = document.documentElement;
     if (t === 'light' || t === 'dark') { save('theme', t); h.setAttribute('data-theme', t); }
     else { drop('theme'); h.removeAttribute('data-theme'); }
+    // the browser's bar colour (<meta name="theme-color">): the chosen theme's, else the system's by media
+    var dark = $('tc-dark'), light = $('tc-light');
+    dark.content = t === 'light' ? '#f2f2f7' : '#000000';
+    light.content = t === 'dark' ? '#000000' : '#f2f2f7';
     drawTheme();
   }
 

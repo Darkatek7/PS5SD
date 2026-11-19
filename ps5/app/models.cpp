@@ -14,6 +14,7 @@
 
 #include "json.hpp"
 #include "net_family.hpp"
+#include "storage.hpp"
 
 namespace fs = std::filesystem;
 
@@ -1156,6 +1157,7 @@ std::string settings_json(const AppSettings & settings) {
                            { "fan", settings.fan },
                            { "fan_target", settings.fan_target },
                            { "image_metadata", settings.image_metadata },
+                           { "usb_copy", settings.usb_copy },
                            { "default_presets", settings.default_presets } }
         .dump(-1, ' ', false, nlohmann::json::error_handler_t::replace);
 }
@@ -1187,6 +1189,17 @@ bool apply_settings(const std::string & body, AppSettings & settings, std::strin
             return false;
         }
         next.image_metadata = j["image_metadata"].get<bool>();
+    }
+    if (j.contains("usb_copy")) {
+        const auto & u = j["usb_copy"];
+        if (u.is_null() || (u.is_string() && u.get<std::string>().empty())) {
+            next.usb_copy.clear();
+        } else if (u.is_string() && usb_id_ok(u.get<std::string>())) {
+            next.usb_copy = u.get<std::string>();
+        } else {
+            error = "usb_copy must be \"\" (off) or a drive id from \"usb0\" to \"usb7\"";
+            return false;
+        }
     }
     if (j.contains("fan")) {
         const auto & f = j["fan"];

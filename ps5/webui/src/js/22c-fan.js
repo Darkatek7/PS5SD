@@ -68,7 +68,7 @@
   }
 
   function loadFan() {
-    req('GET', APP + '/settings', null, function (code, data) {
+    loadSettings(function (code, data) {
       if (code !== 200 || !data || typeof data.fan !== 'string') return;
       fan.mode = data.fan;
       fan.target = data.fan_target;

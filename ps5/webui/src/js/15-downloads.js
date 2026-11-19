@@ -23,6 +23,7 @@
 
   function enterModels() {
     applyMSub();
+    loadStorage(null, 5000);
     loadModels(null);
     loadLoras(null);
     loadUpscalers();
@@ -66,13 +67,14 @@
   }
 
   function setDownloads(list) {
-    var refresh = false;
+    var refresh = false, space = false;
     var active = 0;
     var seen = {};
     for (var i = 0; i < list.length; i++) {
       var d = list[i];
       var was = dlPrev[d.id];
       if (!dlFirst && was !== d.state) {
+        if (d.state === 'done' || d.state === 'failed') space = true;
         if (d.state === 'done') {
           refresh = true;
           toast(baseName(d.dest || d.url) + ' is downloaded.');
@@ -93,6 +95,9 @@
     show('dl-badge', active > 0, 'inline-block');
     drawDownloads();
     updateCatalog();
+    // the free space changes as a download writes, and when one ends
+    if (space) loadStorage(null);
+    else if (active && st.view === 'models') loadStorage(null, 15000);
     if (refresh) { loadModels(null); loadLoras(null); loadCatalog(); loadUpscalers(); loadInfo(); }
   }
 

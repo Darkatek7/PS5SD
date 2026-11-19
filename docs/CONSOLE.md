@@ -1336,3 +1336,87 @@ brackets):
 - Klein 9B at 4 steps with Euler: 43.0 s of sampling before, 35.3 s with the patch; about 40 s an image.
 - Wan's sampling took 62.5 s instead of 67.2, its VAE decode 16.3 s instead of 15.0.
 - The memory is the same: after a Klein 9B image the largest free part was 1.18 GiB.
+
+## Reference pictures for Edit (2026-11-18)
+
+The 1.3.1 release build. Pictures through `POST /sdcpp/v1/img_gen` with `ref_images`, 1024x1024, each model's
+catalog preset (FLUX.3 Klein: 16 steps with Spectrum; Klein 4B: 4 steps; Klein 9B: Euler at 4 steps). The
+character: a goblin made by FLUX.3 Klein. The pose: an OpenPose skeleton drawn on black, or a wooden mannequin
+made by FLUX.3 Klein.
+
+FLUX.3 Klein takes a reference: sd.cpp uses its `flux2` preset, and the goblin came out the same in a new
+scene. The web UI offers the reference for FLUX.2 only.
+
+sd.cpp scales a reference to the area of the output before the VAE (`resize_before_vae`). The web UI sends the
+start picture at the output's size. FLUX.3 Klein, one reference:
+
+| Reference | Time | A real step |
+|---|---|---|
+| none | 56 to 60 s | 5.6 s |
+| 1024x1024 | 143.6 s | 14.9 s |
+| 512x512 | 142.8 s | 14.9 s |
+| 512x512, `"ref_image_args": "resize_before_vae=false"` | 75.3 s | 7.7 s |
+
+The 512 one kept at its size gave the same goblin, as sharp as with 1024.
+
+Two references (512x512, kept at their size):
+
+| Model | References | Time | Pool after, largest part |
+|---|---|---|---|
+| FLUX.3 Klein | goblin, skeleton | 99.5 s | 4.42 GiB |
+| FLUX.3 Klein | goblin, mannequin | 95.3 s | 4.42 GiB |
+| Klein 4B | goblin, skeleton | 33.7 s | 3.07 GiB |
+| Klein 4B | goblin, mannequin | 38.6 s | 3.70 GiB |
+| Klein 4B | goblin, a lighthouse scene | 33.6 s | 3.70 GiB |
+| Klein 4B | goblin, mannequin, both 1024x1024 and scaled | 82.6 s | 3.70 GiB |
+| Klein 9B | goblin, skeleton | 68.5 s | 1.33 GiB |
+
+- **The pose did not come over.** No model took the pose from the second picture: not from the skeleton, not
+  from the mannequin, not with the pose picture first, not at 1024. Each one drew the goblin as he stood in
+  his own picture. Only a prompt that said the pose in words ("right arm raised high, legs apart") raised the arm.
+- **A scene did.** "The goblin from image 1 stands on the cliff in front of the lighthouse from image 2"
+  put him there and kept the scene, its light and its sign.
+
+## The reference's size, storage and USB copies (2026-11-19)
+
+The 1.3.1 release build for the reference sizes; the 1.4.0 build (patches 0087 and 0088, the app's storage
+and copy routes) for the rest.
+
+### How large a reference is sent
+
+One reference, the lighthouse at dusk, and "the same lighthouse in winter … keep the purple sign", seed 21,
+1024x1024. "768" and "512": the reference at that size with `"ref_image_args": "resize_before_vae=false"`;
+"1024": as the web UI sent it up to 1.3.1, which sd.cpp scales to the output's area.
+
+| Model | 1024 | 768 | 512 |
+|---|---|---|---|
+| FLUX.2 Klein 4B | 52.4 s | 35.9 s | 27.4 s |
+| FLUX.2 Klein 9B, Euler at 4 steps | 94.6 s | 63.9 s | 50.8 s |
+| FLUX.3 Klein Q4 | 148.2 s | 101.6 s | 75.6 s |
+
+- Each one kept the sign and the scene. At 768 and 512 the scene sits a little differently than in the
+  reference (moved and scaled by a few per cent); at 1024 it stays in place.
+- The web UI now sends 768: about a third faster, with the layout close to the reference.
+- In the web UI, Klein 4B with two references of 768 (the goblin and the lighthouse) took 51.1 s.
+
+### The free space
+
+- The title's own `statvfs` answers 64 GiB with 16 GiB free, for `/data` and for every USB drive alike.
+  `statfs` is in no module the title loads (`build-app.sh` warns), so it would be null at run time.
+- ftpsrv's `AVBL` gives the real numbers: `/data` 88.1 GB free, usb0 15.4 GB, usb2 447.6 GB. The app asks it
+  (`ftp_free_space`), for `GET /ps5sd/v1/app/storage` and before a download. The answer took 43 ms.
+- A drive is told from an empty mount point by `st_dev`: `/mnt/usb0` to `usb2` held drives and differ from
+  `/mnt`, `usb3` to `usb7` do not.
+- A download of 4.9 MB went through with the check, in 1.5 s.
+
+### Copies on a USB drive
+
+- To an exFAT stick at usb0, through ftpsrv: 3 files (6.7 MB), then 43 files (79 MB, the 3 already there
+  skipped) in about 6 s. A copy was the same as the gallery's file, byte for byte.
+- With `usb_copy` set to usb0, a new 512x512 image was on the stick right after its job.
+
+### The page at start
+
+A cold load of the web UI asks once each for `/ps5sd/v1/app/settings` (was three times), the gallery list
+and the gallery's labels (were twice with the gallery as the last tab), and for the icon and the manifest.
+No `favicon.ico` 404 any more.
