@@ -38,7 +38,8 @@ struct Source {
 
 // Takes https://huggingface.co/<owner>/<repo>/resolve/<rev>/<path> (or /blob/,
 // rewritten to /resolve/), https://civitai.com/models/<id>[/<slug>]?modelVersionId=<v>
-// and https://civitai.com/api/download/models/<v>[?...]. False with a message otherwise.
+// and https://civitai.com/api/download/models/<v>[?...] (civitai.red and www. links count as civitai.com).
+// False with a message otherwise.
 bool classify_url(const std::string & text, Source & out, std::string & error);
 
 // The model file extensions that may land in the models directory.

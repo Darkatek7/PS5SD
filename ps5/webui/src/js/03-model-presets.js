@@ -85,6 +85,7 @@
   // Shared by the Create tab (the model in use) and the Models tab (rows, tags, catalog cards).
   // The family of a model, guessed from the names (then the files) of it and its base file.
   function familyWord(s) {
+    if (/moss/.test(s)) return 'MOSS-Image';  // before FLUX: MOSS-Image uses the FLUX.2 VAE
     if (/flux/.test(s)) return 'FLUX';
     if (/z[-_ ]?image/.test(s)) return 'Z-Image';
     if (/wan/.test(s)) return 'Wan';

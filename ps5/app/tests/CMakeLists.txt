@@ -28,9 +28,14 @@ target_include_directories(test_gen_args PRIVATE ..)
 target_link_libraries(test_gen_args PRIVATE stable-diffusion)
 add_test(NAME gen_args COMMAND test_gen_args)
 
-add_executable(test_models test_models.cpp ../models.cpp ../net_family.cpp)
+add_executable(test_models test_models.cpp ../models.cpp ../net_family.cpp ../lora_info.cpp ../download_core.cpp)
 target_include_directories(test_models PRIVATE .. "${SD_DIR}/thirdparty")
 add_test(NAME models COMMAND test_models)
+
+# A LoRA's info file and preview, the lookup on Civitai and Hugging Face (against fakes), HTML to text, SHA-256.
+add_executable(test_lora_info test_lora_info.cpp ../lora_info.cpp ../download_core.cpp)
+target_include_directories(test_lora_info PRIVATE .. "${SD_DIR}/thirdparty")
+add_test(NAME lora_info COMMAND test_lora_info)
 
 # The network a model or LoRA is for, from its tensors (net_family.hpp).
 add_executable(test_net_family test_net_family.cpp ../net_family.cpp)
@@ -82,7 +87,7 @@ if(PS5SD_NET_SMOKE)
     set(MBEDTLS_ROOT "" CACHE PATH "mbedTLS 3.6 install prefix")
     find_package(Threads REQUIRED)
     add_executable(smoke_downloader smoke_downloader.cpp ../downloader.cpp ../https_client.cpp
-                   ../download_core.cpp ../models.cpp ../net_family.cpp ../ftp_writer.cpp)
+                   ../download_core.cpp ../models.cpp ../net_family.cpp ../lora_info.cpp ../ftp_writer.cpp)
     target_include_directories(smoke_downloader PRIVATE .. "${SD_DIR}/thirdparty" "${MBEDTLS_ROOT}/include")
     target_link_libraries(smoke_downloader PRIVATE "${MBEDTLS_ROOT}/lib/libmbedtls.a"
                           "${MBEDTLS_ROOT}/lib/libmbedx509.a" "${MBEDTLS_ROOT}/lib/libmbedcrypto.a" Threads::Threads)
@@ -128,7 +133,7 @@ add_test(NAME prompt_tags COMMAND test_prompt_tags)
 
 # Space on the console, the gallery's copy on a USB drive, the manifest (storage.hpp,
 # usb_copy.hpp, pwa.hpp; header only). FtpSink needs ftp_writer.cpp only to link.
-add_executable(test_storage test_storage.cpp ../models.cpp ../net_family.cpp ../download_core.cpp ../gallery_labels.cpp ../ftp_writer.cpp)
+add_executable(test_storage test_storage.cpp ../models.cpp ../net_family.cpp ../lora_info.cpp ../download_core.cpp ../gallery_labels.cpp ../ftp_writer.cpp)
 target_include_directories(test_storage PRIVATE .. "${SD_DIR}/thirdparty")
 target_link_libraries(test_storage PRIVATE Threads::Threads)
 add_test(NAME storage COMMAND test_storage)

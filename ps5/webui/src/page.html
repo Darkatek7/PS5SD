@@ -34,6 +34,10 @@
     GET  /ps5sd/v1/app/docs/<MODELS.md|API.md>                          (the Help tab)
     DELETE /ps5sd/v1/app/gallery/<name>                                 (the image viewer's Delete)
     GET  /ps5sd/v1/app/loras, DELETE /ps5sd/v1/app/loras/<path>         (the LoRA picker and list)
+    GET, POST /ps5sd/v1/app/loras/info/<path>, POST .../loras/lookup/<path>, GET .../loras/preview/<path>
+                                                                       (a LoRA's trigger words, notes and picture; a 404 hides them)
+    GET, POST /ps5sd/v1/app/tokens                                     (Civitai and Hugging Face tokens: whether one is set; Save, Remove)
+    GET  https://civitai.com/api/v1/models                             (Get more, Civitai: the search runs in the browser)
     GET/POST /ps5sd/v1/app/settings                                    (the "on the TV" switches; a 404 hides them)
     GET /ps5sd/v1/auth, POST .../auth/login, .../auth/logout           (the API key: login cookie; "#key=" in the address signs in)
     GET /ps5sd/v1/app/auth, POST .../app/auth/enable, .../auth/disable (the API key in Settings; a 404 hides it)
@@ -303,6 +307,10 @@
         <div class="grpbody" id="grp-style-b" style="display:none">
           <div id="lora-sel"></div>
           <select id="lora-add" aria-label="Add a LoRA"><option value="">Add a LoRA…</option></select>
+          <div class="lpick" id="lpick" style="display:none">
+            <input type="text" id="lora-q" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="lpop" aria-label="Add a LoRA: type to search" placeholder="Add a LoRA: type to search" autocomplete="off" autocapitalize="off" spellcheck="false">
+            <div class="lpop" id="lpop" role="listbox" aria-label="LoRAs" style="display:none"></div>
+          </div>
           <p class="hint" id="lora-hint"></p>
         </div>
       </div>
@@ -430,7 +438,12 @@
     </div>
     <div class="mcol">
       <section class="panel" id="pnl-loras" style="display:none">
-        <div class="ph"><h2>LoRAs</h2><button type="button" class="info" data-help="help-loras" aria-label="More about LoRAs">&#9432;</button></div>
+        <div class="ph"><h2>LoRAs</h2><button type="button" id="lookall" style="display:none" title="Look up the LoRAs that have no info yet, on Civitai and Hugging Face, one after the other">Look up all</button><button type="button" class="info" data-help="help-loras" aria-label="More about LoRAs">&#9432;</button></div>
+        <div class="notice" id="lookbox" style="display:none">
+          <div class="nline"><span class="spin"></span><span id="looktext"></span></div>
+          <div class="bar"><div id="lookfill"></div></div>
+          <div class="authbtns"><button type="button" id="lookstop">Stop</button></div>
+        </div>
         <input type="search" id="lfind" class="lfind" placeholder="Find a LoRA" autocomplete="off" aria-label="Find a LoRA" style="display:none">
         <div id="llist"></div>
       </section>
@@ -454,41 +467,77 @@
 
   <div class="mview" id="mv-get" style="display:none">
     <div class="mcol wide">
-      <section class="panel" id="pnl-cat" style="display:none">
-        <div class="ph"><h2>Catalog</h2></div>
+      <div class="mseg gsub" id="gs-seg" role="tablist" aria-label="Where to get models">
+        <button type="button" id="gs-cat" role="tab">Catalog</button>
+        <button type="button" id="gs-civ" role="tab">Civitai</button>
+        <button type="button" id="gs-hf" role="tab">Hugging Face</button>
+        <button type="button" id="gs-up" role="tab">Upload</button>
+      </div>
+      <section class="panel" id="pnl-url" style="display:none">
+        <div class="ph"><h2>Add by link</h2><button type="button" class="info" data-help="help-link" aria-label="More about adding by link">&#9432;</button></div>
         <div class="freeline" style="display:none"></div>
-        <div id="catlist"></div>
+        <div class="inrow"><select id="dl-kind" class="upkind" aria-label="What it is"><option value="">Model</option><option value="loras">LoRA</option><option value="upscalers">Upscaler</option></select><input id="dl-url" type="text" placeholder="Hugging Face or Civitai link to a model file" autocomplete="off" autocapitalize="off" spellcheck="false"><button type="button" id="dl-go">Download</button></div>
       </section>
-      <section class="panel" id="pnl-sugg" style="display:none">
-        <div class="ph"><h2>LoRAs and upscalers</h2></div>
-        <div id="lsugg"></div>
-        <div id="usugg"></div>
-      </section>
+      <div id="gv-cat" style="display:none">
+        <section class="panel" id="pnl-cat" style="display:none">
+          <div class="ph"><h2>Catalog</h2></div>
+          <div class="freeline" style="display:none"></div>
+          <div id="catlist"></div>
+        </section>
+        <section class="panel" id="pnl-sugg" style="display:none">
+          <div class="ph"><h2>LoRAs and upscalers</h2></div>
+          <div id="lsugg"></div>
+          <div id="usugg"></div>
+        </section>
+      </div>
       <section class="panel" id="pnl-nodl" style="display:none">
         <div class="ph"><h2>Downloads are off</h2></div>
         <p class="hint">This version of the PS5SD app cannot download models. Copy model files into /data/PS5SD/models on the console, then press Refresh.</p>
       </section>
-      <section class="panel" id="pnl-url" style="display:none">
-      <div class="ph"><h2>Add by link</h2><button type="button" class="info" data-help="help-link" aria-label="More about adding by link">&#9432;</button></div>
-      <div class="freeline" style="display:none"></div>
-      <div class="inrow"><select id="dl-kind" class="upkind" aria-label="What it is"><option value="">Model</option><option value="loras">LoRA</option><option value="upscalers">Upscaler</option></select><input id="dl-url" type="text" placeholder="Hugging Face or Civitai link to a model file" autocomplete="off" autocapitalize="off" spellcheck="false"><button type="button" id="dl-go">Download</button></div>
-    </section>
-    <section class="panel" id="pnl-up" style="display:none">
-      <div class="ph"><h2>Upload from this computer</h2></div>
-      <div class="inrow"><select id="up-kind" class="upkind" aria-label="What it is"><option value="models">Model</option><option value="loras">LoRA</option><option value="embeddings">Embedding</option><option value="presets">Preset (.txt)</option><option value="upscalers">Upscaler</option><option value="tags">Tags (.csv)</option></select><button type="button" id="up-pick">Choose files</button></div>
-      <input id="up-file" type="file" multiple style="display:none">
-      <div id="up-box" style="display:none">
-        <div class="mname" id="up-name"></div>
-        <div class="bar"><div id="up-fill"></div></div>
-        <div class="upmeta"><div class="mmeta" id="up-meta"></div><button type="button" id="up-cancel" class="danger">Cancel</button></div>
+      <div id="gv-civ" style="display:none">
+        <section class="panel" id="pnl-civ">
+          <div class="ph"><h2>Search Civitai</h2><button type="button" class="info" data-help="help-civitai" aria-label="More about the Civitai search">&#9432;</button></div>
+          <div class="inrow"><input id="cv-q" type="search" placeholder="e.g. pixel art" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="Search Civitai"><button type="button" id="cv-go">Search</button></div>
+          <div class="cvopts">
+            <label>Type<select id="cv-type"><option value="LORA">LoRA</option><option value="Checkpoint">Checkpoint</option></select></label>
+            <label>Base model<select id="cv-base"></select></label>
+            <label>Sort<select id="cv-sort"><option value="Most Downloaded">Most downloaded</option><option value="Highest Rated">Highest rated</option><option value="Newest">Newest</option></select></label>
+          </div>
+          <label class="opt"><input type="checkbox" id="cv-nsfw"> Mature results</label>
+          <div id="cv-res"></div>
+          <div class="more"><button type="button" id="cv-more" style="display:none">Show more</button></div>
+        </section>
+        <section class="panel" id="pnl-civtok" style="display:none">
+          <div class="ph"><h2>Civitai API key</h2><span class="badge" id="tok-civitai-b"></span></div>
+          <p class="hint" style="margin-top:0">Some files on Civitai need an account to download. Make a key under Account settings on civitai.com and paste it here. It is kept on the console and not shown again.</p>
+          <div class="inrow"><input id="tok-civitai" type="password" placeholder="Civitai API key" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="Civitai API key"><button type="button" id="tok-civitai-save">Save</button><button type="button" id="tok-civitai-rm" class="danger">Remove</button></div>
+        </section>
       </div>
-      <p class="hint">One or more files; keep this page open until they are on the console.</p>
-    </section>
-    <section class="panel" id="pnl-hf" style="display:none">
-      <div class="ph"><h2>Search Hugging Face</h2></div>
-      <div class="inrow"><input id="hf-q" type="text" placeholder="e.g. sdxl gguf" autocomplete="off" autocapitalize="off" spellcheck="false"><button type="button" id="hf-go">Search</button></div>
-      <div id="hf-res"></div>
-    </section>
+      <div id="gv-hf" style="display:none">
+        <section class="panel" id="pnl-hf" style="display:none">
+          <div class="ph"><h2>Search Hugging Face</h2></div>
+          <div class="inrow"><input id="hf-q" type="text" placeholder="e.g. sdxl gguf" autocomplete="off" autocapitalize="off" spellcheck="false"><button type="button" id="hf-go">Search</button></div>
+          <div id="hf-res"></div>
+        </section>
+        <section class="panel" id="pnl-hftok" style="display:none">
+          <div class="ph"><h2>Hugging Face token</h2><span class="badge" id="tok-huggingface-b"></span></div>
+          <p class="hint" style="margin-top:0">Gated models, such as FLUX.1 dev, need a token of an account that accepted their terms. Make one under Settings, Access Tokens on huggingface.co. It is kept on the console and not shown again.</p>
+          <div class="inrow"><input id="tok-huggingface" type="password" placeholder="Hugging Face token" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="Hugging Face token"><button type="button" id="tok-huggingface-save">Save</button><button type="button" id="tok-huggingface-rm" class="danger">Remove</button></div>
+        </section>
+      </div>
+      <div id="gv-up" style="display:none">
+        <section class="panel" id="pnl-up" style="display:none">
+          <div class="ph"><h2>Upload from this computer</h2></div>
+          <div class="inrow"><select id="up-kind" class="upkind" aria-label="What it is"><option value="models">Model</option><option value="loras">LoRA</option><option value="embeddings">Embedding</option><option value="presets">Preset (.txt)</option><option value="upscalers">Upscaler</option><option value="tags">Tags (.csv)</option></select><button type="button" id="up-pick">Choose files</button></div>
+          <input id="up-file" type="file" multiple style="display:none">
+          <div id="up-box" style="display:none">
+            <div class="mname" id="up-name"></div>
+            <div class="bar"><div id="up-fill"></div></div>
+            <div class="upmeta"><div class="mmeta" id="up-meta"></div><button type="button" id="up-cancel" class="danger">Cancel</button></div>
+          </div>
+          <p class="hint">One or more files; keep this page open until they are on the console. <button type="button" class="info" data-help="help-upload" aria-label="More about uploading">&#9432;</button></p>
+        </section>
+      </div>
     </div>
   </div>
 
@@ -637,7 +686,15 @@
     <p>Models, <b>Presets</b> lists every preset with its model, with a search. <b>Apply settings</b> puts a preset's settings into Create without switching: for another model of the family that is loaded (two SDXL checkpoints, or the two FLUX.2 Klein 4B files), whose LoRAs and settings fit it too.</p>
     <h2 id="help-loras">LoRAs</h2>
     <p>A LoRA adds a style, a character or a look to a model. It works only with models of the family it was made for (SD 1.5, SDXL, FLUX…). Pick them on the Create tab, under Style: the box in front of one turns it off for a while and keeps its strength. Their order does not matter: sd.cpp adds them up. Under Models they are listed by the family they are made for, those for the model in use first.</p>
+    <p>With more than 8 LoRAs, <b>Add a LoRA</b> is a search field: type part of a name, Up and Down pick, Enter adds. A LoRA with trigger words has <b>Add trigger words</b> under its name: it puts the words that are not in the prompt yet at the end of the prompt. A LoRA with a preferred strength starts at that strength. <button type="button" class="info" data-help="help-lora-info" aria-label="More about LoRA info">&#9432;</button></p>
     <p>DMD2 (anime) and SDXL-Lightning (photos) make SDXL models fast: CFG 1, 4 to 8 steps, sampler LCM for DMD2 and Euler for Lightning. CausVid does the same for Wan 2.1 1.3B videos: CFG 1, 4 steps. Adding one of them sets these settings; removing it again brings back the ones from before, unless you changed them. With DMD2 an SDXL image takes about 11 s instead of 29. It does not suit every finetune: if the image comes out grey and flat, try CFG 1.5 and 8 steps.</p>
+    <h2 id="help-lora-info">LoRA info and trigger words</h2>
+    <p>Many LoRAs only work when their trigger words are in the prompt. The console keeps what it knows about a LoRA in a small file next to it, <code>name.json</code>, written the way AUTOMATIC1111 does: a LoRA folder from A1111 keeps its info, and A1111 reads ours. The picture is <code>name.preview.png</code> (or .jpeg, .webp).</p>
+    <p>A LoRA that was downloaded here gets its info by itself. Under Models, <b>&#8943;</b> on a LoRA has <b>Info</b> and <b>Look up online</b>. Info shows the trigger words, the preferred strength and your notes, which you can change and save, and the description, base model, links and pictures, which you can only read. Look up online asks Civitai, by the hash of the file, so a renamed file is found too, or Hugging Face. It fills only what is still empty, and it takes a while for a big file. <b>Look up all</b> does the LoRAs that have no info yet, one after the other, and <b>Stop</b> ends it. A file that Civitai does not know is not asked again.</p>
+    <p>A picture that Civitai marks mature (level R and above) is blurred until you click it.</p>
+    <h2 id="help-civitai">Civitai search and tokens</h2>
+    <p>Models, Get more, <b>Civitai</b> searches civitai.com. Pick LoRA or Checkpoint, a base model (the one that fits the loaded model is picked first) and the sort. A result shows its picture, trigger words and the size of the file; a model with several versions has a list to pick one. <b>Download</b> puts the file into the loras or models folder. The search runs in this browser, so this device needs the internet; the console only downloads the file. The results are safe for work until <b>Mature results</b> is on, and a mature picture stays blurred until you click it.</p>
+    <p>Some files need an account. Make an API key on civitai.com (Account settings) and save it under <b>Civitai API key</b>. <b>Hugging Face</b> has the same for gated models. The console keeps the key in a file and never shows it again; <b>Remove</b> deletes the file.</p>
     <h2 id="help-upscalers">Upscalers</h2>
     <p>An upscaler (ESRGAN) makes an image larger and sharper: with the Upscale button, or in the hires fix on the Create tab. More of them under Get more, or a .pth file under Upload.</p>
     <h2 id="help-hires">Hires fix</h2>
@@ -645,7 +702,7 @@
     <h2 id="help-upscale-button">Upscale button</h2>
     <p>The Upscale button under an image and in the gallery runs the upscaler picked in Settings over the image (4 times as wide and high for most). The result goes into the gallery.</p>
     <h2 id="help-link">Add by link</h2>
-    <p>A link to a file on huggingface.co, or a Civitai model version (a link that ends in modelVersionId=...). The file goes into the models, loras or upscalers folder on the console, as picked in front of the link; a Civitai LoRA goes to loras by itself. A Civitai link of the form <code>civitai.com/api/download/models/&lt;version&gt;</code> works too, and so does a Hugging Face link with <code>/blob/</code> in it. Only https links are taken.</p>
+    <p>A link to a file on huggingface.co, or a Civitai model version (a link that ends in modelVersionId=...). A Civitai page without a version takes its newest version. A civitai.red link works like the same link on civitai.com. The file goes into the models, loras or upscalers folder on the console, as picked in front of the link; a Civitai LoRA goes to loras by itself. A Civitai link of the form <code>civitai.com/api/download/models/&lt;version&gt;</code> works too, and so does a Hugging Face link with <code>/blob/</code> in it. Only https links are taken.</p>
     <h2 id="help-upload">Upload</h2>
     <p>Any file on this computer: your own merge or training, or one from another site. Pick what it is first: Model, LoRA, Embedding, Preset, Upscaler or Tags. It keeps its file name. A model in several files also needs a preset; the <a href="#help" data-doc="models">Getting models</a> page shows how.</p>
     <p><b>Choose files</b> takes several files at once; they go one after the other. Keep this page open until the uploads are done.</p>
@@ -654,7 +711,7 @@
     <h2 id="help-fan">Fan</h2>
     <p>The PS5 speeds its fan up when the chip gets near a target temperature, 91 °C on the console we measured. Until then the fan stays at about 23%, so the chip runs up to 90 °C and more during long runs. The modes lower that target, and the console's own fan control still sets the speed.</p>
     <p><b>Quiet</b> leaves the console's target as it is. <b>Balanced</b> is 3 °C under it, <b>Cool</b> 6 °C under it, <b>Manual</b> the target you set, from 70 °C up to the console's own. The lower the target, the louder the fan.</p>
-    <p>The target goes down one degree every 20 seconds, because a big step at once drives the fan to almost full speed. It needs an ELF loader on port 9021, like the readings: PS5SD starts a small payload, ps5sd-fan. When PS5SD closes, or the mode is Quiet, the payload puts the console's own target back within 15 seconds and ends.</p>
+    <p>The target goes down one degree every 20 seconds, because a big step at once drives the fan to almost full speed. It needs an ELF loader on port 9021, like the readings: PS5SD starts a small payload, ps5sd-fan. When PS5SD closes, or the mode is Quiet, the payload puts the console's own target back within 15 seconds and ends. A target under 70 °C, which another payload can leave behind (the fan then runs loud all the time), counts as 91 °C: the modes work from there, and Quiet puts 91 °C back.</p>
     <h2 id="help-console">The console's readings</h2>
     <p>A PS5 app may not read the temperature, the power or the fan. A payload may: PS5SD brings Marice's ps5-exporter and starts it through the ELF loader (port 9021) when it does not run yet. It keeps running after PS5SD closes, until the console restarts. Without an ELF loader these three stay empty.</p>
     <p>The temperature is the hottest of the chip's sensors; the power is the whole chip's (CPU, GPU and memory). The fan shows how hard it is driven, from 0 to 100%; its speed cannot be read. CPU is what PS5SD itself uses of the console's CPUs. GPU busy is the share of the time an image or video is made: the GPU has no reading of its own.</p>
@@ -744,6 +801,27 @@
     <div class="dlg-btns">
       <button type="button" id="ld-cancel">Cancel</button>
       <button type="button" id="ld-save">Save</button>
+    </div>
+  </div>
+</div>
+<div class="dlg" id="lidlg" style="display:none" role="dialog" aria-modal="true" aria-labelledby="li-title">
+  <div class="dlg-box wide">
+    <div class="dlg-title" id="li-title"></div>
+    <p class="mmeta" id="li-file"></p>
+    <div class="liimgs" id="li-imgs"></div>
+    <div id="li-facts"></div>
+    <label class="ld-field" for="li-trigger">Trigger words <input type="text" id="li-trigger" maxlength="1000" autocomplete="off" placeholder="Words that switch the LoRA on, separated by commas"></label>
+    <label class="ld-field" for="li-weight">Preferred strength <input type="number" id="li-weight" min="-100" max="100" step="0.05" placeholder="None: starts at 1"></label>
+    <label class="ld-field" for="li-notes">Notes <textarea id="li-notes" rows="3" maxlength="4000" placeholder="Your own notes"></textarea></label>
+    <div id="li-desc-box" style="display:none">
+      <div class="lbl">Description</div>
+      <p class="lidesc" id="li-desc"></p>
+    </div>
+    <p class="mmeta bad" id="li-err"></p>
+    <div class="dlg-btns">
+      <button type="button" id="li-close">Close</button>
+      <button type="button" id="li-look">Look up online</button>
+      <button type="button" class="on" id="li-save">Save</button>
     </div>
   </div>
 </div>
@@ -838,6 +916,9 @@
 @@include js/16-upload.js
 @@include js/17-catalog.js
 @@include js/18-hugging-face-search.js
+@@include js/18b-tokens.js
+@@include js/18c-civitai-search.js
+@@include js/18d-lora-info.js
 @@include js/19-image-to-image-and-inpainting.js
 @@include js/20-upscalers.js
 @@include js/21-video-models.js

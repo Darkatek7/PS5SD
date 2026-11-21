@@ -9,7 +9,8 @@
  * Every 2 s it reads the autoservo object (/dev/icc_fan 8F08) fresh, changes byte 5, the target
  * temperature, writes it (8F07) and reads it back. The console's own controller still sets the fan
  * from it. The target goes down one degree every FAN_STEP_S seconds, up at once (fan_policy.h).
- * When the console changes the target itself (a new fan pattern), that value is the new stock.
+ * When the console changes the target itself (a new fan pattern), that value is the new stock. A target
+ * under 70 C is a leftover of another payload: the stock target is then the console's 91 C (fan_policy.h).
  * Without a heartbeat for FAN_BEAT_S seconds, or in Quiet, it puts the stock target back and ends.
  * /data/PS5SD/fan-state.txt keeps the stock target while a lower one is written, for the next
  * instance after a crash.
@@ -169,11 +170,12 @@ static void *control(void *arg) {
     pthread_mutex_lock(&lock);
     if (stock < 0) {
       int noted = noted_stock(t);
-      stock = noted > 0 ? noted : t;
+      stock = fan_stock(noted > 0 ? noted : t);
       log_line("stock target %d C, now %d C", stock, t);
     } else if (written >= 0 && t != written) {
-      log_line("the console set the target to %d C (was %d C); that is the stock target now", t, written);
-      stock = t;
+      log_line("the console set the target to %d C (was %d C); the stock target is %d C now", t, written,
+               fan_stock(t));
+      stock = fan_stock(t);
       written = -1;
       last_step = now_s() + FAN_BEAT_S; /* PS5SD closing does this too: no step before its heartbeat is gone */
     }
@@ -183,7 +185,8 @@ static void *control(void *arg) {
     int end = gone || (told && m == FAN_QUIET);
     if (gone) m = FAN_QUIET;
     wanted = fan_wanted(m, manual, stock);
-    int next = fan_next(t, wanted, now - last_step, FAN_STEP_S);
+    /* ending: the stock target back at once */
+    int next = end ? stock : fan_next(t, wanted, now - last_step, FAN_STEP_S);
     int stock_c = stock;
     pthread_mutex_unlock(&lock);
     if (next != t) {
@@ -209,7 +212,7 @@ static void *control(void *arg) {
     duty = (int)d;
     filtered = f / 256.0;
     pthread_mutex_unlock(&lock);
-    if (end && t >= stock_c) {
+    if (end && t == stock_c) {
       log_line(gone ? "no word from PS5SD; stock target back, ending" : "quiet: stock target back, ending");
       save_state(stock_c, t);
       exit(0);

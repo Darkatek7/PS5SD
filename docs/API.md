@@ -54,8 +54,9 @@ PS5SD's):
 | `invalid_request` | 400 | the body is not JSON, a field is missing or of the wrong type, a value is not allowed |
 | `unauthorized` | 401 | the API key is needed, or it is wrong |
 | `forbidden` | 403 | a request with the login cookie lacks the header `X-PS5SD-Request` |
-| `not_found` | 404 | no such route, file, job, download or preset |
+| `not_found` | 404 | no such route, file, job, download or preset (`loras/lookup`: Civitai does not know the file) |
 | `model_not_found` | 404 | no such model (`models/active`, `sd_model_checkpoint`) |
+| `no_lora` | 404 | no such LoRA file (`loras/lookup/<path>`) |
 | `method_not_allowed` | 405 | the route exists, but not for this method |
 | `conflict` | 409 | the thing is there already, or is busy (a download, an upload, a file name) |
 | `switching` | 409 | a model switch is running |
@@ -285,8 +286,12 @@ apart, and still silent) or `no ELF loader`. Without it those
 | `POST /ps5sd/v1/app/models/active` | `{"id": "<id>"}`: switch to that entry; the responses are below |
 | `DELETE /ps5sd/v1/app/models/<id>` | delete an entry; see below |
 | `POST /ps5sd/v1/app/fit` | the body of an `img_gen` or `vid_gen` request: will it fit in the GPU memory of the loaded model? The body needs `width` and `height` (`400` without them); `hires` (an object with `enabled` and `scale`), `control_image` or `"control": true` (a guide image, which has limits of its own) and `video_frames` (the frame count) are optional. The answer is `{"verdict", "message", "family", "width", "height", "frames"}`, with `width` and `height` of the largest pass (the hires target). `verdict` is `fits`, `tight` (larger than measured, or than every run since the model loaded: it may run out of memory, and a restart of PS5SD gives the most room) or `too_big` (measured not to fit); `message` says it for people. Nothing runs, and a run is never refused for it. See [CONSOLE.md](CONSOLE.md#memory-what-fits-and-why-runs-failed-2026-10-22) |
-| `GET /ps5sd/v1/app/loras` | `{"loras": [{"name", "path", "bytes", "family"}]}`: the LoRA files in `/data/PS5SD/loras` and its subfolders; `family` as for a model (below) |
-| `DELETE /ps5sd/v1/app/loras/<path>` | delete one LoRA file; the answer is the list as `GET` gives it |
+| `GET /ps5sd/v1/app/loras` | `{"loras": [{"name", "path", "bytes", "family"}]}`: the LoRA files in `/data/PS5SD/loras` and its subfolders; `family` as for a model (below). An entry also has, when they are known, `trigger`, `weight`, `base`, `preview`, `preview_nsfw_level`, `info` and `lookup` (see [LoRA info](#lora-info)) |
+| `DELETE /ps5sd/v1/app/loras/<path>` | delete one LoRA file with its info file and preview; the answer is the list as `GET` gives it |
+| `GET /ps5sd/v1/app/loras/info/<path>` | what is known about a LoRA: see [LoRA info](#lora-info) |
+| `POST /ps5sd/v1/app/loras/info/<path>` | `{"trigger": "pixel art", "weight": 0.8, "notes": "...", "description": "..."}`: set any of these in the LoRA's info file |
+| `POST /ps5sd/v1/app/loras/lookup/<path>` | look the LoRA up on Civitai or Hugging Face and fill its info file |
+| `GET /ps5sd/v1/app/loras/preview/<path>` | the LoRA's preview image |
 
 `GET /ps5sd/v1/app/models` returns:
 
@@ -357,6 +362,76 @@ The saved presets of the entry (`base` is its id) are deleted with it. The answe
 `"deleted"` (the deleted files) and `"kept"` (the files that stayed). `409` means the entry or a preset of
 it is in use, or a switch is running; `404` that there is no such entry.
 
+### LoRA info
+
+A LoRA can have an info file next to it, `<name>.json` (`style/pixel-art-xl.safetensors` has
+`style/pixel-art-xl.json`), and a preview image, `<name>.preview.png`, `.jpeg`, `.jpg` or `.webp`. The info file
+has [AUTOMATIC1111](https://github.com/AUTOMATIC1111/stable-diffusion-webui)'s keys, so a LoRA folder copied
+from A1111 brings its info along, and A1111 reads ours: `description`, `sd version`, `activation text`,
+`preferred weight` (0 means none), `negative text` and `notes`. What the title found out goes under the key
+`ps5sd`: `source` (the link the file was downloaded from), `sha256` (with `sha256_size` and `sha256_mtime`, so
+the file is hashed again only when it changed), `civitai`, `hf`, `images`, `preview`, `preview_nsfw_level`,
+`looked_up` and `lookup`. Keys the title does not know stay when it writes the file again. An A1111 preview
+(`<name>.png`, `.jpg`, `.jpeg` or `.webp`) counts as a preview too. The info files and previews are not LoRAs,
+models or gallery files, and they are in no list.
+
+`<path>` is the LoRA's `path` as `GET /ps5sd/v1/app/loras` gives it, each part URL-encoded. A path with `..`, an
+absolute path or a name that is not a model file is a `400` (`invalid_request`).
+
+`GET /ps5sd/v1/app/loras/info/<path>` answers with what is known. A field that is not known is left out:
+
+```json
+{"path": "style/pixel-art-xl.safetensors", "trigger": "pixel art", "weight": 0.8, "description": "Pixel Art XL ...",
+ "notes": "", "base": "SDXL 1.0", "source": "https://civitai.com/api/download/models/135931",
+ "sha256": "BBF3D8DEFBFB3FB71331545225C0CF50C74A748D2525F7C19EBB8F74445DE274",
+ "civitai": {"model_id": 120096, "version_id": 135931, "model": "Pixel Art XL", "version": "v1.1",
+             "base_model": "SDXL 1.0", "url": "https://civitai.com/models/120096?modelVersionId=135931"},
+ "images": [{"url": "https://image.civitai.com/.../width=450/1918193.jpeg", "nsfw_level": 1, "width": 1024, "height": 1024}],
+ "preview": true, "preview_nsfw_level": 1, "looked_up": "2026-11-21T22:00:00Z", "lookup": "found"}
+```
+
+- `trigger` is the activation text, `weight` the preferred weight, `base` the base model (`sd version`, else
+  Civitai's `base_model`). A LoRA without an info file answers `{"path": ...}` (and `"preview": true` when an A1111
+  preview is there). `404` (`not_found`) when the LoRA is not there.
+- `hf` is `{"repo", "url"}` for a LoRA found on Hugging Face. Its `images` have no `nsfw_level`.
+- `lookup` is `found` or `not_found`, after a lookup.
+- `POST` merges the fields of its body into the info file and creates it. `trigger`, `notes` and `description` are
+  strings of at most 20000 bytes; `weight` is a number from -100 to 100, or `null` or `0` to clear it. The rest
+  of the file stays. The answer is the same as `GET`. `400` for a body that is not an object or a value of the
+  wrong type.
+- `GET /ps5sd/v1/app/loras/preview/<path>` sends the image with its `Content-Type` (`image/png`, `image/jpeg` or
+  `image/webp`), the `.preview.` file first. `404` when there is none, `413` for one over 16 MiB. It takes the API key
+  as a cookie like the other routes, so an `<img>` works.
+
+`POST /ps5sd/v1/app/loras/lookup/<path>` (no body) looks the LoRA up and fills the info file. It asks, in this order,
+and stops at the first that knows it:
+
+1. Civitai's model version, when `ps5sd.civitai.version_id` is set (a download from Civitai sets it) or `source` is a
+   Civitai link: `/api/v1/model-versions/<id>`.
+2. Hugging Face, when `source` is a Hugging Face link: `/api/models/<owner>/<repo>`. `cardData.instance_prompt` is the
+   trigger, `cardData.base_model` the base, the widget's images the images. A repository that needs a token (`401`
+   or `403`) or is gone counts as not known.
+3. The file's SHA-256, looked up on Civitai: `/api/v1/model-versions/by-hash/<sha256>`. A large file takes a while to
+   hash; the hash is kept, and a later lookup with the same file size and time does not hash again.
+
+From a Civitai version the title takes `trainedWords` (joined with `, `) as the trigger, `baseModel` as the base, the
+model's and the version's name, up to 6 images (`/original=true/` in a URL becomes `/width=450/`), and the model's
+description (`/api/v1/models/<id>`; HTML turned into plain text, at most 2000 characters). The Civitai token
+(below) goes along. A lookup fills `activation text`, `description` and `sd version` only when they are empty, and
+`Unknown` counts as empty for `sd version`: what you wrote stays. `ps5sd` is always refreshed.
+
+The preview is the first image whose `nsfw_level` is 2 or less (else the first), downloaded as `<name>.preview.<ext>`
+(at most 4 MB; the extension comes from the `Content-Type`, which must be PNG, JPEG or WebP). A LoRA that has a
+preview, its own or one from A1111, keeps it. `preview_nsfw_level` is the level of the image kept (Civitai's levels:
+1 none, 2 soft, 4 mature, 8 X, 16 XXX).
+
+The answer is `200` as `GET` gives it, with `"lookup": "found"`. `404` with code `not_found` when Civitai does not
+know the file (the info file keeps `"lookup": "not_found"` so a client can skip it later), `404` with code `no_lora`
+when the LoRA is not there, `502` when Civitai or Hugging Face cannot be reached, answers an error (`429`, `5xx`; for
+Civitai also `401` and `403`, where a token may help) or sends something that is not JSON, and `503` when the app is
+ending. A lookup can take a minute for a large file. A download into `loras` writes `source` (and the Civitai
+version) into the info file and runs the lookup by itself when it is done; a failure there is only logged.
+
 ### Saved presets
 
 A saved preset is a model with other settings: a preset file with `# base: <id>` (see
@@ -390,9 +465,13 @@ survives a restart of the title (`/data/PS5SD/downloads.json`).
 | `POST /ps5sd/v1/app/downloads/<id>/retry` | resume a failed or cancelled download from its `.part` file |
 | `POST /ps5sd/v1/app/downloads/clear` | remove the finished downloads from the list |
 | `POST /ps5sd/v1/app/hf/search` | `{"q": "...", "limit": 20}`: search Hugging Face for model files |
+| `GET /ps5sd/v1/app/tokens` | `{"huggingface": true, "civitai": false}`: whether a token file is there. The token is never sent |
+| `POST /ps5sd/v1/app/tokens` | `{"civitai": "<token>"}` and/or `{"huggingface": "<token>"}`: write a token file; `""` deletes it. The answer is as `GET` gives it. A token is at most 200 letters, digits and `-_.` (`400` otherwise) |
 
 A Hugging Face or Civitai token for gated models goes in `/data/PS5SD/hf-token.txt` or
-`/data/PS5SD/civitai-token.txt`.
+`/data/PS5SD/civitai-token.txt`; `POST /ps5sd/v1/app/tokens` writes them. A Civitai link on `civitai.red` (or
+`www.civitai.red`) is taken as the same link on `civitai.com`. A finished download into `loras` is looked up
+(see [LoRA info](#lora-info)).
 
 A download fails at once when it does not fit: its size plus 1 GiB must be free on `/data`. Its `error` then
 says so, for example "Not enough space on the console: it needs 7.3 GB, 5.1 GB are free."
@@ -889,4 +968,6 @@ Balanced is 3 °C under it, Cool 6 °C, Manual `fan_target`, but never over the 
 never under 70 °C. A payload sets it, as a title may not: `payloads/ps5sd-fan.elf`, sent to the ELF loader
 on port 9021 and told the mode every 3 s on `127.0.0.1:9075`. It lowers the target one degree every 20 s
 and raises it at once. In Quiet, or 15 s after PS5SD stopped telling it the mode (PS5SD closed), it puts
-the console's own target back and ends. The web UI's buttons are in Settings, under Fan.
+the console's own target back and ends. A console target under 70 °C (another payload can leave one, and the
+fan then runs loud) counts as 91 °C: `stock` is 91 and Quiet writes 91 back. The web UI's buttons are in
+Settings, under Fan.

@@ -11,6 +11,7 @@
         show('pnl-loras', true);
         drawLoraList();
         drawLoraPicker();
+        civUpdate();  // Installed on the Civitai results
         if (cb) cb();
         return;
       }
@@ -107,7 +108,18 @@
           persist();
         };
         row.appendChild(sw);
-        row.appendChild(el('span', 'lname', readable(loraName(s.path)) + (gone ? ' (not on the console)' : '')));
+        var nm = el('div', 'lname');
+        nm.appendChild(document.createTextNode(readable(loraName(s.path)) + (gone ? ' (not on the console)' : '')));
+        // a LoRA with trigger words: one press puts the ones missing at the end of the prompt
+        if (loraTrigger(s.path)) {
+          var tb = el('button', 'linkbtn ltrig', 'Add trigger words');
+          tb.type = 'button';
+          tb.title = 'Put its trigger words at the end of the prompt: ' + loraTrigger(s.path);
+          tb.onclick = function () { addTriggerWords(s.path); };
+          tb.setAttribute('data-path', s.path);
+          nm.appendChild(tb);
+        }
+        row.appendChild(nm);
         var inp = document.createElement('input');
         inp.type = 'number';
         // -100 to 100, as ComfyUI's LoRA loader: some LoRAs are made for strengths far past 1 (sliders
@@ -130,37 +142,183 @@
         box.appendChild(row);
       })(loraSel[i]);
     }
-    var add = $('lora-add');
-    clear(add);
-    var first = document.createElement('option');
-    first.value = '';
-    text(first, 'Add a LoRA…');
-    add.appendChild(first);
-    var free = 0;
+    drawLoraAdd(fam);
     var list = loraList || [];
-    // the ones for this model's family first; the others in a group of their own, with their family
-    var others = document.createElement('optgroup');
-    others.label = 'Made for other models';
-    for (var k = 0; k < list.length; k++) {
-      var picked = false;
-      for (var n = 0; n < loraSel.length; n++) if (loraSel[n].path === list[k].path) picked = true;
-      if (picked) continue;
-      var o = document.createElement('option');
-      o.value = list[k].path;
-      var of2 = otherFamily(list[k].path, list[k].name, fam);
-      text(o, readable(list[k].name || loraName(list[k].path)) + (of2 ? ' (' + of2 + ')' : ''));
-      (of2 ? others : add).appendChild(o);
-      free++;
-    }
-    if (others.childNodes.length) add.appendChild(others);
-    add.value = '';
-    show('lora-add', free > 0);
     text($('lora-hint'), !list.length
       ? 'No LoRAs on the console yet. Upload or download one on the Models tab.'
       : wrong.length
         ? wrong.join('; ') + ', not for this ' + fam + ' model: it does nothing here.'
         : 'Strength 1 is the full effect, 0.5 half of it. A LoRA works only with the model family it was made for.');
     $('lora-hint').className = wrong.length ? 'hint bad' : 'hint';
+    updateTriggerButtons();
+  }
+
+  // The LoRAs not picked yet, in the order the picker shows them: the ones for the loaded model's family
+  // first. [{path, label, other (its family when it is not the model's), hay}]
+  function loraChoices(fam) {
+    var out = [], list = loraList || [];
+    for (var k = 0; k < list.length; k++) {
+      var picked = false;
+      for (var n = 0; n < loraSel.length; n++) if (loraSel[n].path === list[k].path) picked = true;
+      if (picked) continue;
+      var label = readable(list[k].name || loraName(list[k].path));
+      var of2 = otherFamily(list[k].path, list[k].name, fam);
+      out.push({ path: list[k].path, label: label, other: of2, mine: !of2,
+        hay: (label + ' ' + list[k].path + ' ' + (list[k].trigger || '') + ' ' + (list[k].family || '')).toLowerCase() });
+    }
+    return out;
+  }
+
+  // Add a LoRA: a list up to 8 LoRAs; with more, a field that filters them as you type.
+  function drawLoraAdd(fam) {
+    var add = $('lora-add');
+    clear(add);
+    var first = document.createElement('option');
+    first.value = '';
+    text(first, 'Add a LoRA…');
+    add.appendChild(first);
+    var ch = loraChoices(fam);
+    var many = (loraList || []).length > LORA_SEARCH_FROM;
+    // the ones for this model's family first; the others in a group of their own, with their family
+    var others = document.createElement('optgroup');
+    others.label = 'Made for other models';
+    for (var i = 0; i < ch.length; i++) {
+      var o = document.createElement('option');
+      o.value = ch[i].path;
+      text(o, ch[i].label + (ch[i].other ? ' (' + ch[i].other + ')' : ''));
+      (ch[i].other ? others : add).appendChild(o);
+    }
+    if (others.childNodes.length) add.appendChild(others);
+    add.value = '';
+    show('lora-add', ch.length > 0 && !many);
+    show('lpick', ch.length > 0 && many);
+    if (many) lpopDraw();
+  }
+
+  // ---- the search field of Add a LoRA (more than LORA_SEARCH_FROM LoRAs): a list under the field that
+  // follows what is typed. Up and Down pick, Enter adds, Escape closes; a tap on a LoRA adds it.
+  var LORA_SEARCH_FROM = 8;
+  var lpop = { open: false, hits: [], at: -1 };
+
+  function lpopDraw() {
+    var box = $('lpop');
+    if (!lpop.open) { show('lpop', false); $('lora-q').setAttribute('aria-expanded', 'false'); return; }
+    clear(box);
+    var fam = loadedFamily();
+    var words = trim($('lora-q').value).toLowerCase().split(/\s+/), ch = loraChoices(fam), hits = [], i, j;
+    for (i = 0; i < ch.length; i++) {
+      var ok = true;
+      for (j = 0; j < words.length; j++) if (words[j] && ch[i].hay.indexOf(words[j]) < 0) ok = false;
+      if (ok) hits.push(ch[i]);
+    }
+    hits.sort(function (a, b) {
+      if (a.mine !== b.mine) return a.mine ? -1 : 1;
+      return a.label.toLowerCase() < b.label.toLowerCase() ? -1 : a.label.toLowerCase() > b.label.toLowerCase() ? 1 : 0;
+    });
+    lpop.hits = hits;
+    if (lpop.at >= hits.length) lpop.at = hits.length - 1;
+    if (lpop.at < 0 && hits.length) lpop.at = 0;
+    var group = null;
+    for (i = 0; i < hits.length; i++) {
+      (function (h, idx) {
+        var g = h.mine ? (fam ? 'For ' + fam + ' (the model in use)' : 'LoRAs') : 'Made for other models';
+        if (g !== group) { group = g; var gh = el('div', 'lgroup', g); gh.setAttribute('role', 'presentation'); box.appendChild(gh); }
+        var o = el('div', 'lopt' + (idx === lpop.at ? ' on' : ''));
+        o.id = 'lopt-' + idx;
+        o.setAttribute('role', 'option');
+        o.setAttribute('aria-selected', idx === lpop.at ? 'true' : 'false');
+        o.appendChild(el('span', 'lon2', h.label));
+        if (h.other) o.appendChild(el('span', 'lof', h.other));
+        // mousedown: before the field loses focus (a tap on a phone gives one as well)
+        o.onmousedown = function (e) { if (e && e.preventDefault) e.preventDefault(); lpopPick(idx); };
+        box.appendChild(o);
+      })(hits[i], i);
+    }
+    if (!hits.length) box.appendChild(el('div', 'lgroup', 'No LoRA has "' + trim($('lora-q').value) + '" in its name.'));
+    show('lpop', true);
+    $('lora-q').setAttribute('aria-expanded', 'true');
+    if (lpop.at >= 0) $('lora-q').setAttribute('aria-activedescendant', 'lopt-' + lpop.at);
+    else $('lora-q').removeAttribute('aria-activedescendant');
+  }
+
+  function lpopOpen(on) {
+    lpop.open = on;
+    if (on) lpop.at = 0;
+    lpopDraw();
+  }
+
+  function lpopPick(idx) {
+    var h = lpop.hits[idx];
+    if (!h) return;
+    $('lora-q').value = '';
+    lpop.open = false;
+    addLora(h.path);
+    try { $('lora-q').blur(); } catch (e) {}
+  }
+
+  function lpopKey(e) {
+    e = e || window.event;
+    var k = e.keyCode;
+    if (k === 40 || k === 38) {
+      if (!lpop.open) { lpopOpen(true); }
+      else if (lpop.hits.length) {
+        lpop.at = (lpop.at + (k === 40 ? 1 : lpop.hits.length - 1)) % lpop.hits.length;
+        lpopDraw();
+        var on = $('lpop').getElementsByClassName('on')[0];
+        if (on && on.scrollIntoView) on.scrollIntoView({ block: 'nearest' });
+      }
+    } else if (k === 13) {
+      if (lpop.open && lpop.at >= 0) lpopPick(lpop.at);
+    } else if (k === 27) {
+      if (!lpop.open) return true;
+      lpop.open = false;
+      lpopDraw();
+    } else {
+      return true;
+    }
+    if (e.preventDefault) e.preventDefault();
+    if (e.stopPropagation) e.stopPropagation();
+    return false;
+  }
+
+  function initLoraPicker() {
+    var q = $('lora-q');
+    q.onfocus = function () { lpopOpen(true); };
+    q.onclick = function () { if (!lpop.open) lpopOpen(true); };
+    q.oninput = function () { lpop.open = true; lpop.at = 0; lpopDraw(); };
+    q.onkeydown = lpopKey;
+    q.onblur = function () { setTimeout(function () { if (lpop.open && document.activeElement !== q) { lpop.open = false; lpopDraw(); } }, 150); };
+    if ($('prompt').addEventListener) $('prompt').addEventListener('input', updateTriggerButtons);
+  }
+
+  // ---- trigger words: the words of the LoRA that are not in the prompt yet, at its end
+  function missingWords(path) {
+    var words = loraTrigger(path).split(','), p = $('prompt').value.toLowerCase(), out = [];
+    for (var i = 0; i < words.length; i++) {
+      var w = trim(words[i]);
+      if (w && p.indexOf(w.toLowerCase()) < 0) out.push(w);
+    }
+    return out;
+  }
+
+  function addTriggerWords(path) {
+    var miss = missingWords(path);
+    if (!miss.length) { toast('Its trigger words are in the prompt already.'); return; }
+    var v = $('prompt').value.replace(/[\s,]+$/, '');
+    $('prompt').value = (v ? v + ', ' : '') + miss.join(', ');
+    persist();
+    updateTriggerButtons();
+    toast('Added to the prompt: ' + miss.join(', ') + '.');
+  }
+
+  // Each Add trigger words button says whether there is something to add.
+  function updateTriggerButtons() {
+    var bs = $('lora-sel').getElementsByClassName('ltrig');
+    for (var i = 0; i < bs.length; i++) {
+      var none = missingWords(bs[i].getAttribute('data-path')).length === 0;
+      bs[i].disabled = none;
+      text(bs[i], none ? 'Words are in the prompt' : 'Add trigger words');
+    }
   }
 
   // The settings a fast LoRA needs (a few steps at a low CFG), by its file name; null for other LoRAs.
@@ -194,16 +352,19 @@
 
   // A fast LoRA brings its settings and keeps the ones it replaced, which come back when it is
   // removed while its settings are still set.
-  function addLora() {
-    var path = $('lora-add').value;
+  function addLora(path) {
     if (!path) return;
-    var s = { path: path, m: 1 };
+    // its preferred strength (from its info) is where it starts
+    var w = loraWeight(path);
+    var s = { path: path, m: w || 1 };
     var f = otherFamily(path, '', loadedFamily()) ? null : fastLoraSettings(path);
     if (f) {
       s.was = quality();
       setQuality(f);
       s.set = quality();
       toast(f.label + ' works in a few steps: set to ' + settingsText(s.set) + '.');
+    } else if (w) {
+      toast('Strength ' + w + ' is the one its info suggests.');
     }
     loraSel.push(s);
     drawLoraPicker();
@@ -241,6 +402,7 @@
     clear(box);
     var list = loraList || [];
     show('lfind', list.length > 8, 'block');
+    drawLookAll();
     if (!list.length) box.appendChild(el('div', 'empty-note', 'No LoRAs yet. Get one under Get more, or upload one.'));
     var q = trim($('lfind').value || '').toLowerCase();
     var fam = loadedFamily(), groups = {}, order = [], i;
@@ -293,18 +455,39 @@
     showSugg();
   }
 
-  // One LoRA: its name, its size (and its folder, when it is in one), and ⋯ Delete.
+  // One LoRA: its picture (when it has one), name, trigger words, size (and folder), and ⋯: Info, Look up
+  // online, Delete.
   function loraRow(l) {
     var row = el('div', 'mrow mgrp lora');
+    if (l.preview) {
+      var pic = el('div', 'lthumb');
+      var im = document.createElement('img');
+      im.alt = '';
+      im.src = loraPreviewUrl(l.path);
+      im.setAttribute('loading', 'lazy');
+      pic.appendChild(im);
+      blurPicture(pic, l.preview_nsfw_level);
+      if (loraTools()) { pic.title = 'Info'; var open = pic.onclick; pic.onclick = function (e) { if (open && open(e) === false) return false; openLoraInfo(l); return false; }; }
+      row.appendChild(pic);
+    }
     var main = el('div', 'mmain');
     main.appendChild(el('div', 'mname', readable(l.name || loraName(l.path))));
+    if (l.trigger) main.appendChild(el('div', 'mmeta ltrigline', 'Trigger words: ' + l.trigger));
     var meta = [];
     if (l.bytes > 0) meta.push(bytes(l.bytes));
+    if (l.base) meta.push(l.base);
     if (l.path.indexOf('/') > 0) meta.push(l.path.replace(/\/[^\/]*$/, '/'));
+    if (loraBusy[l.path]) meta.push('Looking up…');
     if (meta.length) main.appendChild(el('div', 'mmeta', meta.join(' · ')));
     row.appendChild(main);
     var acts = el('div', 'macts');
-    acts.appendChild(moreMenu([{ label: 'Delete', danger: true, fn: function () { askDeleteLora(l); } }], ''));
+    var items = [];
+    if (loraTools()) {
+      items.push({ label: 'Info', fn: function () { openLoraInfo(l); } });
+      items.push({ label: 'Look up online', disabled: !!loraBusy[l.path] || !!look, fn: function () { lookupOne(l); } });
+    }
+    items.push({ label: 'Delete', danger: true, fn: function () { askDeleteLora(l); } });
+    acts.appendChild(moreMenu(items, ''));
     row.appendChild(acts);
     return row;
   }

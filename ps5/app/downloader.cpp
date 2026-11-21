@@ -27,6 +27,7 @@
 #include "download_core.hpp"
 #include "ftp_writer.hpp"
 #include "https_client.hpp"
+#include "lora_info.hpp"
 #include "models.hpp"
 #include "storage.hpp"
 #include "thread_guard.hpp"
@@ -595,6 +596,10 @@ void fetch_pieces(Item & item, const Probe & p0, const std::string & url, int fd
     }
 }
 
+// A LoRA came in: where it came from goes into its info file, then its lookup runs on a thread of its
+// own (a failure is logged, not shown). Best effort.
+void after_lora_download(const std::string & url, const std::string & dest);
+
 void run_one(Item & item) {
     DownloadRecord rec;
     {
@@ -751,12 +756,18 @@ void run_one(Item & item) {
     item.rec.bytes_per_second = 0;
     item.rec.pieces.clear();
     const std::string catalog_id = item.rec.catalog;
+    const std::string done_kind  = item.rec.kind;
+    const std::string done_url   = item.rec.url;
+    const std::string done_dest  = item.rec.dest;
     save_queue_locked();
     std::printf("ps5sd: download %s: done, %llu bytes in %.1f s (%.2f MB/s over this run)\n", item.rec.dest.c_str(),
                 (unsigned long long) item.rec.total, seconds, seconds > 0 ? item.rec.total / 1e6 / seconds : 0.0);
     lock.unlock();
     if (!catalog_id.empty()) {
         write_preset_if_complete(catalog_id);
+    }
+    if (done_kind == "loras") {
+        after_lora_download(done_url, done_dest);
     }
 }
 
@@ -798,6 +809,81 @@ void manager() {
             save_queue_locked();
         }
     }
+}
+
+// ---- LoRA info (lora_info.hpp) -----------------------------------------------------------
+
+// The network the lookup uses: this client's connections, Civitai's token for civitai.com only.
+LookupIo lookup_io(HttpClient & client) {
+    constexpr size_t kImageMax = 4u << 20;
+    LookupIo         io;
+    io.get_text = [&client](const std::string & url, int & status, std::string & body, std::string & error) {
+        body.clear();
+        return http_get_text(client, url, [](const Url & u) { return headers_for(u); }, 4u << 20, body, status, error);
+    };
+    io.get_image = [&client](const std::string & url, std::string & content_type, std::string & bytes,
+                             std::string & error) {
+        bytes.clear();
+        HttpResponse r;
+        std::string  final_url;
+        bool         too_big = false;
+        const bool   ok      = http_get_following(
+            client, url, [](const Url & u) { return headers_for(u); },
+            [&](const HttpResponse & resp) {
+                too_big = resp.content_length > static_cast<int64_t>(kImageMax);
+                return resp.status == 200 && !too_big;
+            },
+            [&](const char * data, size_t n) {
+                if (bytes.size() + n > kImageMax) {
+                    too_big = true;
+                    return false;
+                }
+                bytes.append(data, n);
+                return true;
+            },
+            r, final_url, error);
+        if (too_big) {
+            error = "the image is over 4 MB";
+            return false;
+        }
+        if (!ok) {
+            return false;
+        }
+        if (r.status != 200) {
+            error = "HTTP " + std::to_string(r.status);
+            return false;
+        }
+        content_type = r.header("content-type");
+        return true;
+    };
+    io.cancelled = [] { return g_stop.load(); };
+    return io;
+}
+
+int lora_lookup_route(const std::string & rel, std::string & out) {
+    HttpClient  client;
+    std::string answer_body;
+    const int   status = lora_lookup(g_cfg.loras_dir, rel, lookup_io(client), answer_body);
+    out                = answer_body;
+    return status;
+}
+
+void after_lora_download(const std::string & url, const std::string & dest) {
+    Source      src;
+    std::string error;
+    const bool  civitai = classify_url(url, src, error) && src.kind == "civitai";
+    if (!note_lora_source(g_cfg.loras_dir + "/" + dest, url, civitai ? src.civitai_version : std::string(), error)) {
+        std::printf("ps5sd: LoRA %s: cannot write its info file: %s\n", dest.c_str(), error.c_str());
+        return;
+    }
+    std::thread([dest] {
+        run_guarded("LoRA lookup", [&] {
+            std::string body;
+            const int   status = lora_lookup_route(dest, body);
+            std::printf("ps5sd: LoRA %s: lookup answered %d%s\n", dest.c_str(), status,
+                        status == 200 ? "" : (" " + body.substr(0, 200)).c_str());
+        });
+    }).detach();
 }
 
 // ---- routes ------------------------------------------------------------------------
@@ -1328,6 +1414,15 @@ int downloader_route(const std::string & method, const std::string & path, const
         }
         if (method == "POST" && path == "hf/search") {
             return hf_search(body, out);
+        }
+        if (method == "POST" && path.rfind("loras/lookup/", 0) == 0) {
+            return lora_lookup_route(path.substr(13), out);
+        }
+        if (method == "GET" && path == "tokens") {
+            return tokens_get(g_cfg.hf_token_file, g_cfg.civitai_token_file, out);
+        }
+        if (method == "POST" && path == "tokens") {
+            return tokens_post(g_cfg.hf_token_file, g_cfg.civitai_token_file, body, out);
         }
     } catch (const std::exception & e) {
         return answer(out, 500, error_json(std::string("error: ") + e.what()));

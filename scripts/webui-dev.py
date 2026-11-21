@@ -12,8 +12,10 @@ search) in this process, with simulated progress, so the Models tab can be tried
 console has them. It also turns on --mock-models: the model library (list, switch, delete;
 saved presets: save, delete; a preset's text: read, write) is then an in-memory fake too and the console is not
 asked about models at all, so a delete or a switch cannot touch it. The LoRAs (list, delete; a few
-fixed files, some in subfolders, with a family) and sd-server's sampler and scheduler lists are fakes
-too, so the Generate tab and the preset editor work without a console. It also serves docs/MODELS.md
+fixed files, some in subfolders, with a family; some with trigger words, a strength and a picture; the info,
+lookup and preview routes, and the tokens route, kept in memory) and sd-server's sampler and scheduler lists
+are fakes too, so the Generate tab and the preset editor work without a console. A lookup of a LoRA named
+"mystery" answers not_found, "offline" a 502 and "slow" takes two seconds; any other finds an entry. It also serves docs/MODELS.md
 and docs/API.md from this checkout for the Help tab. --mock-models alone fakes only these, not the downloads. Everything else is still forwarded. Without the flag the real console answers
 (an old app answers 404 and the page hides the download parts). Words in a URL steer the mock:
 "fail" makes the download fail at 30 percent, "big" makes it 8 GB, "slow" makes it slow.
@@ -510,7 +512,10 @@ class MockModels:
 
 
 class MockLoras:
-    """In-memory stand-in for GET /loras and DELETE /loras/<path>, and sd-server's sampler and scheduler lists."""
+    """In-memory stand-in for GET /loras, DELETE /loras/<path>, the LoRA info, lookup and preview routes, the
+    tokens route (GET and POST tokens; the token is kept here and never sent back), and sd-server's sampler
+    and scheduler lists. A lookup of a name with "mystery" in it answers not_found, one with "offline" a 502
+    (Civitai cannot be reached), one with "slow" takes two seconds; the others find an entry."""
 
     SAMPLERS = ["euler", "euler_a", "heun", "dpm2", "dpm++2s_a", "dpm++2m", "dpm++2mv2", "ipndm", "lcm"]
     SCHEDULERS = ["discrete", "karras", "exponential", "ays", "sgm_uniform", "simple"]
@@ -520,19 +525,109 @@ class MockLoras:
         "sdxl-lightning-8step.safetensors": (394 * MB, "SDXL"),
         "styles/ink-sketch.safetensors": (171 * MB, "SDXL"),
         "styles/watercolor_v2.gguf": (85 * MB, "SDXL"),
+        "styles/slow-oil-paint.safetensors": (140 * MB, "SDXL"),
+        "styles/offline-neon.safetensors": (96 * MB, "SDXL"),
         "styles/anime/flat-colors.safetensors": (57 * MB, "SDXL"),
+        "pixel-art-xl.safetensors": (166 * MB, "SDXL"),
         "flux/realism-lora.safetensors": (22 * MB, "FLUX.1"),
+        "flux/slow-anime-flux.safetensors": (180 * MB, "FLUX.1"),
         "sd15/epi_noiseoffset2.safetensors": (81 * MB, "SD 1.5"),
         "mystery.safetensors": (12 * MB, ""),
+    }
+    # the sidecars that exist from the start; the key names are the app's answers of GET loras/info
+    INFO = {
+        "styles/ink-sketch.safetensors": {
+            "trigger": "inksketch, monochrome", "weight": 0.8, "base": "SDXL 1.0", "preview": True, "preview_nsfw_level": 1,
+            "description": "Black ink on white paper, loose lines.\n\nWorks best at strength 0.6 to 1.",
+            "notes": "Good with the Illustrious models too.", "looked_up": "2026-11-20T18:30:00Z", "lookup": "found",
+            "civitai": {"model_id": 1, "version_id": 11, "model": "Ink Sketch", "version": "v1.0", "base_model": "SDXL 1.0",
+                        "url": "https://civitai.com/models/1?modelVersionId=11"},
+            "images": [{"nsfw_level": 1}, {"nsfw_level": 2}, {"nsfw_level": 8}]},
+        "add-detail-xl.safetensors": {
+            "trigger": "detailed", "base": "SDXL 1.0", "preview": True, "preview_nsfw_level": 8, "lookup": "found",
+            "description": "Adds fine detail. Negative strength takes detail away.", "looked_up": "2026-11-19T09:00:00Z",
+            "hf": {"repo": "example/add-detail-xl", "url": "https://huggingface.co/example/add-detail-xl"},
+            "images": [{"nsfw_level": 8}, {"nsfw_level": 1}]},
+        "sdxl-lightning-8step.safetensors": {"notes": "From ByteDance. No trigger words.", "lookup": "not_found",
+                                             "looked_up": "2026-11-18T12:00:00Z"},
+        "styles/anime/flat-colors.safetensors": {"trigger": "flat color", "weight": 1.2, "base": "SDXL 1.0"},
     }
 
     def __init__(self):
         self.lock = threading.Lock()
         self.files = dict(self.FILES)
+        self.info = {k: dict(v) for k, v in self.INFO.items()}
+        self.tokens = {"civitai": "", "huggingface": ""}
+
+    @staticmethod
+    def _stem(path):
+        return path.rsplit("/", 1)[-1].rsplit(".", 1)[0]
+
+    def _entry(self, path, b, fam):
+        e = {"name": self._stem(path), "path": path, "bytes": b, "family": fam}
+        i = self.info.get(path)
+        if i is not None:
+            e["info"] = True
+            for k in ("trigger", "weight", "base", "preview", "lookup"):
+                if i.get(k):
+                    e[k] = i[k]
+            if i.get("preview_nsfw_level") is not None and i.get("preview"):
+                e["preview_nsfw_level"] = i["preview_nsfw_level"]
+        return e
 
     def _json(self):
-        return {"loras": [{"name": path.rsplit("/", 1)[-1].rsplit(".", 1)[0], "path": path, "bytes": b, "family": fam}
-                          for path, (b, fam) in sorted(self.files.items())]}
+        return {"loras": [self._entry(path, b, fam) for path, (b, fam) in sorted(self.files.items())]}
+
+    def _info(self, path):
+        out = {"path": path}
+        out.update(self.info.get(path, {}))
+        if out.get("preview"):
+            out["images"] = [dict(im, url=APP + "loras/preview/" + urllib.parse.quote(path)) for im in out.get("images", [])]
+        return out
+
+    def _png(self, path):
+        h = sum(ord(c) for c in path)
+        return make_png(160, 160, ((h * 37) % 200 + 30, (h * 91) % 200 + 30, (h * 53) % 200 + 30))
+
+    def _lookup(self, path):
+        stem = self._stem(path)
+        if "mystery" in stem:
+            self.info.setdefault(path, {})["lookup"] = "not_found"
+            return 404, {"error": "Civitai does not know this file", "code": "not_found"}
+        if "offline" in stem:
+            return 502, {"error": "cannot reach civitai.com"}
+        if "slow" in stem:
+            time.sleep(2)
+        i = self.info.setdefault(path, {})
+        words = [w for w in re.split(r"[-_ ]+", stem) if w]
+        i.setdefault("trigger", " ".join(words[:2]) + " style")
+        i.setdefault("description", "Mock description of " + stem + ".\n\nFound by the mock lookup.")
+        i.setdefault("base", "SDXL 1.0" if self.files[path][1] == "SDXL" else (self.files[path][1] or "Unknown"))
+        if "flux" in path:
+            i["hf"] = {"repo": "example/" + stem, "url": "https://huggingface.co/example/" + stem}
+        else:
+            i["civitai"] = {"model_id": 5, "version_id": 55, "model": stem, "version": "v1", "base_model": i["base"],
+                            "url": "https://civitai.com/models/5?modelVersionId=55"}
+        i["images"] = [{"nsfw_level": 1}, {"nsfw_level": 1}, {"nsfw_level": 4}]
+        i["preview"] = True
+        i["preview_nsfw_level"] = 1
+        i["looked_up"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        i["lookup"] = "found"
+        return 200, self._info(path)
+
+    def _tokens(self, method, body):
+        if method == "POST":
+            try:
+                data = json.loads(body or b"null")
+            except ValueError:
+                data = None
+            if not isinstance(data, dict):
+                return 400, {"error": "the body is not an object"}
+            for k, v in data.items():
+                if k not in self.tokens or not isinstance(v, str) or len(v) > 200 or not re.match(r"^[A-Za-z0-9_.\-]*$", v):
+                    return 400, {"error": "a token has letters, digits and -_. only, at most 200"}
+            self.tokens.update(data)
+        return 200, {k: bool(v) for k, v in self.tokens.items()}
 
     def handle(self, method, path, body):
         route = path.split("?")[0]
@@ -540,17 +635,52 @@ class MockLoras:
             return 200, [{"name": n, "aliases": [n], "options": {}} for n in self.SAMPLERS]
         if method == "GET" and route == "/sdapi/v1/schedulers":
             return 200, [{"name": n, "label": n} for n in self.SCHEDULERS]
+        if route == APP + "tokens" and method in ("GET", "POST"):
+            with self.lock:
+                return self._tokens(method, body)
         if not route.startswith(APP + "loras"):
             return None
         rest = route[len(APP + "loras"):]
         with self.lock:
             if method == "GET" and rest == "":
                 return 200, self._json()
+            m = re.match(r"^/(info|lookup|preview)/(.+)$", rest)
+            if m:
+                lora = urllib.parse.unquote(m.group(2))
+                if lora not in self.files:
+                    return 404, {"error": {"code": "no_lora", "message": "no LoRA " + lora}}
+                if m.group(1) == "info" and method == "GET":
+                    return 200, self._info(lora)
+                if m.group(1) == "info" and method == "POST":
+                    try:
+                        data = json.loads(body or b"null")
+                    except ValueError:
+                        data = None
+                    ok = isinstance(data, dict) and all(
+                        (k in ("trigger", "notes", "description") and isinstance(v, str)) or
+                        (k == "weight" and (v is None or (isinstance(v, (int, float)) and not isinstance(v, bool))))
+                        for k, v in data.items())
+                    if not ok:
+                        return 400, {"error": "the body is not an object of trigger, weight, notes, description"}
+                    i = self.info.setdefault(lora, {})
+                    for k, v in data.items():
+                        if v in ("", None, 0):
+                            i.pop(k, None)
+                        else:
+                            i[k] = v
+                    return 200, self._info(lora)
+                if m.group(1) == "lookup" and method == "POST":
+                    return self._lookup(lora)
+                if m.group(1) == "preview" and method == "GET":
+                    if not self.info.get(lora, {}).get("preview"):
+                        return 404, {"error": "no preview"}
+                    return "raw", "image/png", self._png(lora)
             if method == "DELETE" and rest.startswith("/"):
                 lora = urllib.parse.unquote(rest[1:])
                 if lora not in self.files:
                     return 404, {"error": "no LoRA " + lora}
                 del self.files[lora]
+                self.info.pop(lora, None)
                 return 200, self._json()
         return None
 
@@ -1085,8 +1215,16 @@ class Handler(BaseHTTPRequestHandler):
             return
         if self.models is not None and re.match(r"^/ps5sd/v1/app/(models|presets)(/|\?|$)", self.path):
             res = self.models.handle(self.command, self.path, body)
-        elif self.loras is not None and re.match(r"^(/ps5sd/v1/app/loras|/sdapi/v1/(samplers|schedulers))(/|\?|$)", self.path):
+        elif self.loras is not None and re.match(r"^(/ps5sd/v1/app/(loras|tokens)|/sdapi/v1/(samplers|schedulers))(/|\?|$)", self.path):
             res = self.loras.handle(self.command, self.path, body)
+            if res is not None and res[0] == "raw":
+                data = res[2]
+                self.send_response(200)
+                self.send_header("Content-Type", res[1])
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+                return
         elif self.mock is not None and re.match(r"^/ps5sd/v1/app/(catalog|downloads|hf/)", self.path):
             res = self.mock.handle(self.command, self.path, body)
         if res is not None:

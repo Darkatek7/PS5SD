@@ -171,9 +171,11 @@ std::string sd_models_json(const ModelLibrary & library);
 // The same entries as the OpenAI API's /v1/models lists them.
 std::string openai_models_json(const ModelLibrary & library);
 
-// GET /ps5sd/v1/app/loras: {"loras": [{"name", "path", "bytes"}]}, the model
+// GET /ps5sd/v1/app/loras: {"loras": [{"name", "path", "bytes", "family"}]}, the model
 // files under dir and its subfolders (as sd-server's /sdapi/v1/loras lists
-// them, with sizes), sorted by path.
+// them, with sizes), sorted by path. An entry whose info file or preview exists
+// (lora_info.hpp) also has "trigger", "weight", "base", "preview", "info" and "lookup",
+// those that are known. The info files and previews are no entries.
 std::string loras_json(const std::string & dir);
 
 // The network an entry runs (net_family.hpp): that of its diffusion model, else of its checkpoint.

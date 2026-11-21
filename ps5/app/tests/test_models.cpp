@@ -434,6 +434,18 @@ int main() {
               "loras json: model files only, with subfolders and sizes");
         check(nlohmann::json::parse(ps5sd::loras_json((root / "none").u8string()))["loras"].empty(),
               "loras json: no folder, no LoRAs");
+        // an info file and a preview are no entries; what they say is on their LoRA's entry
+        std::ofstream(loras / "detail.json")
+            << R"({"activation text": "detail++", "preferred weight": 0.7, "sd version": "SDXL 1.0", "ps5sd": {"lookup": "found"}})";
+        std::ofstream(loras / "detail.preview.png") << "x";
+        std::ofstream(loras / "styles" / "ink.png") << "x";
+        const auto l2 = nlohmann::json::parse(ps5sd::loras_json(loras.u8string()))["loras"];
+        check(l2.size() == 2, "loras json: info files and previews are no LoRAs");
+        check(l2[0]["trigger"] == "detail++" && l2[0]["weight"] == 0.7 && l2[0]["base"] == "SDXL 1.0" &&
+                  l2[0]["preview"] == true && l2[0]["info"] == true && l2[0]["lookup"] == "found",
+              "loras json: the info file's facts");
+        check(l2[1]["preview"] == true && !l2[1].contains("info") && !l2[1].contains("trigger") && !l2[1].contains("lookup"),
+              "loras json: an A1111 preview without an info file");
         const fs::path ups = root / "upscalers";
         fs::create_directories(ups / "sub");
         std::ofstream(ups / "RealESRGAN_x4plus.pth") << "123";

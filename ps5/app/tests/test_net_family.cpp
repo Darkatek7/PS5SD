@@ -161,6 +161,23 @@ void test_others() {
     sd3.push_back({ "model.diffusion_model.joint_blocks.0.x_block.attn.qkv.weight", { 4608, 1536 } });
     is(sd3, "SD 3", "SD 3 model");
 
+    // MOSS-Image: lodestones' 8-step DMD LoRA (kohya names) and the model (sd.cpp's GGUF names)
+    T moss_lora;
+    for (int i = 0; i < 2; i++) {
+        lora(moss_lora, "diffusion_model.blocks." + std::to_string(i) + ".proj.q", 3072, 3072);
+        lora(moss_lora, "diffusion_model.blocks." + std::to_string(i) + ".proj.ffn_up_gate", 3072, 16384);
+        lora(moss_lora, "diffusion_model.blocks." + std::to_string(i) + ".proj.ffn_down", 8192, 3072);
+    }
+    is(moss_lora, "MOSS-Image", "MOSS-Image LoRA");
+    T moss_kohya;
+    lora(moss_kohya, "lora_unet_blocks_3_proj_ffn_up_gate", 3072, 16384);
+    is(moss_kohya, "MOSS-Image", "MOSS-Image LoRA, kohya underscores");
+    T moss_model;
+    moss_model.push_back({ "video_embedder.weight", { 3072, 128 } });
+    moss_model.push_back({ "shared_block_modulation.weight", { 18432, 3072 } });
+    moss_model.push_back({ "blocks.0.proj.qkv.weight", { 9216, 3072 } });
+    is(moss_model, "MOSS-Image", "MOSS-Image model");
+
     is(T{}, "", "no tensors");
 }
 

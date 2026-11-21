@@ -183,7 +183,11 @@
     $('model').onclick = function () { if (st.app !== false) setView('models'); };
     $('m-refresh').onclick = enterModels;
     $('dl-go').onclick = addByUrl;
-    $('lora-add').onchange = addLora;
+    $('lora-add').onchange = function () { addLora($('lora-add').value); };
+    initLoraPicker();
+    initLoraInfo();
+    initCivitai();
+    initTokens();
     $('up-pick').onclick = function () { $('up-file').click(); };
     $('up-file').onchange = upStart;
     $('lfind').oninput = drawLoraList;

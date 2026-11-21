@@ -88,6 +88,7 @@
     if (!data.standby) st.sbSeen = false;
     drawModels();
     if (loraList) drawLoraList();  // the loaded model's family comes first
+    applyGSub();  // the Civitai search: the base model that fits the loaded one
     drawSaveBox();
     drawCurrent();
     drawInit();  // the reference edit shows for FLUX.2 only
@@ -586,9 +587,41 @@
     }
   }
 
+  // ---- the sub-tabs of Get more: Catalog, Civitai, Hugging Face, Upload (remembered). Without downloads
+  // there is only the catalog, and no tabs. Add by link shows over Civitai and Hugging Face.
+  var gsub = 'cat';
+  var GSUBS = ['cat', 'civ', 'hf', 'up'];
+
+  function gsubNow() { return st.dl === true ? gsub : 'cat'; }
+
+  function setGSub(name) {
+    gsub = name;
+    save('gtab', name);
+    applyGSub();
+  }
+
+  function applyGSub() {
+    var want = gsubNow();
+    show('gs-seg', st.dl === true, 'flex');
+    for (var i = 0; i < GSUBS.length; i++) {
+      var on = GSUBS[i] === want;
+      show('gv-' + GSUBS[i], on);
+      var b = $('gs-' + GSUBS[i]);
+      b.className = on ? 'on' : '';
+      b.setAttribute('aria-selected', on ? 'true' : 'false');
+    }
+    show('pnl-url', st.dl === true && (want === 'civ' || want === 'hf'));
+    if (want === 'civ' && st.view === 'models' && msub === 'get') civEnter();
+  }
+
   function initModelsTabs() {
     var saved = load('mtab');
     msub = saved === 'get' || saved === 'dl' || saved === 'presets' ? saved : 'installed';
+    var g = load('gtab');
+    gsub = g === 'civ' || g === 'hf' || g === 'up' ? g : 'cat';
+    for (var i = 0; i < GSUBS.length; i++) {
+      (function (name) { $('gs-' + name).onclick = function () { setGSub(name); }; })(GSUBS[i]);
+    }
     $('ms-installed').onclick = function () { setMSub('installed'); };
     $('ms-presets').onclick = function () { setMSub('presets'); };
     $('pfind').oninput = drawPresetList;

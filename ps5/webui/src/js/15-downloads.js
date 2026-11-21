@@ -13,11 +13,12 @@
 
   // The Get more sections the app can serve; the Downloads sub-view itself is shown by applyMSub.
   function drawPanels() {
-    show('pnl-url', st.dl === true);
     show('pnl-up', st.dl === true);
     show('pnl-hf', st.dl === true && st.hf !== false);
     show('pnl-cat', st.cat === true);
     show('pnl-nodl', st.dl === false && st.cat !== true);
+    drawTokens();
+    applyGSub();
     applyMSub();
   }
 
@@ -25,6 +26,7 @@
     applyMSub();
     loadStorage(null, 5000);
     loadModels(null);
+    loadTokens();
     loadLoras(null);
     loadUpscalers();
     loadCatalog();
@@ -95,6 +97,7 @@
     show('dl-badge', active > 0, 'inline-block');
     drawDownloads();
     updateCatalog();
+    civUpdate();
     // the free space changes as a download writes, and when one ends
     if (space) loadStorage(null);
     else if (active && st.view === 'models') loadStorage(null, 15000);
@@ -250,6 +253,8 @@
     var u = trim(raw);
     if (!u) return { error: 'Paste a link first.' };
     if (!/^https?:\/\//i.test(u)) return { error: 'The link must start with https://' };
+    // civitai.red is civitai.com with its mature models shown: the same files, under the other name
+    u = u.replace(/^https?:\/\/(?:www\.)?civitai\.red(?=[\/?#]|$)/i, 'https://civitai.com');
     var m = /^https?:\/\/(?:www\.)?huggingface\.co\/([^\/?#]+\/[^\/?#]+)\/blob\/(.+)$/i.exec(u);
     if (m) return { url: 'https://huggingface.co/' + m[1] + '/resolve/' + m[2] };
     if (/^https?:\/\/(?:www\.)?huggingface\.co\/[^\/?#]+\/[^\/?#]+\/?$/i.test(u)) {
@@ -258,16 +263,33 @@
     if (/^https?:\/\/(?:www\.)?civitai\.com\/models\//i.test(u)) {
       var v = /[?&]modelVersionId=(\d+)/.exec(u);
       if (v) return { url: 'https://civitai.com/api/download/models/' + v[1] };
-      return { error: 'On Civitai, pick the version you want so the link ends in modelVersionId=..., then paste it.' };
+      var id = /\/models\/(\d+)/.exec(u);
+      return { error: 'On Civitai, pick the version you want so the link ends in modelVersionId=..., then paste it.',
+        model: id ? id[1] : '' };
     }
     return { url: u };
   }
 
   function addByUrl() {
     var r = normalizeLink($('dl-url').value);
+    if (r.error && r.model) { addCivitaiModel(r); return; }
     if (r.error) { toast(r.error, 6000); return; }
     startDownload(r.url, $('dl-go'), false, function (ok) {
       if (ok) $('dl-url').value = '';
     }, $('dl-kind').value);
+  }
+
+  // A Civitai model page without a version: its newest version, asked from civitai.com by this browser.
+  function addCivitaiModel(r) {
+    $('dl-go').disabled = true;
+    civGet(CIV + '/api/v1/models/' + r.model, function (code, data) {
+      $('dl-go').disabled = false;
+      var v = code === 200 && data && data.modelVersions && data.modelVersions[0];
+      if (!v || !v.id) { toast(r.error, 6000); return; }
+      toast('Taking the newest version of ' + (data.name || 'the model') + ': ' + (v.name || v.id) + '.', 4000);
+      startDownload(CIV + '/api/download/models/' + v.id, $('dl-go'), false, function (ok) {
+        if (ok) $('dl-url').value = '';
+      }, $('dl-kind').value);
+    });
   }
 

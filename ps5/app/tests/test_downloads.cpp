@@ -100,6 +100,15 @@ int main() {
     check(classify_url("https://civitai.com/api/download/models/128713?fileId=93211", s, error) &&
               s.url == "https://civitai.com/api/download/models/128713?fileId=93211" && s.civitai_file == "93211",
           "Civitai fileId kept");
+    check(classify_url("https://civitai.red/models/4384/dreamshaper?modelVersionId=128713", s, error) &&
+              s.kind == "civitai" && s.civitai_version == "128713" && s.url == "https://civitai.com/api/download/models/128713",
+          "a civitai.red page link is taken as civitai.com's");
+    check(classify_url("https://www.civitai.red/api/download/models/128713?fileId=93211", s, error) &&
+              s.url == "https://civitai.com/api/download/models/128713?fileId=93211" && s.civitai_file == "93211",
+          "a www.civitai.red download link too");
+    check(!classify_url("https://civitai.red.example.com/api/download/models/1", s, error) &&
+              !classify_url("https://notcivitai.red/api/download/models/1", s, error),
+          "no other host counts as civitai.red");
     check(!classify_url("https://civitai.com/models/4384", s, error), "Civitai page without a version");
     check(!classify_url("https://civitai.com/api/download/models/abc", s, error), "Civitai version not a number");
     check(!classify_url("https://example.com/x.gguf", s, error), "other hosts refused");
@@ -115,6 +124,8 @@ int main() {
     check(!valid_dest(".hidden.gguf", error), "hidden file");
     check(!valid_dest("a\\x.gguf", error), "backslash");
     check(!valid_dest("x.txt", error), "not a model");
+    check(valid_dest("tokenizers/qwen3.5-tokenizer.json", error), "a tokenizer");
+    check(!valid_dest("tokenizer.json", error) && !valid_dest("vae/config.json", error), "a .json elsewhere");
     check(!valid_dest("x.gguf.part", error), "a .part");
     check(!valid_dest("", error), "empty");
     check(!valid_dest("C:x.gguf", error), "drive letter");
@@ -290,10 +301,12 @@ int main() {
                       "per-file installed");
             }
         }
-        check(featured == 7 && find_catalog("sdxl-full")->featured && find_catalog("z-image-turbo")->featured &&
+        check(featured == 8 && find_catalog("sdxl-full")->featured && find_catalog("z-image-turbo")->featured &&
                   find_catalog("wan21-t2v-1.3b")->featured && find_catalog("flux2-klein-4b")->featured &&
-                  find_catalog("flux2-klein-9b")->featured && find_catalog("wan22-ti2v-5b")->featured,
-              "SDXL full, Klein Q4, FLUX.2 Klein 4B and 9B, Z-Image Turbo, Wan 2.1 and Wan 2.2 TI2V are featured");
+                  find_catalog("flux2-klein-9b")->featured && find_catalog("wan22-ti2v-5b")->featured &&
+                  find_catalog("moss-image-4step")->featured,
+              "SDXL full, Klein Q4, FLUX.2 Klein 4B and 9B, Z-Image Turbo, MOSS-Image 4-step, Wan 2.1 and Wan 2.2 "
+              "TI2V are featured");
         const CatalogEntry * k9 = find_catalog("flux2-klein-9b");
         check(k9 != nullptr && k9->files.size() == 3 &&
                   std::string(k9->files[1].dest) == "text_encoders/Qwen3-8B-Q4_K_M.gguf" &&

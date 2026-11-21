@@ -230,7 +230,7 @@ bool read_net_tensors(const std::string & path, std::vector<NetTensor> & out) {
 
 std::string net_family_of(const std::vector<NetTensor> & tensors) {
     int     flux_double = 0, flux_single = 0;  // the highest block index + 1
-    bool    flux3 = false, bfl_double = false, sd3 = false, wan = false, zimage = false, unet = false;
+    bool    flux3 = false, bfl_double = false, sd3 = false, wan = false, zimage = false, unet = false, moss = false;
     int64_t hidden = 0, mlp = 0, linear1 = 0, wan_dim = 0, context = 0;
     for (const NetTensor & t : tensors) {
         const Key key = key_of(t.name);
@@ -263,6 +263,11 @@ std::string net_family_of(const std::vector<NetTensor> & tensors) {
         }
         sd3 = sd3 || index_after(k, "joint.blocks.") >= 0;
         rest = after_index(k, "blocks.");
+        // MOSS-Image: its blocks' gated MLP (proj.ffn_up_gate, proj.ffn_down), and the model's shared modulation
+        if (starts(rest, "proj.ffn.up.gate") || starts(rest, "proj.ffn.down") || k == "shared.block.modulation" ||
+            k == "video.head.modulation") {
+            moss = true;
+        }
         if (starts(rest, "self.attn") || starts(rest, "cross.attn") || starts(rest, "ffn")) {
             wan = true;
             if (rest == "self.attn.q") {
@@ -280,6 +285,9 @@ std::string net_family_of(const std::vector<NetTensor> & tensors) {
         }
     }
 
+    if (moss) {
+        return "MOSS-Image";
+    }
     if (flux3) {
         return "FLUX.3 Klein";
     }

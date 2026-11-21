@@ -229,7 +229,8 @@ bool classify_url(const std::string & text, Source & out, std::string & error) {
         out.url = "https://huggingface.co" + target;
         return true;
     }
-    if (u.host == "civitai.com" || u.host == "www.civitai.com") {
+    // civitai.red is the same site as civitai.com (the one that lists mature models); its links are taken as civitai.com's
+    if (u.host == "civitai.com" || u.host == "www.civitai.com" || u.host == "civitai.red" || u.host == "www.civitai.red") {
         std::string version;
         if (parts.size() >= 4 && parts[0] == "api" && parts[1] == "download" && parts[2] == "models") {
             version          = parts[3];
@@ -252,7 +253,7 @@ bool classify_url(const std::string & text, Source & out, std::string & error) {
                   (out.civitai_file.empty() ? "" : "?fileId=" + out.civitai_file);
         return true;
     }
-    error = "only Hugging Face (huggingface.co) and Civitai (civitai.com) URLs are taken";
+    error = "only Hugging Face (huggingface.co) and Civitai (civitai.com, civitai.red) URLs are taken";
     return false;
 }
 
@@ -304,7 +305,10 @@ bool valid_dest(const std::string & dest, std::string & error) {
             return false;
         }
     }
-    if (!is_model_file_name(segs.back())) {
+    // a tokenizer (MOSS-Image's Qwen3.5 one, --tokenizer) is a .json in tokenizers/
+    const bool tokenizer = segs.size() == 2 && segs[0] == "tokenizers" && segs[1].size() > 5 &&
+                           segs[1].compare(segs[1].size() - 5, 5, ".json") == 0;
+    if (!is_model_file_name(segs.back()) && !tokenizer) {
         error = "only .gguf, .safetensors, .ckpt and .sft files go into the models directory: " + dest;
         return false;
     }

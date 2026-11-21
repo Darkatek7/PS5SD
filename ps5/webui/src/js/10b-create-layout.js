@@ -168,7 +168,7 @@
 
   // ---- the keys and the clicks around the tab
   function overlayOpen() {
-    var ids = ['lb', 'me', 'pe', 'dlg', 'login'];
+    var ids = ['lb', 'me', 'pe', 'dlg', 'lidlg', 'login'];
     for (var i = 0; i < ids.length; i++) {
       var o = $(ids[i]);
       if (o && o.style.display !== 'none') return true;

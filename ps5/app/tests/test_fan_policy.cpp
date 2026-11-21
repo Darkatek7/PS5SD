@@ -28,6 +28,10 @@ int main() {
     check(fan_wanted(FAN_MANUAL, 50, 91) == FAN_LOWEST, "manual: never under the lowest");
     check(fan_wanted(FAN_COOL, 0, 72) == FAN_LOWEST, "cool on a low stock target: the lowest");
     check(fan_wanted(FAN_COOL, 0, 69) == 69, "a stock target under the lowest stays");
+    // another payload left 50 C: the stock target is the console's 91 C
+    check(fan_stock(50) == FAN_CONSOLE_TARGET && fan_stock(69) == FAN_CONSOLE_TARGET, "a leftover target under 70");
+    check(fan_stock(70) == 70 && fan_stock(91) == 91 && fan_stock(100) == 100, "a real stock target stays");
+    check(fan_wanted(FAN_MANUAL, 87, fan_stock(50)) == 87, "manual 87 over a 50 C leftover");
 
     check(fan_next(91, 85, 100, 20) == 90, "down: one degree");
     check(fan_next(90, 85, 5, 20) == 90, "down: not before the step time");

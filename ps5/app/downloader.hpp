@@ -62,6 +62,11 @@ void downloader_stop();
 // POST downloads/<id>/retry    a failed or cancelled one again, from its .part
 // POST downloads/clear         the finished ones leave the list
 // POST hf/search               {"q", "limit"} -> {"results": [...]}
+// POST loras/lookup/<path>     look a LoRA up on Civitai or Hugging Face, fill its info file (lora_info.hpp)
+// GET  tokens, POST tokens     which token files exist; set or delete one (never sent back)
+//
+// A finished download into loras writes ps5sd.source (and the Civitai version) into the LoRA's info
+// file and runs the lookup on its own thread.
 // Returns 0 when the path is not the downloader's.
 int downloader_route(const std::string & method, const std::string & path, const std::string & body,
                      std::string & out);

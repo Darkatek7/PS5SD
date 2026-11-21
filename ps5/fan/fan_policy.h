@@ -14,6 +14,14 @@ enum fan_mode { FAN_QUIET = 0, FAN_BALANCED = 1, FAN_COOL = 2, FAN_MANUAL = 3 };
 #define FAN_BALANCED_BELOW 3 /* degrees under the stock target */
 #define FAN_COOL_BELOW 6
 #define FAN_LOWEST 70 /* no mode goes under this (or under the stock target, when that is lower) */
+/* The console's own target (selector 0, the SoC). On 2026-11-21 the console had 50 C after a boot, most likely
+ * left by another payload, and the fan ran at 67% under load; launching a title did not put 91 back. A target under
+ * FAN_LOWEST is taken as such a leftover: the stock target is then 91, which the payload writes back when it
+ * ends. */
+#define FAN_CONSOLE_TARGET 91
+
+/* The stock target, from the target the console has when the payload starts or the console changes it. */
+static inline int fan_stock(int read) { return read < FAN_LOWEST ? FAN_CONSOLE_TARGET : read; }
 
 /* The target a mode asks for, from the console's stock target. */
 static inline int fan_wanted(int mode, int manual, int stock) {

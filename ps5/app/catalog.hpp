@@ -22,6 +22,8 @@
 // The SDXL presets sample with dpm++2m and the ays schedule at 10 steps and decode in 640 px tiles
 // (since 0.9.2; euler_a at 25 steps and 512 px before, about 70 s an image instead of 30).
 // SDXL Q8_0 with the Canny ControlNet (2.5 GB more) left 2.7 GiB free after a 1024x1024 image.
+// MOSS-Image (Q4_0 or Q4_K) with Qwen3.5 9B Q4_K_M and the FLUX.2 VAE is 9.4 GB and left 2.1 GiB in one
+// block after a 1024x1024 image (2026-11-21).
 //
 // Included by download_core.cpp only.
 //
@@ -55,6 +57,15 @@ namespace catalog_data {
     { "https://huggingface.co/unsloth/Qwen3-4B-Instruct-2507-GGUF/resolve/main/"                          \
       "Qwen3-4B-Instruct-2507-Q4_K_M.gguf",                                                               \
       "text_encoders/Qwen3-4B-Instruct-2507-Q4_K_M.gguf", 2497281120ull, 0 }
+
+// Qwen3.5 9B, MOSS-Image's text encoder, and its tokenizer: sd.cpp's built-in Qwen tokenizer has
+// another vocabulary, so --tokenizer gives the one from OpenMOSS's repository.
+#define PS5SD_QWEN35_9B                                                                                   \
+    { "https://huggingface.co/unsloth/Qwen3.5-9B-GGUF/resolve/main/Qwen3.5-9B-Q4_K_M.gguf",               \
+      "text_encoders/Qwen3.5-9B-Q4_K_M.gguf", 5680522464ull, 0 }
+#define PS5SD_MOSS_TOKENIZER                                                                              \
+    { "https://huggingface.co/OpenMOSS-Team/MOSS-Image-SFT/resolve/main/tokenizer/tokenizer.json",        \
+      "tokenizers/qwen3.5-tokenizer.json", 19989325ull, 0 }
 
 // Presets that an older PS5SD wrote for a catalog entry, byte for byte as it wrote them.
 // update_catalog_presets gives such a preset the entry's current text; one that someone changed
@@ -420,6 +431,65 @@ inline std::vector<CatalogEntry> entries() {
             "",
         },
         {
+            "moss-image-4step",
+            "MOSS-Image 4-step (Q4_0)",
+            "MOSS-Image SFT with a 4-step distillation merged in: 1024x1024 in 4 steps at CFG 1, about 35 s an "
+            "image. It reads long prompts, tags and JSON layouts, and writes text into the picture. Apache 2.0. "
+            "9.4 GB.",
+            {
+                { "https://huggingface.co/mischiefaudio/MOSS-Image-SFT-4step-merged-GGUF/resolve/main/"
+                  "MOSS-Image-SFT-4step-v2.0-merged-Q4_0.gguf",
+                  "diffusion_models/MOSS-Image-SFT-4step-v2.0-merged-Q4_0.gguf", 3327400800ull, 0 },
+                PS5SD_QWEN35_9B,
+                PS5SD_MOSS_TOKENIZER,
+                PS5SD_KLEIN_VAE,
+            },
+            "# name: MOSS-Image 4-step (Q4_0)\n"
+            "# defaults: steps=4 cfg=1 width=1024 height=1024 sampler=euler\n"
+            "--diffusion-model\n"
+            "diffusion_models/MOSS-Image-SFT-4step-v2.0-merged-Q4_0.gguf\n"
+            "--llm\n"
+            "text_encoders/Qwen3.5-9B-Q4_K_M.gguf\n"
+            "--tokenizer\n"
+            "tokenizers/qwen3.5-tokenizer.json\n"
+            "--vae\n"
+            "vae/flux2-vae.safetensors\n"
+            "--vae-tiling\n"
+            "--vae-tile-size\n"
+            "512\n",
+            true,
+            "long prompts and text in the picture",
+        },
+        {
+            "moss-image-sft",
+            "MOSS-Image SFT (Q4_K)",
+            "MOSS-Image SFT as OpenMOSS made it, with CFG 3: more natural light and colour than the 4-step, about "
+            "4 min 35 s an image at 1024x1024 in 20 steps (OpenMOSS uses 50). Takes a negative prompt. Apache 2.0. "
+            "9.4 GB.",
+            {
+                { "https://huggingface.co/leejet/MOSS-Image-SFT-GGUF/resolve/main/MOSS-Image-SFT-Q4_K.gguf",
+                  "diffusion_models/MOSS-Image-SFT-Q4_K.gguf", 3327400800ull, 0 },
+                PS5SD_QWEN35_9B,
+                PS5SD_MOSS_TOKENIZER,
+                PS5SD_KLEIN_VAE,
+            },
+            "# name: MOSS-Image SFT (Q4_K)\n"
+            "# defaults: steps=20 cfg=3 width=1024 height=1024 sampler=euler\n"
+            "--diffusion-model\n"
+            "diffusion_models/MOSS-Image-SFT-Q4_K.gguf\n"
+            "--llm\n"
+            "text_encoders/Qwen3.5-9B-Q4_K_M.gguf\n"
+            "--tokenizer\n"
+            "tokenizers/qwen3.5-tokenizer.json\n"
+            "--vae\n"
+            "vae/flux2-vae.safetensors\n"
+            "--vae-tiling\n"
+            "--vae-tile-size\n"
+            "512\n",
+            false,
+            "",
+        },
+        {
             "sdxl-base",
             "SDXL Base 1.0 (Q8_0)",
             "SDXL already in Q8_0 (gpustack's GGUF), with the fp16-fix VAE; loads faster than the full one. About 27 s an image. 5.4 GB.",
@@ -665,6 +735,8 @@ inline std::vector<CatalogEntry> entries() {
 #undef PS5SD_SDXL_VAE
 #undef PS5SD_KLEIN_LLM
 #undef PS5SD_KLEIN_VAE
+#undef PS5SD_QWEN35_9B
+#undef PS5SD_MOSS_TOKENIZER
 
 }  // namespace catalog_data
 }  // namespace ps5sd

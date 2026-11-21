@@ -521,6 +521,10 @@
       if (k === 27) { closeEdit(); return false; }
       return true;
     }
+    if (liFor) {
+      if (k === 27) { closeLoraInfo(); return false; }
+      return true;
+    }
     if (labelFor) {
       if (k === 27) { closeLabels(); return false; }
       if (k === 13 && document.activeElement && document.activeElement.tagName === 'INPUT') { saveLabels(); return false; }

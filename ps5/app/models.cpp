@@ -10,9 +10,11 @@
 #include <filesystem>
 #include <fstream>
 #include <mutex>
+#include <set>
 #include <sstream>
 
 #include "json.hpp"
+#include "lora_info.hpp"
 #include "net_family.hpp"
 #include "storage.hpp"
 
@@ -835,22 +837,40 @@ std::string removed_json(const ModelLibrary & library, const std::vector<std::st
 
 std::string loras_json(const std::string & dir) {
     std::vector<std::pair<std::string, uint64_t>> files;
+    std::set<std::string>                         present;  // every file, for the sidecars and previews
     std::error_code                               ec;
     const fs::path                                root = fs::u8path(dir);
     for (fs::recursive_directory_iterator it(root, ec), end; !ec && it != end; it.increment(ec)) {
         std::error_code e2;
-        if (it->is_regular_file(e2) && is_checkpoint_name(it->path().filename().u8string())) {
-            const uint64_t size = it->file_size(e2);
-            files.emplace_back(it->path().lexically_relative(root).generic_u8string(), e2 ? 0 : size);
+        if (it->is_regular_file(e2)) {
+            const std::string rel = it->path().lexically_relative(root).generic_u8string();
+            present.insert(rel);
+            if (is_checkpoint_name(it->path().filename().u8string())) {
+                const uint64_t size = it->file_size(e2);
+                files.emplace_back(rel, e2 ? 0 : size);
+            }
         }
     }
     std::sort(files.begin(), files.end());
+    const auto exists = [&](const std::string & path) { return present.count(path) > 0; };
     nlohmann::json list = nlohmann::json::array();
     for (const auto & f : files) {
-        list.push_back({ { "name", fs::u8path(f.first).stem().u8string() },
-                         { "path", f.first },
-                         { "bytes", f.second },
-                         { "family", net_family((root / fs::u8path(f.first)).u8string()) } });
+        nlohmann::json entry = { { "name", fs::u8path(f.first).stem().u8string() },
+                                 { "path", f.first },
+                                 { "bytes", f.second },
+                                 { "family", net_family((root / fs::u8path(f.first)).u8string()) } };
+        // what the LoRA's info file and preview say (lora_info.hpp), only when known
+        const bool has_sidecar = exists(sidecar_path(f.first));
+        const bool has_preview = !find_preview(f.first, exists).empty();
+        if (has_sidecar || has_preview) {
+            const nlohmann::json extras = lora_list_extras(has_sidecar ? read_sidecar((root / fs::u8path(f.first)).u8string())
+                                                                      : nlohmann::json::object(),
+                                                           has_sidecar, has_preview);
+            for (const auto & kv : extras.items()) {
+                entry[kv.key()] = kv.value();
+            }
+        }
+        list.push_back(entry);
     }
     return nlohmann::json{ { "loras", list } }.dump(-1, ' ', false, nlohmann::json::error_handler_t::replace);
 }

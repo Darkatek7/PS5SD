@@ -9,7 +9,7 @@
   // stays where it is (app.css).
   function show(id, on, how) {
     $(id).style.display = on ? (how || 'block') : 'none';
-    if (/^(lb|me|pe|dlg|login)$/.test(id)) {
+    if (/^(lb|me|pe|dlg|lidlg|login)$/.test(id)) {
       var b = document.body;
       b.className = b.className.replace(/\s*\bmodal-open\b/g, '') + (overlayOpen() ? ' modal-open' : '');
     }

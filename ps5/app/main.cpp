@@ -84,6 +84,7 @@
 #include "usb_copy.hpp"
 #include <filesystem>
 #include <system_error>
+#include "lora_info.hpp"
 #include "models.hpp"
 #include "json.hpp"
 #include "mem_fit.hpp"
@@ -1549,6 +1550,13 @@ bool set_api_key(bool on, std::string & error) {
 //                       /data/PS5SD/tags; (POST) {"q": "...", "limit": n}:
 //                       {"tags": [{"tag", "count", "alias"}]}, the tags that
 //                       start with q (prompt_tags.hpp).
+//   loras (GET)         {"loras": [{"name", "path", "bytes", "family", and where known "trigger",
+//                       "weight", "base", "preview", "info", "lookup"}]}; loras/<path> (DELETE)
+//                       also deletes the LoRA's info file and preview.
+//   loras/info/<path> (GET, POST), loras/preview/<path> (GET), loras/lookup/<path> (POST),
+//                       tokens (GET, POST): what is known about a LoRA, its preview image,
+//                       the lookup on Civitai or Hugging Face, and the token files of both
+//                       (lora_info.hpp; the lookup and the tokens are the downloader's).
 //   upscalers (GET), upscalers/<file> (DELETE): the upscaler models in
 //                       /data/PS5SD/upscalers.
 //   settings (GET, POST) the app's settings (AppSettings): {"tv_images": bool,
@@ -1876,6 +1884,15 @@ extern "C" int sd_app_request(const char * method, const char * path, const char
     } else if (m == "GET" && p == "loras") {
         out    = loras_json(kLoras);
         status = 200;
+    } else if (m == "GET" && p.rfind("loras/info/", 0) == 0) {
+        status = lora_info_get(kLoras, p.substr(11), out);
+    } else if (m == "POST" && p.rfind("loras/info/", 0) == 0) {
+        status = lora_info_post(kLoras, p.substr(11), body != nullptr ? std::string(body, body_len) : std::string(), out);
+    } else if (m == "GET" && p.rfind("loras/preview/", 0) == 0) {
+        std::string type;
+        status = lora_preview_get(kLoras, p.substr(14), out, type);
+        ctype  = status == 200 ? (type == "image/png" ? "image/png" : type == "image/webp" ? "image/webp" : "image/jpeg")
+                               : "application/json";
     } else if (m == "DELETE" && p.rfind("loras/", 0) == 0) {
         // One LoRA file (subfolders as sd-server lists them). A job that
         // uses it has read it already.
@@ -1885,6 +1902,8 @@ extern "C" int sd_app_request(const char * method, const char * path, const char
             out    = error_json("not a LoRA file: " + path);
             status = 400;
         } else if (::unlink((std::string(kLoras) + "/" + path).c_str()) == 0) {
+            // its info file and preview go with it (lora_info.hpp)
+            remove_lora_extras(std::string(kLoras) + "/" + path);
             out    = loras_json(kLoras);
             status = 200;
         } else if (errno == ENOENT) {
