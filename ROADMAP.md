@@ -10,6 +10,9 @@ can rely on.
 
 ## Done
 
+- **1.8.0**: MOSS-Image in the catalog (issue 19); Get more in four tabs, a Civitai search, each LoRA's info
+  and trigger words looked up on Civitai, and a LoRA search on the Create tab (issue 24); the fan's Manual
+  target kept when another payload left 50 °C, and each fan mode shown as its highest temperature in a chart.
 - **1.7.0**: the gallery as a slideshow on the TV, with the DualSense.
 - **1.6.0**: the web UI's smaller steps: the result's buttons in one row, the prompt history, favourites,
   Extend (outpainting) and wildcards.
@@ -616,7 +619,7 @@ The plan as of 2026-11-04, in order (1.1.0 was taken by the stable-diffusion.cpp
 2026-11-12, 1.2.0 by faster loading on 2026-11-14 and 1.3.0 by the gallery as a ZIP on 2026-11-17, so the
 rest moved up three numbers; 1.4.0 took the web UI's storage and USB items on 2026-11-19, and the pose of
 issue 13 and the `sdxl-full` conversion moved on; 1.5.0 took the pose, 1.6.0 the web UI's smaller steps,
-1.7.0 the slideshow). The times below are those of 1.0.0 on the console ([CONSOLE.md](docs/CONSOLE.md));
+1.7.0 the slideshow, 1.8.0 MOSS-Image and the LoRA info of issue 24). The times below are those of 1.0.0 on the console ([CONSOLE.md](docs/CONSOLE.md));
 every new number goes there with its date and build.
 
 ## 1.6.0: the web UI, smaller steps, done
@@ -653,6 +656,29 @@ Tested on the console with a DualSense ([CONSOLE.md](docs/CONSOLE.md#the-slidesh
   runs, and a running job shows its progress in a corner. `third_party/ps5-homebrew-ui/src/platform/ps5/pad.hpp`
   reads the pad; `ps5/app/dashboard.cpp` already decodes the gallery's PNGs one per frame. The dashboard
   without a console: `scripts/preview-app-ui.sh`.
+
+## 1.8.0: MOSS-Image, Civitai and LoRA info, done
+
+Tested on the console ([CONSOLE.md](docs/CONSOLE.md#moss-image-lora-info-and-the-fan-2026-11-21)).
+
+- [x] **MOSS-Image** ([issue 19](https://github.com/Darkatek7/PS5SD/issues/19)): two catalog entries, a
+  4-step model (about 35 s an image) and the SFT model at CFG 3 (about 4 min 35 s at 20 steps), with Qwen3.5
+  9B and its tokenizer. MOSS-Image models and LoRAs are told by their tensors.
+- [x] **Get more in four tabs** ([issue 24](https://github.com/Darkatek7/PS5SD/issues/24)): Catalog, Civitai,
+  Hugging Face and Upload; Add by link on top of Civitai and Hugging Face. `civitai.red` links work.
+- [x] **Search Civitai** in the web UI, with the base model of the loaded model picked first, and a
+  download into the loras or models folder.
+- [x] **LoRA info**: trigger words, preferred strength, notes, description, pictures, in A1111's sidecar
+  file. Looked up on Civitai by the file's SHA-256 (or by the version or Hugging Face page it was downloaded
+  from), on its own after a download, one by one or all at once; edited by hand.
+- [x] **Trigger words into the prompt** with one button, a preferred strength used when a LoRA is added,
+  and **Add a LoRA** as a search field once there are more than 8.
+- [x] **Tokens** for Civitai and Hugging Face, saved from the web UI.
+- [x] **The fan**: a console target under 70 °C, left by another payload, is taken as 91 °C again, so
+  Manual, Balanced and Cool work and Quiet puts 91 °C back.
+- [x] **The fan modes shown**: each mode says the highest temperature it holds the chip at (Quiet 91 °C,
+  Balanced 88, Cool 85, Manual 70 to 91), with a chart of the fan by the chip's temperature, the readings of
+  the last 2 minutes on it, and how the mode did on the console.
 
 ## 1.x, no version yet
 

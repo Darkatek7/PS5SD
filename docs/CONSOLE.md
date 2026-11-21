@@ -1528,3 +1528,57 @@ A 1.7.0 build, driven with a virtual DualSense (RemoteEye) on FW 13.00.
 - **Memory**: FLUX.2 Klein 9B with its two LoRAs made a 1024x1024 image while the slideshow stepped
   through 17 pictures: the CPU heap was 0.55 GiB after the request, and its peak stayed at 0.81 GiB,
   where an SDXL run before had put it.
+
+## MOSS-Image, LoRA info and the fan (2026-11-21)
+
+A 1.8.0 build (local Docker), FW 13.00, `curl` and headless Chrome from the PC.
+
+**MOSS-Image.** Both catalog entries downloaded through the app at about 78 MB/s (12.3 GB). The A1111 route,
+1024x1024, Euler, the discrete schedule with MOSS-Image's shift of 5:
+
+| Model | Steps, CFG | Time | Free after |
+|---|---|---|---|
+| MOSS-Image 4-step (Q4_0), Qwen3.5 9B Q4_K_M, FLUX.2 VAE | 4, CFG 1 | 37.8 s (first after the switch), 31.6 s | 2.19 GiB in one block; CPU heap peak 0.67 GiB |
+| MOSS-Image SFT (Q4_K), the same | 20, CFG 3 | 274.5 s and 275.6 s, 13.2 s a step | 2.12 to 2.25 GiB; CPU heap peak 0.73 GiB |
+
+Both wrote the printed title "RUFOUS HUMMINGBIRD" of a botanical prompt correctly. The 4-step picture is
+more saturated, the SFT one more natural in light and colour. OpenMOSS's 50 steps would take about 11 minutes
+with the SFT model, so its preset has 20.
+
+**LoRA info.** `POST loras/lookup/<path>`, each a new file:
+
+| LoRA | Size | Time | Answer |
+|---|---|---|---|
+| pixel-art-xl | 171 MB | 3.9 s | found by its SHA-256: Pixel Art XL v1.0, SDXL 1.0, six pictures, a 37 KB preview |
+| FLUX.2-Klein-iPhone | 652 MB | 10.7 s | found, Flux.2 Klein 9B-base, a preview |
+| the same again | | 0.5 s | asks Civitai for the version it found; no hash |
+| a LoRA trained at home | 46 MB | 1.0 s | 404 `not_found`, kept as `"lookup": "not_found"` |
+
+Most of the time is the hash, about 70 MB/s. In the web UI, a search for "perfect eyes" at SDXL 1.0 gave 20
+results; Download of Perfect Eyes XL (39 MB) put it into the loras folder, and its lookup ran by itself when
+the download ended: the trigger words "green eyes, blue eyes, brown eyes, perfecteyes", a preview. On the
+Create tab, typing "perfect" found it among 27 LoRAs, and **Add trigger words** put the words at the end of
+the prompt. Deleting it removed its info file and preview too. No script error at 1440 px or at 390 px, and
+the page was not wider than a phone.
+
+**The fan.** After a boot the console's target (selector 0) was 50 °C, not 91 °C, most likely left by another
+payload; launching a title did not put 91 °C back. PS5SD's payload took 50 °C as the stock target
+and never goes over it, so Manual 87 °C became 50 °C, and the fan ran at 67% at 67 °C under load. Now a
+target under 70 °C counts as such a leftover and the stock target is 91 °C: the payload went to 91 °C and
+then down to 87 °C one degree every 20 s, and Quiet put 91 °C back and ended. Manual 87 °C again started from
+91 °C.
+
+**The fan modes, measured again.** The web UI now draws each mode as the highest temperature it holds, with
+these numbers under the chart. FLUX.2 Klein 9B (the catalog's), 1024x1024, 4 steps, Euler, one image after another over the
+A1111 route, 6 minutes per mode in a row (Quiet, Balanced, Cool), the readings every 2 s, the second 3 minutes
+of each:
+
+| Mode | Target | Images in 6 min | Chip, mean | Chip, highest | Fan, mean | Fan, highest | Power |
+|---|---|---|---|---|---|---|---|
+| Quiet | 91 °C (the console's own) | 8 | 84.5 °C | 91 °C | 28% | 30% | 101 W |
+| Balanced | 88 °C | 9 | 83.0 °C | 88 °C | 30% | 33% | 100 W |
+| Cool | 85 °C | 9 | 81.5 °C | 89 °C | 32% | 35% | 99 W |
+
+In Cool the chip went over 85 °C for 2 to 6 s at a time, most often in the first minute while the target still
+came down; 89 °C was a single reading. Quiet's mean is 5 °C under that of the
+same load on 2026-10-24 (89.8 °C); these readings do not say why.
