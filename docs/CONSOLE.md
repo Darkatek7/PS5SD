@@ -1609,3 +1609,25 @@ counts; Save prompt put the prompt into a new collection, and refused the name `
 1024x1024 and 4 steps picked different entries, and each image had the template; Use all in the gallery put
 the template back into the prompt and kept the loaded model. No script error; at 390 px the page was not
 wider than the phone. The test's images, collections and history entries were deleted afterwards.
+
+## Trigger words as a list (2026-11-22)
+
+A 1.8.2 build (local Docker), FW 13.00, Python and headless Chrome from the PC. The test LoRA's info file was
+saved over FTP first and put back afterwards.
+
+**The routes.** A LoRA whose info had only `activation text: instapic` read as one chip, on, mode `all`.
+`POST loras/info` with three words (one off) and a fourth that differed only in case kept three, wrote
+`activation text` as all three joined, and `GET loras` listed them. A mode `many` or a count of 21: 400. In
+mode `one`, `POST prompts/expand` with a count of 30 gave each item one of the two words that were on, both
+over the 30, never the one that was off. An override `trigger_mode: all` in the request gave both. In mode
+`some` with a count of 2 of four words, each item had two, in list order, and they varied.
+`__lora:v3_FLUX_klein__` found the LoRA by its file name in another case; `__lora:nope__` stayed and was
+listed as `lora:nope`. `__lora__` left out the LoRA a `__lora:NAME__` of the same prompt named. The 1.8.0
+field `trigger` still set the list. 14 checks, all passed.
+
+**The web UI.** In Chrome against the console: the LoRA picked on the Create tab showed its three words as
+chips; turning one off and the mode to One at random were on the console a second later. The button then
+read **Add __lora:V3_flux_klein__** and put the placeholder at the cursor, and the hint said "one of 2". A run
+of 2 images (FLUX.2 Klein 9B, 1024x1024, 4 steps) put `instapic` into one prompt and `film grain` into the
+other, and each image kept the template. No script error; at 390 px the page was not wider than the phone.
+

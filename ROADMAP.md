@@ -10,6 +10,8 @@ can rely on.
 
 ## Done
 
+- **1.8.2**: a LoRA's trigger words as a list, each on or off, all or some of them at random for each image,
+  `__lora:NAME__`, and all of it through the API.
 - **1.8.1**: prompt collections on the console, `__name__` and `__lora__` in a prompt, the prompt as typed in
   each image for Use all, and all of it through the API.
 - **1.8.0**: MOSS-Image in the catalog (issue 19); Get more in four tabs, a Civitai search, each LoRA's info
@@ -621,7 +623,7 @@ The plan as of 2026-11-04, in order (1.1.0 was taken by the stable-diffusion.cpp
 2026-11-12, 1.2.0 by faster loading on 2026-11-14 and 1.3.0 by the gallery as a ZIP on 2026-11-17, so the
 rest moved up three numbers; 1.4.0 took the web UI's storage and USB items on 2026-11-19, and the pose of
 issue 13 and the `sdxl-full` conversion moved on; 1.5.0 took the pose, 1.6.0 the web UI's smaller steps,
-1.7.0 the slideshow, 1.8.0 MOSS-Image and the LoRA info of issue 24, 1.8.1 prompt collections). The times below are those of 1.0.0 on the console ([CONSOLE.md](docs/CONSOLE.md));
+1.7.0 the slideshow, 1.8.0 MOSS-Image and the LoRA info of issue 24, 1.8.1 prompt collections, 1.8.2 the trigger words as a list). The times below are those of 1.0.0 on the console ([CONSOLE.md](docs/CONSOLE.md));
 every new number goes there with its date and build.
 
 ## 1.6.0: the web UI, smaller steps, done
@@ -697,6 +699,19 @@ Tested on the console ([CONSOLE.md](docs/CONSOLE.md#prompt-collections-2026-11-2
   Use all gives it back.
 - [x] **The API**: the collections' routes, `POST prompts/expand` (the same rules, with the LoRAs' stored
   words, a count and a seed), and `template` / `negative_template` on `img_gen` and `vid_gen`.
+
+## 1.8.2: trigger words as a list, done
+
+Tested on the console ([CONSOLE.md](docs/CONSOLE.md#trigger-words-as-a-list-2026-11-22)).
+
+- [x] **A list of chips**: each trigger word or phrase on or off, added and removed in Info and turned on and
+  off under a picked LoRA on the Create tab, kept on the console. A lookup makes one chip of each of Civitai's
+  trained words.
+- [x] **A mode per LoRA**: all the words that are on, one at random, or some at random, picked anew for each
+  image. **Add trigger words** puts the words at the cursor, or `__lora:NAME__` when the mode picks.
+- [x] **`__lora:NAME__`**: one LoRA's words at that place; `__lora__` leaves out the LoRAs it names.
+- [x] **The API**: `loras/info` reads and sets the list and the mode, `GET loras` lists them, and
+  `prompts/expand` uses them and takes them for one call.
 
 ## 1.x, no version yet
 
