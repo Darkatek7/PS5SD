@@ -10,6 +10,8 @@ can rely on.
 
 ## Done
 
+- **1.8.1**: prompt collections on the console, `__name__` and `__lora__` in a prompt, the prompt as typed in
+  each image for Use all, and all of it through the API.
 - **1.8.0**: MOSS-Image in the catalog (issue 19); Get more in four tabs, a Civitai search, each LoRA's info
   and trigger words looked up on Civitai, and a LoRA search on the Create tab (issue 24); the fan's Manual
   target kept when another payload left 50 °C, and each fan mode shown as its highest temperature in a chart.
@@ -619,7 +621,7 @@ The plan as of 2026-11-04, in order (1.1.0 was taken by the stable-diffusion.cpp
 2026-11-12, 1.2.0 by faster loading on 2026-11-14 and 1.3.0 by the gallery as a ZIP on 2026-11-17, so the
 rest moved up three numbers; 1.4.0 took the web UI's storage and USB items on 2026-11-19, and the pose of
 issue 13 and the `sdxl-full` conversion moved on; 1.5.0 took the pose, 1.6.0 the web UI's smaller steps,
-1.7.0 the slideshow, 1.8.0 MOSS-Image and the LoRA info of issue 24). The times below are those of 1.0.0 on the console ([CONSOLE.md](docs/CONSOLE.md));
+1.7.0 the slideshow, 1.8.0 MOSS-Image and the LoRA info of issue 24, 1.8.1 prompt collections). The times below are those of 1.0.0 on the console ([CONSOLE.md](docs/CONSOLE.md));
 every new number goes there with its date and build.
 
 ## 1.6.0: the web UI, smaller steps, done
@@ -679,6 +681,22 @@ Tested on the console ([CONSOLE.md](docs/CONSOLE.md#moss-image-lora-info-and-the
 - [x] **The fan modes shown**: each mode says the highest temperature it holds the chip at (Quiet 91 °C,
   Balanced 88, Cool 85, Manual 70 to 91), with a chart of the fan by the chip's temperature, the readings of
   the last 2 minutes on it, and how the mode did on the console.
+
+## 1.8.1: prompt collections, done
+
+Tested on the console ([CONSOLE.md](docs/CONSOLE.md#prompt-collections-2026-11-22)).
+
+- [x] **Collections**: named lists of prompts or words, kept on the console for every model and every
+  browser. **Save prompt** under the prompt, a Collections tab next to History, Import and Export as
+  Dynamic Prompts' `.txt` files.
+- [x] **`__name__`** in a prompt: a random entry of the collection, picked anew for each image; entries may
+  hold `{a|b}` and other `__names__`. A prompt that is only `__name__` takes the entry's negative prompt too.
+- [x] **`__lora__`**: the trigger words of the picked LoRAs at that place; **Add trigger words** puts them at
+  the cursor.
+- [x] **The prompt as typed in the image** (`Template:` in its parameters, as Dynamic Prompts writes it), so
+  Use all gives it back.
+- [x] **The API**: the collections' routes, `POST prompts/expand` (the same rules, with the LoRAs' stored
+  words, a count and a seed), and `template` / `negative_template` on `img_gen` and `vid_gen`.
 
 ## 1.x, no version yet
 

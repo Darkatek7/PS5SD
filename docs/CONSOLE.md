@@ -1582,3 +1582,30 @@ of each:
 In Cool the chip went over 85 °C for 2 to 6 s at a time, most often in the first minute while the target still
 came down; 89 °C was a single reading. Quiet's mean is 5 °C under that of the
 same load on 2026-10-24 (89.8 °C); these readings do not say why.
+
+## Prompt collections (2026-11-22)
+
+A 1.8.1 build (local Docker), FW 13.00, `curl`, Python and headless Chrome from the PC.
+
+**The routes.** Two collections made over the API, then `POST prompts/expand` with
+`__lora__, portrait of __people__, __light__, {red|blue} coat, __nope__`, a count of 6 and a LoRA whose info
+has trigger words: each item had the LoRA's words at the front, its own entries and colour, and `__nope__` as
+typed and listed in `unknown`. The same seed gave the same items. A prompt of only `__people__` took an
+entry's negative prompt before the typed one. `<lora:NAME:0.7>` in the prompt gave its words without a
+`lora` field. A name that is taken: 409; `lora`: 400; a count of 101: 400. 15 checks, all passed.
+
+| Request | Time |
+|---|---|
+| `POST prompts/expand`, 1 item, a collection of 2000 entries | 10 ms (median of 5) |
+| the same, 100 items | 10 ms |
+| `GET promptbooks` with those 2000 entries | 13 ms, 124 KB |
+
+**An image with its template.** FLUX.2 Klein 9B at 768x768, 4 steps, through `img_gen` with `template` and
+an empty `negative_template`: 30 s, and its parameters had `Template: "portrait of __people__, __light__,
+photo", Negative Template: ""` and the same in the `ps5sd` JSON. A template that is a number: 400.
+
+**The web UI.** In Chrome against the console: the hint under the prompt named both collections with their
+counts; Save prompt put the prompt into a new collection, and refused the name `lora`; a run of 2 images at
+1024x1024 and 4 steps picked different entries, and each image had the template; Use all in the gallery put
+the template back into the prompt and kept the loaded model. No script error; at 390 px the page was not
+wider than the phone. The test's images, collections and history entries were deleted afterwards.
