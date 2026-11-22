@@ -11,6 +11,7 @@
   var bkMenuId = 0;         // the entry whose Edit / Delete show
   var bkEditId = 0;         // the entry in the editor
   var promptCaret = null;   // {start, end}: the last place of the caret in the prompt
+  var bkFind = '';          // the search box (kept in memory only)
   var bkRand = false;       // Random prompt for each image: on or off (kept in this browser)
   var bkPicks = [];         // the names of the collections it takes from, ticked in the Collections tab
   var BK_PAGE = 100;
@@ -159,15 +160,80 @@
     drawWildHint();
   }
 
+  // ---- the search: every word of the box must start a word in the name of a collection or in an entry (prompt or
+  // negative): "red" finds "red" and "reddish", not "colored"; "girl" finds "1girl"
+  function bkWords() {
+    var q = String(bkFind).toLowerCase().replace(/^\s+|\s+$/g, '');
+    return q ? q.split(/\s+/) : [];
+  }
+
+  function bkHasWords(s, words) {
+    for (var i = 0; i < words.length; i++) {
+      var at = s.indexOf(words[i]), ok = false;
+      while (at >= 0 && !ok) {
+        ok = at === 0 || !/[a-z\u00c0-\u024f]/.test(s.charAt(at - 1));
+        at = s.indexOf(words[i], at + 1);
+      }
+      if (!ok) return false;
+    }
+    return true;
+  }
+
+  function bkEntryHit(e, words) {
+    if (e._lc === undefined) e._lc = (String(e.prompt) + '\n' + String(e.negative || '')).toLowerCase();
+    return bkHasWords(e._lc, words);
+  }
+
+  // The collections that show, each as {b, all, k}: all is true when every entry shows (no search, or the name matches),
+  // k how many entries show. total: the entries that match the words, in all the shown collections.
+  function bkVisible(words) {
+    var list = sortedBooks(), out = [], total = 0, i, j;
+    for (i = 0; i < list.length; i++) {
+      var b = list[i];
+      if (!words.length) { out.push({ b: b, all: true, k: b.entries.length }); continue; }
+      var byName = bkHasWords(b.name.toLowerCase(), words), k = 0;
+      for (j = 0; j < b.entries.length; j++) if (bkEntryHit(b.entries[j], words)) k++;
+      if (byName || k) out.push({ b: b, all: byName, k: byName ? b.entries.length : k });
+      total += k;
+    }
+    return { list: out, total: total };
+  }
+
   // ---- drawing the Collections tab
   function drawBooks() {
-    var list = sortedBooks(), box = $('bk-tabs'), cur = bkCurrent(), i;
-    if (!cur) { cur = list.length ? list[0] : null; bkOpen = cur ? cur.name : ''; }
+    var words = bkWords(), vis = bkVisible(words), box = $('bk-tabs'), cur = bkCurrent(), i;
+    if (words.length) {
+      // the open collection must be one that shows; else the first one that does
+      var found = null;
+      for (i = 0; i < vis.list.length; i++) if (vis.list[i].b === cur) found = cur;
+      if (!found && vis.list.length) {
+        found = vis.list[0].b;
+        bkOpen = found.name;
+        bkShown = BK_PAGE;
+        bkMenuId = 0;
+        bkEditId = 0;
+      }
+      cur = found;
+    } else if (!cur) {
+      cur = vis.list.length ? vis.list[0].b : null;
+      bkOpen = cur ? cur.name : '';
+    }
+    show('bk-find-info', words.length > 0, 'block');
+    if (words.length) {
+      // a collection that shows only by its name has no matching entry: no "0 entries match"
+      text($('bk-find-info'), !vis.list.length ? 'Nothing matches "' + words.join(' ') + '".' :
+        !vis.total ? (vis.list.length === 1 ? '1 collection matches by its name.' : vis.list.length + ' collections match by their names.') :
+        plural(vis.list.length, 'collection', 'collections') + ', ' + plural(vis.total, 'entry', 'entries') + ' match.');
+    }
+    text($('bk-rand-all'), words.length ? 'Tick the ' + vis.list.length + ' shown' : 'Tick all');
+    text($('bk-rand-none'), words.length ? 'Untick the ' + vis.list.length + ' shown' : 'Tick none');
+    $('bk-rand-all').disabled = $('bk-rand-none').disabled = words.length > 0 && !vis.list.length;
     clear(box);
-    for (i = 0; i < list.length; i++) {
-      (function (b) {
-        var on = cur && b.name === cur.name;
-        var x = el('button', 'bkb' + (on ? ' on' : ''), b.name + ' (' + b.entries.length + ')');
+    for (i = 0; i < vis.list.length; i++) {
+      (function (it) {
+        var b = it.b, on = cur && b === cur;
+        var label = b.name + ' (' + (it.all ? b.entries.length : it.k + ' of ' + b.entries.length) + ')';
+        var x = el('button', 'bkb' + (on ? ' on' : ''), label);
         x.type = 'button';
         x.setAttribute('aria-pressed', on ? 'true' : 'false');
         x.onclick = function () { bkOpen = b.name; bkShown = BK_PAGE; bkMenuId = 0; bkEditId = 0; bkMsg(''); drawBooks(); };
@@ -184,7 +250,7 @@
         pair.appendChild(cb);
         pair.appendChild(x);
         box.appendChild(pair);
-      })(list[i]);
+      })(vis.list[i]);
     }
     var nb = el('button', 'bkb bknew', '+ New');
     nb.type = 'button';
@@ -199,11 +265,21 @@
     if (has) text($('bk-insert'), 'Insert __' + cur.name + '__');
   }
 
+  // The entries of cur that show: all of them, or with a search that its name does not match, the ones that match.
+  function bkEntriesShown(cur) {
+    var words = bkWords();
+    if (!cur) return [];
+    if (!words.length || bkHasWords(cur.name.toLowerCase(), words)) return cur.entries;
+    var out = [];
+    for (var i = 0; i < cur.entries.length; i++) if (bkEntryHit(cur.entries[i], words)) out.push(cur.entries[i]);
+    return out;
+  }
+
   function drawBookEntries(cur) {
-    var box = $('bk-list'), es = cur ? cur.entries : [];
+    var box = $('bk-list'), es = bkEntriesShown(cur);
     clear(box);
-    show('bk-none', !!cur && !es.length, 'block');
-    show('bk-nobook', !cur, 'block');
+    show('bk-none', !!cur && !cur.entries.length, 'block');
+    show('bk-nobook', !cur && !bkWords().length, 'block');
     show('bk-list', es.length > 0, 'block');
     var n = Math.min(es.length, bkShown);
     for (var i = 0; i < n; i++) box.appendChild(bkRow(cur, es[i]));
@@ -213,6 +289,17 @@
       more.onclick = function () { bkShown += BK_PAGE; drawBookEntries(cur); };
       box.appendChild(more);
     }
+  }
+
+  // The search box changed (oninput, and onkeyup for old browsers): draw again from the first page.
+  function bkFindChanged() {
+    var v = $('bk-find').value;
+    if (v === bkFind) return;
+    bkFind = v;
+    bkShown = BK_PAGE;
+    bkMenuId = 0;
+    bkEditId = 0;
+    drawBooks();
   }
 
   function bkRow(cur, e) {
@@ -573,13 +660,37 @@
     bkRand = load('bookrand') === '1';
     try { var picks = JSON.parse(load('bookpicks') || '[]'); bkPicks = picks && picks.length !== undefined ? picks : []; } catch (x) { bkPicks = []; }
     $('bk-rand').onchange = function () { bkRandSet($('bk-rand').checked); };
+    // with a search, Tick all and Tick none act on the shown collections only
     $('bk-rand-all').onclick = function () {
-      var list = sortedBooks();
-      for (var k = 0; k < list.length; k++) if (list[k].entries.length && !bkPicked(list[k].name)) bkPickSet(list[k].name, true);
+      var list = bkVisible(bkWords()).list;
+      for (var k = 0; k < list.length; k++) if (list[k].b.entries.length && !bkPicked(list[k].b.name)) bkPickSet(list[k].b.name, true);
       drawBooks();
       drawRandom();
     };
-    $('bk-rand-none').onclick = function () { bkPicks = []; save('bookpicks', '[]'); drawBooks(); drawRandom(); };
+    $('bk-rand-none').onclick = function () {
+      if (bkWords().length) {
+        var list = bkVisible(bkWords()).list;
+        for (var k = 0; k < list.length; k++) if (bkPicked(list[k].b.name)) bkPickSet(list[k].b.name, false);
+      } else {
+        bkPicks = [];
+        save('bookpicks', '[]');
+      }
+      drawBooks();
+      drawRandom();
+    };
+    $('bk-find').oninput = bkFindChanged;
+    $('bk-find').onkeyup = bkFindChanged;
+    $('bk-find').onkeydown = function (e) {
+      e = e || window.event;
+      if (e.keyCode === 27 && $('bk-find').value) {
+        // clears the box and nothing else (the global Escape would shut the panel)
+        $('bk-find').value = '';
+        bkFindChanged();
+        if (e.stopPropagation) e.stopPropagation(); else e.cancelBubble = true;
+        return false;
+      }
+      return true;
+    };
     $('rand-off').onclick = function () { bkRandSet(false); try { $('prompt').focus(); } catch (x) {} };
     $('rand-change').onclick = function () { panelTab = 'books'; histShow(true); };
     drawRandom();

@@ -144,6 +144,29 @@ int main() {
     check(content_range_total("bytes 0-0/682847200") == 682847200, "Content-Range total");
     check(content_range_total("bytes 0-0/*") == -1, "unknown total");
 
+    // ---- 429
+    check(retry_after_seconds("120") == 120 && retry_after_seconds(" 7 \r") == 7, "Retry-After seconds");
+    check(retry_after_seconds("") == -1 && retry_after_seconds("Wed, 21 Oct 2026 07:28:00 GMT") == -1 &&
+              retry_after_seconds("-5") == -1 && retry_after_seconds("1.5") == -1 &&
+              retry_after_seconds("99999999999999") == -1,
+          "Retry-After that is no number of seconds");
+    check(throttle_wait_s(-1, 1) == 30 && throttle_wait_s(-1, 2) == 60 && throttle_wait_s(-1, 3) == 120 &&
+              throttle_wait_s(-1, 4) == 120 && throttle_wait_s(-1, 9) == 120,
+          "429 wait by round");
+    check(throttle_wait_s(45, 1) == 45 && throttle_wait_s(45, 5) == 45 && throttle_wait_s(1, 1) == 1,
+          "429 wait follows Retry-After");
+    check(throttle_wait_s(400, 1) == 300 && throttle_wait_s(600, 1) == 300, "Retry-After is capped at 300 s");
+    check(throttle_wait_s(601, 1) == 30 && throttle_wait_s(0, 2) == 60, "Retry-After out of range is ignored");
+    check(throttle_text("civitai.com", 60) == "Civitai limits downloads for now (HTTP 429); trying again in 60 s",
+          "429 text for Civitai");
+    check(throttle_text("api.civitai.com", 5).find("Civitai ") == 0, "a Civitai subdomain");
+    check(throttle_text("huggingface.co", 30).find("Hugging Face ") == 0 && throttle_text("hf.co", 30).find("Hugging Face ") == 0 &&
+              throttle_text("cdn-lfs.hf.co", 30).find("Hugging Face ") == 0,
+          "429 text for Hugging Face");
+    check(throttle_text("example.com", 30).find("The server ") == 0 && throttle_text("notcivitai.com", 30).find("The server ") == 0 &&
+              throttle_text("", 30).find("The server ") == 0,
+          "429 text for any other host");
+
     // ---- catalog
     std::set<std::string> ids;
     for (const CatalogEntry & e : catalog()) {

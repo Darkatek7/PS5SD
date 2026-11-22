@@ -40,10 +40,14 @@
     es.addEventListener('progress', function (e) {
       var d = readEvent(e);
       if (d && d.job && d.job === st.job) pollSoon();
+      // the job this page follows waits: the one that runs before it is shown
+      else if (d && d.job) aheadStep(d.job, d.step, d.steps);
     });
     es.addEventListener('job', function (e) {
       var d = readEvent(e);
       if (d && d.id === st.job) pollSoon();
+      // a run that worked counts for the memory hint, also in the middle of a queue
+      if (d && d.status === 'completed') scheduleFit();
     });
     // the switch (0.9.16): a look at the library now, not at the next poll; a switch another page or a
     // client started shows at once

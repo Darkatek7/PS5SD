@@ -33,7 +33,9 @@ const Limit kLimits[] = {
     { "FLUX.2 Klein 4B", px(2048, 2048), 0, px(2048, 2048), "2048x2048" },
     // 0.9.7: Q4_0 with Qwen3-8B, 1024x1024 right after a start and warm (0.9 GiB left in one block)
     { "FLUX.2 Klein 9B", px(1024, 1024), 0, px(1024, 1024), "1024x1024" },
-    { "FLUX.3 Klein", px(1024, 1024), px(1536, 1536), px(896, 896), "1024x1024" },
+    // 1.8.4: Q4_K and Q6_K at 1024x1024 right after a switch, Q6_K after Q4_K at 1024 (2026-11-22). The 896 of
+    // 0.7 was Q6_K after Q4_K, before buffers of several blocks (patches/mesa/0010)
+    { "FLUX.3 Klein", px(1024, 1024), px(1536, 1536), px(1024, 1024), "1024x1024" },
     { "Z-Image", px(1536, 1536), 0, px(1024, 1024), "1536x1536" },
     // 0.9.18: xinsir's Canny ControlNet (2.4 GB more weights, more CPU heap): 1024 with the hires fix to
     // 1536x1536 ran after 1024; 2048x2048 ran the CPU heap out after it
@@ -132,9 +134,12 @@ FitAnswer check_fit(const FitQuery & in) {
     const bool    history = q.largest_ok > 0 || q.other_model_before;
     const int64_t safe    = l != nullptr ? l->safe : px(1024, 1024);
     if (history && work > safe && size > q.largest_ok) {
-        return { "tight", std::string("Larger than every run since ") +
-                              (q.other_model_before ? "PS5SD started" : "the model loaded") +
-                              ". It may run out of memory now; right after a restart of PS5SD it has the most room. " +
+        // largest_ok counts this model's runs only: another model's runs left the memory in pieces too
+        const std::string why =
+            q.largest_ok == 0 ? "Another model ran before this one, and this one has not run yet."
+            : q.other_model_before ? "Larger than every run since the model loaded, and another model ran before it."
+                                   : "Larger than every run since the model loaded.";
+        return { "tight", why + " It may run out of memory now; right after a restart of PS5SD it has the most room. " +
                               lower_text(q) };
     }
     return { "fits", "" };

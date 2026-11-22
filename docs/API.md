@@ -496,7 +496,7 @@ survives a restart of the title (`/data/PS5SD/downloads.json`).
 | `GET /ps5sd/v1/app/catalog` | the recommended models: `{"entries": [...]}`, each with its files, its size and `installed` |
 | `POST /ps5sd/v1/app/downloads` | `{"catalog": "<id>"}`: fetch a catalog entry; its preset is written once every file is there |
 | `POST /ps5sd/v1/app/downloads` | `{"url": "...", "dest": "<path under models/>", "kind": "models"}`: fetch one file; `"kind": "loras"` puts it into `loras/` (a file name, no folders). Without `kind`, a Civitai LoRA (model type LORA, LoCon or DoRA) goes to `loras/`, anything else to `models/` |
-| `GET /ps5sd/v1/app/downloads` | the queue, oldest first: state, bytes, speed |
+| `GET /ps5sd/v1/app/downloads` | the queue, oldest first: state, bytes, speed, `error`. A running download's `error` is a note: it waits and tries again, for example after HTTP 429 (Civitai and Hugging Face limit downloads now and then). A failed download's is the reason |
 | `DELETE /ps5sd/v1/app/downloads/<id>` | cancel a download, or remove a finished one from the list |
 | `POST /ps5sd/v1/app/downloads/<id>/retry` | resume a failed or cancelled download from its `.part` file |
 | `POST /ps5sd/v1/app/downloads/clear` | remove the finished downloads from the list |

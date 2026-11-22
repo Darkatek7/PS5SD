@@ -378,12 +378,15 @@
       if (j && j.id !== st.job && !st.gone[j.id] && !pick) pick = j;
     }
     if (!st.busy && pick) follow(pick.id, { t0: new Date().getTime(), seed: null, prompt: pick.prompt, repeat: pick.repeat });
-    var waiting = 0;
+    var waiting = 0, running = null;
     for (i = 0; i < list.length; i++) {
       j = list[i];
       if (j && j.id !== st.job && j.status === 'queued') waiting++;
+      if (j && j.status === 'generating') running = j;
     }
     st.waiting = waiting;
+    st.runningId = running ? running.id : '';
+    st.runningPrompt = running ? running.prompt || '' : '';
     drawWaiting();
   }
 
@@ -411,7 +414,17 @@
       if (eventsOn() && ev.jobs) takeJobs(ev.jobs);
       else refreshQueue();
     }
+    pollWatch(false);
     setTimeout(queueWatch, 2000);
+  }
+
+  // Back in the tab: the job and the queue as they are now, not as the last look before the tab was hidden.
+  if (document.addEventListener) {
+    document.addEventListener('visibilitychange', function () {
+      if (document.hidden) return;
+      pollWatch(true);
+      if (st.view === 'create' || st.busy) refreshQueue();
+    });
   }
 
   // The page takes up a job it did not start (a reload, another device, the next one in line): its progress

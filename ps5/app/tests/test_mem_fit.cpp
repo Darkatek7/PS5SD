@@ -116,7 +116,18 @@ void test_verdicts() {
     is(q, "fits", "SDXL 1024 after another model");
     q = query("FLUX.3 Klein", 1024, 1024);
     q.other_model_before = true;
-    is(q, "tight", "FLUX.3 Klein 1024 after another model (it has no segments)");
+    is(q, "fits", "FLUX.3 Klein 1024 after another model (1.8.4, Q4_K and Q6_K)");
+    q = query("Z-Image", 1280, 1280);
+    q.other_model_before = true;
+    is(q, "tight", "Z-Image 1280 after another model, before a run of its own");
+    check(check_fit(q).message.find("Another model ran before this one, and this one has not run yet.") == 0,
+          "nothing ran since the switch: the message says so");
+    q.largest_ok = 1024 * 1024;
+    check(check_fit(q).message.find("Larger than every run since the model loaded, and another model ran before it.") == 0,
+          "after runs and a switch: since the model loaded, not since PS5SD started");
+    q.other_model_before = false;
+    check(check_fit(q).message.find("Larger than every run since the model loaded. It may") == 0,
+          "after runs of the one model");
     q = query("SDXL", 832, 1216);
     q.pass_width  = 1248;
     q.pass_height = 1824;

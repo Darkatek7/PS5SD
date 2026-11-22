@@ -659,6 +659,9 @@
   .bkb:hover { background: var(--raised); }
   .bkb.on { background: var(--accent); border-color: var(--accent); color: #fff; }
   .bkb.bknew { color: var(--accent); border-style: dashed; }
+  .bkfind { padding: 0.5rem 0.6rem 0; }
+  .bkfind input { width: 100%; box-sizing: border-box; }
+  #bk-find-info { margin: 0; padding: 0.4rem 0.9rem 0; }
   .bkrand { padding: 0.2rem 0.9rem 0.4rem; border-bottom: 1px solid var(--border); }
   .bkrand label.opt { margin: 0.1rem 0; }
   .bkrand .hint { margin: 0; }
@@ -693,7 +696,7 @@
   .bkform .hint { padding: 0 0 0.4rem; }
   .bkacts { display: flex; flex-wrap: wrap; padding: 0.3rem 0.9rem 0.2rem; border-top: 1px solid var(--border); }
   .bkacts .linkbtn { margin: 0 0.9rem 0 0; }
-  .bkacts .linkbtn:disabled { color: var(--faint); text-decoration: none; }
+  .bkacts .linkbtn:disabled, .bkrand .linkbtn:disabled { color: var(--faint); text-decoration: none; }
   .bkmore { display: block; margin: 0.3rem auto; }
   #bk-list:empty { display: none; }
   .linkrow { flex-wrap: wrap; }

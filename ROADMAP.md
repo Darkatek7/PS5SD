@@ -10,6 +10,9 @@ can rely on.
 
 ## Done
 
+- **1.8.5**: a download waits when the server limits downloads (HTTP 429) and says so; the memory hint
+  under Generate tells the truth after a switch, and FLUX.3 Klein runs 1024x1024 after other models; a search
+  in the prompt collections; the steps of a run show again after the tab was in the background.
 - **1.8.4**: why a model cannot run ([issue 25](https://github.com/Darkatek7/PS5SD/issues/25)): files made for
   ComfyUI marked and refused when they cannot run, Krea 2 known, the load error on the model's row, Make a
   preset for a diffusion model, Export of a preset.
@@ -628,7 +631,7 @@ The plan as of 2026-11-04, in order (1.1.0 was taken by the stable-diffusion.cpp
 2026-11-12, 1.2.0 by faster loading on 2026-11-14 and 1.3.0 by the gallery as a ZIP on 2026-11-17, so the
 rest moved up three numbers; 1.4.0 took the web UI's storage and USB items on 2026-11-19, and the pose of
 issue 13 and the `sdxl-full` conversion moved on; 1.5.0 took the pose, 1.6.0 the web UI's smaller steps,
-1.7.0 the slideshow, 1.8.0 MOSS-Image and the LoRA info of issue 24, 1.8.1 prompt collections, 1.8.2 the trigger words as a list, 1.8.3 random prompts from collections, 1.8.4 why a model cannot run). The times below are those of 1.0.0 on the console ([CONSOLE.md](docs/CONSOLE.md));
+1.7.0 the slideshow, 1.8.0 MOSS-Image and the LoRA info of issue 24, 1.8.1 prompt collections, 1.8.2 the trigger words as a list, 1.8.3 random prompts from collections, 1.8.4 why a model cannot run, 1.8.5 downloads that the server limits and a search in the collections). The times below are those of 1.0.0 on the console ([CONSOLE.md](docs/CONSOLE.md));
 every new number goes there with its date and build.
 
 ## 1.6.0: the web UI, smaller steps, done
@@ -744,6 +747,25 @@ Tested on the console ([CONSOLE.md](docs/CONSOLE.md#files-made-for-comfyui-2026-
   of its family, else the catalog's, with a note on what is missing. `GET models/files` lists the files,
   `POST presets` takes `{"name", "text"}`.
 - [x] **Export .txt** saves a preset's file, to share it.
+
+## 1.8.5: downloads that the server limits, the memory hint, a search in the collections, the steps, done
+
+Tested on the console ([CONSOLE.md](docs/CONSOLE.md#flux3-klein-at-1024x1024-after-other-models-and-civitais-http-429-2026-11-22)).
+
+- [x] **HTTP 429**: Civitai stopped a LoRA at 855 MB with "Too Many Requests". All connections of a download now
+  pause together (30, 60, then 120 s, or what the server's Retry-After says, at most 300 s), up to seven times
+  in a row, and the row says why it waits. A 429 at the start is asked again three times. The error says what happened.
+- [x] **The memory hint**: it said "since PS5SD started" where it meant "since the model loaded", and warned at
+  FLUX.3 Klein's own 1024x1024 after a switch. Q6_K at 1024x1024 after Q4_K, the run that failed in 0.7, runs
+  now, so 1024x1024 is safe for the family. The hint is asked again after each image of a queue.
+- [x] **Search in the collections**: a box above them finds collections by name and by their entries (all
+  words, in any order, each at the start of a word); a collection shows how many of its entries match, and Tick all and Tick none act on
+  the shown ones.
+- [x] **The steps after a tab in the background**: the page asked for its job one look at a time, and a look
+  that never came back (a browser holds requests of a background tab) left it on "Queued…" for good. A look now
+  has a time limit, one that hangs 15 s is replaced, and the page looks at once when the tab is shown again.
+  While the page's own image waits behind another (an image added to the queue during a run with Random prompt
+  lines up before the run's next one), the page shows the one that runs: its step, the bar and its preview.
 
 ## 1.x, no version yet
 

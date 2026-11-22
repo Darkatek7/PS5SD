@@ -463,6 +463,9 @@ restart).
   before its bytes are on disk. A failed piece goes back in the queue; its connection waits 1, 2, 4, 8
   then 16 s, and gives up after 8 failures in a row; a 403, 410 or redirect on a piece fetches a
   fresh signed URL once for all connections; a 4xx other than 403, 408, 410 and 429 fails the file.
+  A 429 pauses all connections together (30, 60, then 120 s, or the Retry-After), shown as the
+  record's `error`; after 7 pauses without a piece written the file fails. A 429 on the first request
+  is asked again three times (`download_core.cpp`: `throttle_wait_s`, `throttle_text`).
   When every piece is there: `fsync`, rename to `<dest>`. A server without ranges is fetched in one
   stream (no resume). There is no free-space check (`statfs` is only in `libkernel_sys`, null in a
   title); a full disk shows up as `ENOSPC` and fails the file.
@@ -494,7 +497,7 @@ out, errors as `{"error": {"message", "code"}}` (`error_json`), nothing thrown a
 | Route | Body | Answer |
 |---|---|---|
 | `GET catalog` | | `{"entries": [{"id", "name", "description", "featured", "good_for", "bytes", "installed", "files": [{"url", "dest", "bytes", "installed"}], "preset"}]}`, featured first |
-| `GET downloads` | | `{"downloads": [{"id", "url", "dest", "bytes", "total", "state", "error", "bytes_per_second", "catalog"}]}`, oldest first; `state` is `queued`, `running`, `done`, `failed` or `cancelled` |
+| `GET downloads` | | `{"downloads": [{"id", "url", "dest", "bytes", "total", "state", "error", "bytes_per_second", "catalog"}]}`, oldest first; `state` is `queued`, `running`, `done`, `failed` or `cancelled`; `error` is a note while it runs (a 429 pause, a lost connection) and the reason once it failed |
 | `POST downloads` | `{"url", "dest"?, "catalog"?}`, or `{"catalog"}` alone to install an entry | 202 `{"downloads": [...]}` with what was queued; 200 and `[]` for an entry with every file there (the preset is written); 400 bad URL or destination, 404 unknown entry, 409 queued already, running, stopping, downloaded or in the way, 502 Civitai's API failed |
 | `DELETE downloads/<id>` | | queued or running: cancelled, `.part` kept (200); cancelled or failed: the entry and its `.part` go; done: the entry goes, the file stays; 404 unknown, 409 while it is still stopping |
 | `POST downloads/<id>/retry` | | a failed or cancelled one queued again, from its `.part` (202) |

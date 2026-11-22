@@ -1687,3 +1687,28 @@ Klein FP8 (torchao) put on the console: Krea 2 and FLUX.3 Klein as the family, "
 ComfyUI INT8" on their own rows, and the FP8 preset "FP8 (scaled)" with its note. The library's other 36
 entries had no format and no new mark. `POST presets` with `{"name", "text"}` wrote the test presets. Every
 test file, preset and image was deleted afterwards.
+
+## FLUX.3 Klein at 1024x1024 after other models, and Civitai's HTTP 429 (2026-11-22)
+
+PS5SD 1.8.4. In one start of the title: FLUX.2 Klein 9B loaded, FLUX.2 Klein 4B Q4_0 at 1024x1024 three
+times, then FLUX.3 Klein Q4_K at 1024x1024 twice, then a switch to Q6_K and 1024x1024 twice, 4 steps each:
+
+| Model | After | Image | Pool free after loading | Pool free after the image |
+|---|---|---|---|---|
+| FLUX.3 Klein Q4_K | Klein 4B at 1024 | 31.9 s, 28.0 s | 8.60 GiB, the largest part 8.60 | 4.76 GiB, the largest part 4.76 |
+| FLUX.3 Klein Q6_K | Q4_K at 1024 | 36.6 s, 31.9 s | 8.60 GiB, the largest part 8.60 | 3.67 GiB, the largest part 3.67 |
+
+Q6_K at 1024x1024 after Q4_K failed in 0.7 (above, "FLUX.3 Image Klein Q6_K does not fit"). It runs since
+buffers can be made of several blocks. `mem_fit.cpp` has 1024x1024 as safe for FLUX.3 Klein now (896x896
+before), so the hint under Generate no longer warns at the family's default size after a switch.
+
+**Civitai's HTTP 429.** On the same day, after about 20 LoRAs from Civitai, a 1.56 GB LoRA got HTTP 429 (Too
+Many Requests) from 855 MB on, on all 16 connections. The downloader waited 1 to 16 s between tries and failed
+after about a minute. The next Civitai download got 429 at its first request. Retry resumes from the `.part`
+file.
+
+With 1.8.5, Retry on both, about 20 minutes later: the 1.56 GB LoRA went on from 855 MB and finished. The
+580 MB one got 429 at 142 MB. Civitai's Retry-After was 300 s or more, so all 16 connections paused 300 s,
+twice, and the row said "Civitai limits downloads for now (HTTP 429); trying again in N s". Then it finished
+on its own: 611 s for the file. One piece's write through ftpsrv failed after the pause (the idle connection
+was closed) and went through on the second try.

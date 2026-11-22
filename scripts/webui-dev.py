@@ -19,7 +19,8 @@ are fakes too, so the Generate tab and the preset editor work without a console.
 "mystery" answers not_found, "offline" a 502 and "slow" takes two seconds; any other finds an entry. It also serves docs/MODELS.md
 and docs/API.md from this checkout for the Help tab. --mock-models alone fakes only these, not the downloads. Everything else is still forwarded. Without the flag the real console answers
 (an old app answers 404 and the page hides the download parts). Words in a URL steer the mock:
-"fail" makes the download fail at 30 percent, "big" makes it 8 GB, "slow" makes it slow.
+"fail" makes the download fail at 30 percent, "big" makes it 8 GB, "slow" makes it slow, "429" makes it wait
+at 55 percent with the note the app shows after an HTTP 429 (its error field while it runs).
 In a search, "err" gives an error and "none" gives no results.
 
 --mock-storage fakes the storage and USB routes of a newer app: GET /ps5sd/v1/app/storage (the console's space,
@@ -163,6 +164,12 @@ class MockDownloads:
         while run is not None and dt > 0:
             run["state"] = "running"
             speed = self._speed(run["url"])
+            if "429" in run["url"]:
+                # waiting after an HTTP 429: stuck at 55 percent, with the note the app sets
+                run["bytes"] = int(run["total"] * 0.55)
+                run["bytes_per_second"] = 0
+                run["error"] = "Civitai limits downloads for now (HTTP 429); trying again in 60 s"
+                break
             run["bytes_per_second"] = int(speed * (0.85 + 0.3 * ((now * 7) % 1)))
             goal = int(run["total"] * 0.3) if "fail" in run["url"] else run["total"]
             need = goal - run["bytes"]

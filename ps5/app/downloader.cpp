@@ -166,7 +166,14 @@ struct Probe {
     uint64_t    total  = 0;
     bool        ranges = false;
     int         status = 0;
+    int         retry_after = -1;  // Retry-After of a 429, in seconds, or -1
 };
+
+// The source's host for a note: from the URL the item was asked for (the CDN's signed URL names the CDN).
+std::string source_host(const std::string & url) {
+    Url u;
+    return parse_url(url, u) ? u.host : std::string();
+}
 
 std::string http_failure(const HttpResponse & r, const Url & first) {
     const std::string hf_message = r.header("x-error-message");
@@ -177,6 +184,10 @@ std::string http_failure(const HttpResponse & r, const Url & first) {
         }
         return "refused (HTTP " + std::to_string(r.status) + ")" + (hf_message.empty() ? "" : ": " + hf_message) +
                "; a gated or private repository needs a token in /data/PS5SD/hf-token.txt";
+    }
+    if (r.status == 429) {
+        return source_name(first.host) +
+               " limits downloads for now (HTTP 429). Try again in a few minutes with Retry; what came in is kept.";
     }
     if (r.status == 404) {
         return "not found (HTTP 404)" + (hf_message.empty() ? "" : ": " + hf_message);
@@ -196,7 +207,8 @@ bool probe(HttpClient & client, const std::string & url, Probe & p, std::string 
     if (!ok) {
         return false;
     }
-    p.status = r.status;
+    p.status      = r.status;
+    p.retry_after = retry_after_seconds(r.header("retry-after"));
     if (r.status == 206) {
         const int64_t total = content_range_total(r.header("content-range"));
         p.ranges            = total > 0;
@@ -321,6 +333,12 @@ void fetch_pieces(Item & item, const Probe & p0, const std::string & url, int fd
     std::mutex         m;                                  // st, cdn, last_error
     std::string        cdn = p0.final_url;
     std::string        last_error;
+    // A 429 (Too Many Requests) stops every connection for a while: one pause
+    // for all of them, not one backoff each. m guards the three.
+    clock_type::time_point pause_until{};  // no fetching before this
+    int                    throttle_round = 0;  // 429 pauses since the last piece written
+    Url                    source;  // where it was asked for (the item's URL, not the CDN's)
+    parse_url(url, source);
     std::atomic<uint64_t> received{ pieces_bytes(pieces, piece, total) };
     std::atomic<bool>  fatal{ false }, disk_full{ false };
     std::atomic<int>   waiting{ 0 };
@@ -344,11 +362,35 @@ void fetch_pieces(Item & item, const Probe & p0, const std::string & url, int fd
         return true;
     };
 
+    // Waits until a running 429 pause is over, or the download ends.
+    const auto wait_for_pause = [&] {
+        bool counted = false;
+        for (;;) {
+            clock_type::time_point until;
+            {
+                std::lock_guard<std::mutex> lock(m);
+                until = pause_until;
+            }
+            if (clock_type::now() >= until || stopping(item) || fatal || disk_full) {
+                break;
+            }
+            if (!counted) {
+                ++waiting;
+                counted = true;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(250));
+        }
+        if (counted) {
+            --waiting;
+        }
+    };
+
     const auto worker = [&](int) {
         HttpClient        client;
         int               streak = 0;  // failures in a row on this connection
         std::vector<char> buffer;      // the piece, until it is written
         for (;;) {
+            wait_for_pause();
             size_t      k = count;
             std::string url_now;
             {
@@ -431,6 +473,7 @@ void fetch_pieces(Item & item, const Probe & p0, const std::string & url, int fd
                     {
                         std::lock_guard<std::mutex> lock(m);
                         st[k] = '1';
+                        throttle_round = 0;
                     }
                     written.notify_all();
                     continue;
@@ -451,11 +494,42 @@ void fetch_pieces(Item & item, const Probe & p0, const std::string & url, int fd
             if (stopping(item) || disk_full) {
                 return;
             }
-            const std::string why = !error.empty() ? error : r.status != 206 ? http_failure(r, u)
+            const std::string why = !error.empty() ? error : r.status != 206 ? http_failure(r, source)
                                                                   : "short piece (" + std::to_string(wrote) + " bytes)";
             {
                 std::lock_guard<std::mutex> lock(m);
                 last_error = why;
+            }
+            if (error.empty() && r.status == 429) {
+                // The first 429 outside a pause starts the next round; the
+                // others (pieces that were in flight) just wait for it. After
+                // round 7 without a piece written the download fails.
+                const int retry_after = retry_after_seconds(r.header("retry-after"));
+                int       wait_s = 0, round = 0;
+                bool      give_up = false;
+                {
+                    std::lock_guard<std::mutex> lock(m);
+                    const auto now = clock_type::now();
+                    if (now >= pause_until) {
+                        if (throttle_round >= 7) {
+                            give_up = true;
+                        } else {
+                            round       = ++throttle_round;
+                            wait_s      = throttle_wait_s(retry_after, round);
+                            pause_until = now + std::chrono::seconds(wait_s);
+                        }
+                    }
+                }
+                if (give_up) {
+                    std::printf("ps5sd: download %s: HTTP 429 again after 7 rounds, giving up\n", item.rec.dest.c_str());
+                    fatal = true;
+                    return;
+                }
+                if (round > 0) {
+                    std::printf("ps5sd: download %s: HTTP 429, waiting %d s (round %d)\n", item.rec.dest.c_str(), wait_s,
+                                round);
+                }
+                continue;  // wait_for_pause at the top
             }
             std::printf("ps5sd: download %s: piece %zu: %s\n", item.rec.dest.c_str(), k, why.c_str());
             // A 4xx other than an expired link (403, 410), 408 or 429 will not
@@ -547,6 +621,14 @@ void fetch_pieces(Item & item, const Probe & p0, const std::string & url, int fd
         }
         running = running && !fatal && !disk_full && !stopping(item);
         const auto   now = clock_type::now();
+        int          throttle_left = 0;  // seconds of a running 429 pause
+        {
+            std::lock_guard<std::mutex> lock(m);
+            if (now < pause_until) {
+                throttle_left = static_cast<int>(
+                    std::max<long long>(1, (std::chrono::duration_cast<std::chrono::milliseconds>(pause_until - now).count() + 999) / 1000));
+            }
+        }
         const double s   = std::chrono::duration<double>(now - window_t).count();
         {
             std::lock_guard<std::mutex> lock(g_mutex);
@@ -556,7 +638,9 @@ void fetch_pieces(Item & item, const Probe & p0, const std::string & url, int fd
                 window_t                  = now;
                 window_bytes              = received;
             }
-            if (waiting > 0 && waiting >= n_workers) {
+            if (throttle_left > 0) {
+                item.rec.error = throttle_text(source.host, throttle_left);
+            } else if (waiting > 0 && waiting >= n_workers) {
                 std::lock_guard<std::mutex> lock2(m);
                 item.rec.error = "connection lost (" + last_error + "), trying again";
             } else if (!item.cancel) {
@@ -610,11 +694,43 @@ void run_one(Item & item) {
     std::string error;
     HttpClient  client;
     Probe       p;
-    if (!probe(client, rec.url, p, error)) {
-        if (!stopping(item)) {
-            set_failed(item, error);
+    // A 429 on the first request: wait and ask again, three times (30, 60,
+    // 120 s, or what Retry-After says), then fail. The file stays "running".
+    for (int round = 1;; round++) {
+        p = Probe();
+        if (probe(client, rec.url, p, error)) {
+            break;
         }
-        return;
+        if (stopping(item)) {
+            return;
+        }
+        if (p.status != 429 || round > 3) {
+            set_failed(item, error);
+            return;
+        }
+        const int wait_s = throttle_wait_s(p.retry_after, round);
+        std::printf("ps5sd: download %s: HTTP 429, waiting %d s (round %d)\n", rec.dest.c_str(), wait_s, round);
+        client.close();
+        const auto until = clock_type::now() + std::chrono::seconds(wait_s);
+        while (clock_type::now() < until && !stopping(item)) {
+            const int left = static_cast<int>(std::chrono::duration_cast<std::chrono::seconds>(until - clock_type::now()).count()) + 1;
+            {
+                std::lock_guard<std::mutex> lock(g_mutex);
+                if (!item.cancel) {
+                    item.rec.error = throttle_text(source_host(rec.url), left);
+                }
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(250));
+        }
+        if (stopping(item)) {
+            return;
+        }
+    }
+    {
+        std::lock_guard<std::mutex> lock(g_mutex);
+        if (!item.cancel) {
+            item.rec.error.clear();
+        }
     }
     client.close();
     const std::string dest = target_path(rec.kind, rec.dest);

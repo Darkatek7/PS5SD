@@ -375,6 +375,45 @@ int64_t content_range_total(const std::string & header) {
     return all_digits(t) ? static_cast<int64_t>(std::stoll(t)) : -1;
 }
 
+int retry_after_seconds(const std::string & header) {
+    size_t b = 0, e = header.size();
+    while (b < e && (header[b] == ' ' || header[b] == '\t')) {
+        b++;
+    }
+    while (e > b && (header[e - 1] == ' ' || header[e - 1] == '\t' || header[e - 1] == '\r')) {
+        e--;
+    }
+    const std::string t = header.substr(b, e - b);
+    if (t.empty() || t.size() > 9 || !all_digits(t)) {
+        return -1;
+    }
+    return std::stoi(t);
+}
+
+int throttle_wait_s(int retry_after, int round) {
+    if (retry_after >= 1 && retry_after <= 600) {
+        return std::min(retry_after, 300);
+    }
+    if (round <= 1) {
+        return 30;
+    }
+    return round == 2 ? 60 : 120;
+}
+
+std::string source_name(const std::string & host) {
+    const auto is_host = [&](const std::string & name) {
+        return host == name || (host.size() > name.size() && host.compare(host.size() - name.size() - 1, std::string::npos, "." + name) == 0);
+    };
+    if (is_host("civitai.com")) {
+        return "Civitai";
+    }
+    return is_host("huggingface.co") || is_host("hf.co") ? "Hugging Face" : "The server";
+}
+
+std::string throttle_text(const std::string & host, int wait_s) {
+    return source_name(host) + " limits downloads for now (HTTP 429); trying again in " + std::to_string(wait_s) + " s";
+}
+
 std::string url_encode(const std::string & s) {
     std::string out;
     char hex[4];

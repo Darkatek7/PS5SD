@@ -209,12 +209,16 @@
     var job = st.job;
     clearTimeout(st.pollTimer);
     if (!job) return;
+    var seq = ++st.pollSeq;
     st.polling = true;
     st.pollAgain = false;
     st.polledAt = new Date().getTime();
+    // a time limit: a look that never comes back would leave the page on its last line (pollWatch)
     req('GET', '/sdcpp/v1/jobs/' + job, null, function (code, data) {
-      if (token !== st.token) return;
+      // the answer to a look that a newer one replaced (pollWatch) is dropped
+      if (seq !== st.pollSeq) return;
       st.polling = false;
+      if (token !== st.token) return;
       if (code === 0) {
         st.fails++;
         st.online = false;
@@ -252,9 +256,15 @@
         return;
       }
       if (data.status === 'queued') {
-        status(runLead() + (data.queue_position > 1 ? 'Queued, ' + (data.queue_position - 1) + ' ahead of you…' : 'Queued…'));
+        st.jobQueued = true;
+        st.queuePos = data.queue_position || 0;
         st.sub = '';
+        drawQueued();
+        if (st.runningId && st.runningId !== job) showAhead(st.runningId);
       } else {
+        if (st.ahead) drawRunInfo();  // the prompt line names this page's image again
+        st.jobQueued = false;
+        st.ahead = null;
         text($('cancel'), st.canCancelGen ? 'Cancel' : 'Stop waiting');
         var pv = data.preview;
         if (st.video && pv && pv.total_steps > 0 && pv.step >= pv.total_steps) {
@@ -272,7 +282,62 @@
       }
       if (st.pollAgain) pollSoon();
       else pollLater();
-    });
+    }, 20000);
+  }
+
+  // ---- while the job this page follows waits behind another (an image queued before it, or one a page run's
+  // next image lines up behind), the one that runs is shown: its step on the status line and the bar, its live
+  // preview on the stage. The page then does not stand on "Queued…" for minutes.
+  function drawQueued() {
+    var base = st.queuePos > 1 ? 'Queued, ' + (st.queuePos - 1) + ' ahead of you' : 'Queued';
+    var a = st.ahead;
+    status(runLead() + (a ? base + ' · running now: step ' + a.step + ' of ' + a.steps : base + '…'));
+    if (a) progress(a.step / a.steps);
+    // the prompt line names the image on the stage: the one that runs
+    if (a && st.runningPrompt && st.runningId !== st.job) {
+      text($('runprompt'), st.runningPrompt);
+      show('runprompt', true, 'block');
+    }
+  }
+
+  // A look at the job that runs (GET /sdcpp/v1/jobs/<id>): its step and its preview.
+  function showAhead(id) {
+    var token = st.token;
+    st.aheadAt = new Date().getTime();
+    req('GET', '/sdcpp/v1/jobs/' + id, null, function (code, data) {
+      if (token !== st.token || !st.jobQueued || code !== 200 || !data || data.status !== 'generating') return;
+      var pv = data.preview;
+      if (!pv || !(pv.total_steps > 0)) return;
+      st.ahead = { step: pv.step, steps: pv.total_steps };
+      drawQueued();
+      if (pv.b64_json) {
+        st.stageItem = null;
+        showImage(dataUrl(pv.b64_json), 'preview', st.shownDims);
+      }
+    }, 20000);
+  }
+
+  // A step of the job that runs, from the event stream: the line now, the preview at most every 0.7 s.
+  function aheadStep(id, step, steps) {
+    if (!st.busy || !st.jobQueued || id === st.job) return;
+    st.runningId = id;
+    if (steps > 0) { st.ahead = { step: step, steps: steps }; drawQueued(); }
+    if (st.aheadTimer) return;
+    st.aheadTimer = setTimeout(function () {
+      st.aheadTimer = 0;
+      if (st.busy && st.jobQueued && st.runningId) showAhead(st.runningId);
+    }, Math.max(0, 700 - (new Date().getTime() - st.aheadAt)));
+  }
+
+  // The page must not stay on an old line while a job runs. A look can hang (a browser holds requests of a tab
+  // in the background, or waits for a free connection), and a timer can be late by a minute in a background
+  // tab; while a look is under way, the steps the event stream reports only mark pollAgain. So: a look that
+  // has not come back after 15 s, or no look for 12 s, is replaced by a new one. Called by queueWatch every
+  // 2 s, and when the tab is shown again (now = true).
+  function pollWatch(now) {
+    if (!st.busy || !st.job) return;
+    var age = new Date().getTime() - st.polledAt;
+    if (now || (st.polling ? age > 15000 : age > 12000)) pollJob();
   }
 
   // Synchronous (older servers): one long POST, progress from /sdapi/v1/progress.

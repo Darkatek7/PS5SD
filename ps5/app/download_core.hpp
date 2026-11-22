@@ -87,6 +87,21 @@ std::string content_disposition_name(const std::string & header);
 // "bytes 0-0/12345" -> 12345; -1 when it does not say.
 int64_t content_range_total(const std::string & header);
 
+// A Retry-After header as seconds ("120"); -1 when it is empty, an HTTP date or not a number.
+int retry_after_seconds(const std::string & header);
+
+// How long to wait after a 429. retry_after is the server's Retry-After (-1 for none): used when it is
+// 1..600 s, capped at 300. Otherwise 30, 60, 120, 120, ... s for round 1, 2, 3, 4, ...
+int throttle_wait_s(int retry_after, int round);
+
+// "Civitai" for civitai.com and its subdomains, "Hugging Face" for huggingface.co and hf.co (and their
+// subdomains), "The server" for any other host.
+std::string source_name(const std::string & host);
+
+// The note shown while it waits, for example "Civitai limits downloads for now (HTTP 429); trying again in
+// 60 s". host names the source (source_name).
+std::string throttle_text(const std::string & host, int wait_s);
+
 // ---- the starter catalog (catalog.hpp holds the data) ------------------------
 
 struct CatalogFile {

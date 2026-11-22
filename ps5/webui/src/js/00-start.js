@@ -62,6 +62,14 @@
     polling: false,      // a GET /sdcpp/v1/jobs/<id> is under way
     pollAgain: false,    // the event stream said the job moved while that GET was under way
     polledAt: 0,         // when the last one went out
+    pollSeq: 0,          // the number of the last one: an answer to an older one is dropped (pollJob)
+    jobQueued: false,    // the job this page follows waits in the server's queue behind another one
+    queuePos: 0,         // then its place in the queue (1: next)
+    runningId: '',       // the job that runs on the server now, from the queue's list (takeJobs)
+    runningPrompt: '',   // and its prompt
+    ahead: null,         // while ours waits: the step of the one that runs, {step, steps} (09-generation.js)
+    aheadAt: 0,          // when its last look went out
+    aheadTimer: 0,
     queued: {},          // the request of each job this page queued, by job id (for when it is followed)
     gone: {},            // jobs this page stopped waiting for: the queue does not take them up again
     followPrompt: '',    // the prompt of a job this page follows but did not start

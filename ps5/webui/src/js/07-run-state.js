@@ -31,6 +31,8 @@
     st.job = job || null;
     st.fails = 0;
     st.sub = '';
+    st.jobQueued = false;
+    st.ahead = null;
     st.others = false;
     setBusy(true);
     progress(0);

@@ -172,6 +172,8 @@
       var parts = [bytes(got) + (total > 0 ? ' of ' + bytes(total) + ' (' + pct + '%)' : '')];
       if (bps > 0) parts.push(bytes(bps) + '/s');
       if (bps > 0 && total > got) parts.push(clock((total - got) / bps) + ' left');
+      // A running download's error is a note: it waits and tries again (HTTP 429, a lost connection).
+      if (d.error) parts.push(String(d.error));
       msg = parts.join(' · ');
     } else if (d.state === 'queued') {
       msg = 'Waiting for the others to finish';
