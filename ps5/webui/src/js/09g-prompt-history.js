@@ -98,7 +98,10 @@
     negSync();
     persist();
     histShow(false);
-    toast(e.negative ? 'The prompt and its negative prompt are back.' : 'The prompt is back.');
+    var randOff = bkRand;
+    if (randOff) bkRandSet(false);
+    toast((e.negative ? 'The prompt and its negative prompt are back.' : 'The prompt is back.') +
+      (randOff ? ' Random prompt is off now.' : ''));
     try { $('prompt').focus(); } catch (x) {}
   }
 

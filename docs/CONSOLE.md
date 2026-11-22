@@ -1631,3 +1631,24 @@ read **Add __lora:V3_flux_klein__** and put the placeholder at the cursor, and t
 of 2 images (FLUX.2 Klein 9B, 1024x1024, 4 steps) put `instapic` into one prompt and `film grain` into the
 other, and each image kept the template. No script error; at 390 px the page was not wider than the phone.
 
+
+## Random prompts and the fan chart (2026-11-22)
+
+FW 13.00. The fan readings come from a 1.8.2 build while the user made FLUX.2 Klein 9B images with Manual
+87 °C, read through `GET /ps5sd/v1/app/console` from the PC. The rest is a 1.8.3 build (local Docker), with
+Python and headless Chrome from the PC.
+
+**Random prompt.** `POST prompts/expand` with `books` naming 3 of the user's collections (64, 10 and 11
+entries) and a count of 100: each item's template was an entry of them, every placeholder was expanded, and
+the items came 70, 17 and 13 from them. 34 ms for the 100. The same seed gave the same items, a name without a
+collection was in `unknown`, and six bad bodies were a 400. With all 65 collections and one item: 24 ms (median
+of 5). 16 checks, all passed. In the web UI, with two test collections ticked, the note under the prompt said
+"one of 4 entries of t183a and t183b" and the prompt box was off. The image took an entry of them, not the
+typed prompt, and Use all gave that entry back and turned the switch off. No script error.
+
+**The fan chart.** The readings a second apart show that the fan does not follow the chip's reading. In one
+2-minute window under load the chip read 70 to 92 °C while the fan stayed at 29 to 31%. In another the chip
+read 54 to 88 °C (74 °C on average, up to 16 °C apart from one second to the next) while the fan was at 23 to
+32%. The 1.8.0 chart drew each mode as a fan line (23% up to the highest temperature, then straight up), and
+the readings lay off it, at 30% far under the target. So 1.8.3 draws the chip and the fan over the last
+2 minutes, with the mode's highest temperature as a line.

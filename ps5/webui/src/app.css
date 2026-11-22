@@ -102,18 +102,21 @@
   .fanplot { display: block; width: 100%; max-width: 40rem; height: auto; margin: 0.6rem 0 0.2rem; overflow: visible; }
   .fanplot .fgrid { stroke: var(--border); stroke-width: 1; }
   .fanplot .ftick { fill: var(--faint); font-size: 9px; }
-  .fanplot .fmode { fill: none; stroke: var(--accent-hi); stroke-width: 2.5; stroke-linejoin: round; }
+  .fanplot { touch-action: pan-y; }
+  .fanplot .fmode { fill: none; stroke: var(--accent-hi); stroke-width: 2; }
   .fanplot .fown { fill: none; stroke: var(--muted); stroke-width: 1.5; stroke-dasharray: 4 3; }
-  .fanplot .fread { fill: var(--muted); opacity: 0.45; }
+  .fanplot .fchip, .fanplot .ffan { fill: none; stroke: var(--text); stroke-width: 1.5; stroke-linejoin: round; stroke-linecap: round; opacity: 0.75; }
+  .fanplot .fcross { stroke: var(--muted); stroke-width: 1; }
+  .fanplot .fpane { fill: var(--muted); }
   .fanplot .fnow { fill: var(--accent-hi); stroke: var(--surface); stroke-width: 2; }
   .fanplot .fnowt, .fanplot .flabel { paint-order: stroke; stroke: var(--surface); stroke-width: 3px; stroke-linejoin: round; }
   .fanplot .fnowt { fill: var(--text); font-size: 10px; font-weight: 600; }
   .fanplot .flabel { fill: var(--accent-hi); font-size: 9.5px; font-weight: 600; }
   .fankey { display: flex; flex-wrap: wrap; gap: 0.3rem 1rem; max-width: 40rem; color: var(--muted); font-size: 0.8rem; }
   .fankey span::before { content: ''; display: inline-block; vertical-align: middle; margin-right: 0.35rem; }
-  .fankey .k-mode::before { width: 1.1rem; height: 0; border-top: 2.5px solid var(--accent-hi); }
+  .fankey .k-mode::before { width: 1.1rem; height: 0; border-top: 2px solid var(--accent-hi); }
   .fankey .k-own::before { width: 1.1rem; height: 0; border-top: 1.5px dashed var(--muted); }
-  .fankey .k-read::before { width: 0.45rem; height: 0.45rem; border-radius: 50%; background: var(--muted); opacity: 0.6; }
+  .fankey .k-read::before { width: 1.1rem; height: 0; border-top: 1.5px solid var(--text); opacity: 0.75; }
   .fankey .k-now::before { width: 0.6rem; height: 0.6rem; border-radius: 50%; background: var(--accent-hi); }
   .cgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(13rem, 1fr)); gap: 0.6rem; }
   .ccard { background: var(--field); border: 1px solid var(--border); border-radius: 10px; padding: 0.6rem 0.75rem 0.5rem; min-width: 0; }
@@ -653,6 +656,19 @@
   .bkb:hover { background: var(--raised); }
   .bkb.on { background: var(--accent); border-color: var(--accent); color: #fff; }
   .bkb.bknew { color: var(--accent); border-style: dashed; }
+  .bkrand { padding: 0.2rem 0.9rem 0.4rem; border-bottom: 1px solid var(--border); }
+  .bkrand label.opt { margin: 0.1rem 0; }
+  .bkrand .hint { margin: 0; }
+  .bkrand .linkrow { margin-top: 0; }
+  .bkpair { display: inline-flex; align-items: center; margin: 0 0.4rem 0.4rem 0; padding-left: 0.6rem; border: 1px solid var(--border); border-radius: 2rem; max-width: 100%; }
+  .bkpair.picked { border-color: var(--accent); }
+  .bkpair input { width: 1.2rem; height: 1.2rem; margin: 0; padding: 0; flex: none; accent-color: var(--accent); cursor: pointer; }
+  .bkpair .bkb { margin: 0; border-color: transparent; padding: 0 0.8rem 0 0.5rem; min-width: 0; }
+  .bkpair .bkb.on { padding-left: 0.8rem; margin-left: 0.3rem; }
+  .randnote { margin: 0.35rem 0 0.2rem; }
+  .randnote .hint { margin: 0; }
+  .randnote .linkrow { margin-top: 0; }
+  textarea#prompt:disabled { opacity: 0.55; cursor: not-allowed; }
   .bkwrap { border-bottom: 1px solid var(--border); }
   .bkwrap:last-child { border-bottom: 0; }
   .bkwrap .phrow { border-bottom: 0; }

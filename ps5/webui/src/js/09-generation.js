@@ -28,7 +28,13 @@
     if (st.mode === 'edit' && !st.init) { status('Pick a start image first, or press Edit on an image of the gallery.', true); return; }
     if (st.mode === 'guide' && !st.cn) { status('Pick a guide image first, or press Guide on an image of the gallery.', true); return; }
     var p = readParams();
-    if (!p.prompt.replace(/^\s+|\s+$/g, '')) {
+    // Random prompt for each image (09h): the ticked collections instead of the typed prompt
+    var rb = randomBooks();
+    if (rb && !booksOf(rb).total) {
+      status('Random prompt is on, but no ticked collection has entries. Tick one under Collections, or turn it off.', true);
+      return;
+    }
+    if (!rb && !p.prompt.replace(/^\s+|\s+$/g, '')) {
       status('Type a prompt first.', true);
       $('prompt').focus();
       return;
@@ -37,10 +43,11 @@
     // p.negTemplate (Run again, the history, the job's "template")
     p.template = p.prompt;
     p.negTemplate = p.negative;
-    p.wild = isRandom(p.template) || isRandom(p.negTemplate);
+    p.books = rb;
+    p.wild = !!rb || isRandom(p.template) || isRandom(p.negTemplate);
     expandJob(p);
     var n = runCount();
-    rememberPrompt(p);
+    if (!rb) rememberPrompt(p);
     // while something runs, the same settings wait in the server's queue
     if (st.busy) { addToQueue(p, n); return; }
     persist();
@@ -115,11 +122,14 @@
   // The typed prompt and negative prompt go along when an expansion changed either (the image keeps them for
   // Use all): the template when it differs, the negative template then always, also when it is empty, so Use all
   // can tell an empty typed negative prompt from an image without template info.
+  // With Random prompt for each image, the entry an image took is its template.
   function withTemplates(body, p) {
-    var tDiff = p.template !== undefined && p.template !== p.prompt;
-    var nDiff = p.negTemplate !== undefined && p.negTemplate !== p.negative;
-    if (tDiff) body.template = p.template;
-    if (tDiff || nDiff) body.negative_template = p.negTemplate || '';
+    var tpl = p.pickTemplate !== undefined ? p.pickTemplate : p.template;
+    var ntpl = p.pickTemplate !== undefined ? p.pickNegTemplate : p.negTemplate;
+    var tDiff = tpl !== undefined && tpl !== p.prompt;
+    var nDiff = ntpl !== undefined && ntpl !== p.negative;
+    if (tDiff) body.template = tpl;
+    if (tDiff || nDiff) body.negative_template = ntpl || '';
     return body;
   }
 

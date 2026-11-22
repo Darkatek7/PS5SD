@@ -1,7 +1,8 @@
   // ---------- prompt collections ----------
   // Named lists of prompts or of a few words, kept on the console (GET, POST and DELETE /ps5sd/v1/app/promptbooks)
   // for every model and browser. __name__ in a prompt is a random entry of the collection (09f). The panel under
-  // the prompt (shared with the History) lists them: Use, Random prompt, Insert __name__, Import and Export .txt.
+  // the prompt (shared with the History) lists them: Use, Use a random entry, Insert __name__, Import and Export
+  // .txt, and the switch for a random prompt for each image from the ticked collections.
   // Save prompt puts the prompt and the negative prompt as typed into a collection.
   var bkOpen = '';          // the name of the open collection
   var bkShown = 100;        // how many entries of it the list draws
@@ -10,6 +11,8 @@
   var bkMenuId = 0;         // the entry whose Edit / Delete show
   var bkEditId = 0;         // the entry in the editor
   var promptCaret = null;   // {start, end}: the last place of the caret in the prompt
+  var bkRand = false;       // Random prompt for each image: on or off (kept in this browser)
+  var bkPicks = [];         // the names of the collections it takes from, ticked in the Collections tab
   var BK_PAGE = 100;
   var BK_ENTRIES_MAX = 2000;
   var BK_NAME_RE = /^[A-Za-z0-9_-]{1,40}$/;
@@ -53,7 +56,7 @@
         bookList = null;
       }
       drawBooksButtons();
-      drawWildHint();
+      drawRandom();
       if (booksPanelOpen()) drawBooks();
       if ($('bk-savebox').style.display !== 'none') drawBookSave();
       if (then) then();
@@ -100,6 +103,62 @@
 
   function bkCurrent() { return bkOpen ? findBook(bkOpen) : null; }
 
+  // ---- Random prompt for each image: a random entry of the ticked collections instead of the typed prompt
+  // (09f expandJob with p.books). Kept in this browser, as the rest of the Create tab.
+  function bkPicked(name) {
+    var low = String(name).toLowerCase();
+    for (var i = 0; i < bkPicks.length; i++) if (String(bkPicks[i]).toLowerCase() === low) return true;
+    return false;
+  }
+
+  function bkPickSet(name, on) {
+    var low = String(name).toLowerCase(), keep = [];
+    for (var i = 0; i < bkPicks.length; i++) if (String(bkPicks[i]).toLowerCase() !== low) keep.push(bkPicks[i]);
+    if (on) keep.push(name);
+    bkPicks = keep;
+    save('bookpicks', JSON.stringify(bkPicks));
+  }
+
+  // The names Random prompt takes from, or null while it is off.
+  function randomBooks() { return bkRand ? bkPicks.slice() : null; }
+
+  function bkRandSet(on) {
+    bkRand = !!on;
+    save('bookrand', bkRand ? '1' : '0');
+    // the first time: the open collection
+    if (bkRand && !booksOf(bkPicks).total && bkCurrent() && bkCurrent().entries.length) bkPickSet(bkCurrent().name, true);
+    if (booksPanelOpen()) drawBooks();
+    drawRandom();
+  }
+
+  // "portrait, cosplay and 3 more"
+  function bkNames(books) {
+    var names = [], i;
+    for (i = 0; i < books.length && i < 3; i++) names.push(books[i].name);
+    if (books.length > 3) return names.join(', ') + ' and ' + (books.length - 3) + ' more';
+    if (names.length > 1) return names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1];
+    return names.join('');
+  }
+
+  // The note under the prompt, the line in the Collections tab, and the prompt box (not used while it is on).
+  function drawRandom() {
+    var got = booksOf(bkPicks), on = bkRand;
+    $('bk-rand').checked = on;
+    show('bk-rand-info', on, 'block');
+    show('rand-note', on, 'block');
+    $('prompt').disabled = on;
+    if (on) {
+      text($('bk-rand-text'), got.total ? 'Ticked: ' + plural(got.books.length, 'collection', 'collections') + ', ' +
+        plural(got.total, 'entry', 'entries') + '. Each image takes one of them at random.' :
+        'Tick the collections each image takes its prompt from.');
+      text($('rand-text'), got.total ? 'Random prompt: each image takes one of ' + plural(got.total, 'entry', 'entries') +
+        ' of ' + bkNames(got.books) + '. The prompt box is not used.' :
+        'Random prompt is on, but no ticked collection has entries.');
+      $('rand-text').className = got.total ? 'hint' : 'hint bad';
+    }
+    drawWildHint();
+  }
+
   // ---- drawing the Collections tab
   function drawBooks() {
     var list = sortedBooks(), box = $('bk-tabs'), cur = bkCurrent(), i;
@@ -112,7 +171,19 @@
         x.type = 'button';
         x.setAttribute('aria-pressed', on ? 'true' : 'false');
         x.onclick = function () { bkOpen = b.name; bkShown = BK_PAGE; bkMenuId = 0; bkEditId = 0; bkMsg(''); drawBooks(); };
-        box.appendChild(x);
+        if (!bkRand) { box.appendChild(x); return; }
+        // with Random prompt on: a tick for each collection, next to the button that opens it
+        var picked = bkPicked(b.name);
+        var pair = el('span', 'bkpair' + (picked ? ' picked' : ''));
+        var cb = el('input', '');
+        cb.type = 'checkbox';
+        cb.checked = picked;
+        cb.setAttribute('aria-label', 'Random prompts from ' + b.name);
+        cb.title = 'Random prompts from ' + b.name;
+        cb.onchange = function () { bkPickSet(b.name, cb.checked); pair.className = 'bkpair' + (cb.checked ? ' picked' : ''); drawRandom(); };
+        pair.appendChild(cb);
+        pair.appendChild(x);
+        box.appendChild(pair);
       })(list[i]);
     }
     var nb = el('button', 'bkb bknew', '+ New');
@@ -212,7 +283,11 @@
     negSync();
     persist();
     histShow(false);
-    toast(e.negative ? 'The prompt and its negative prompt are in the form.' : 'The prompt is in the form.');
+    // the prompt box counts again
+    var randOff = bkRand;
+    if (randOff) bkRandSet(false);
+    toast((e.negative ? 'The prompt and its negative prompt are in the form.' : 'The prompt is in the form.') +
+      (randOff ? ' Random prompt is off now.' : ''));
     try { $('prompt').focus(); } catch (x) {}
   }
 
@@ -307,6 +382,7 @@
       if (name === b.name) { bkNameClose(); return; }
       req('POST', bkPath(b.name), { name: name }, function (code, data) {
         if (code !== 200) { text($('bk-name-msg'), errText(code, data, 'Could not rename it')); return; }
+        if (bkPicked(b.name)) { bkPickSet(b.name, false); bkPickSet(name, true); }
         bkOpen = name;
         bkNameClose();
         loadBooks();
@@ -325,6 +401,7 @@
     if (!window.confirm('Delete the collection ' + b.name + (n ? ' with its ' + plural(n, 'entry', 'entries') : '') + '?')) return;
     req('DELETE', bkPath(b.name), null, function (code, data) {
       if (code !== 200 && code !== 404) { bkMsg(errText(code, data, 'Could not delete it'), true); return; }
+      bkPickSet(b.name, false);
       bkOpen = '';
       bkMsg('');
       loadBooks();
@@ -493,6 +570,19 @@
     $('bks-sel').onchange = function () { show('bks-name', $('bks-sel').value === '__new__', 'block'); };
     $('bks-name').onkeydown = function (e) { e = e || window.event; if (e.keyCode === 13) { bkSavePrompt(); return false; } return true; };
     $('bk-random').onclick = bkRandom;
+    bkRand = load('bookrand') === '1';
+    try { var picks = JSON.parse(load('bookpicks') || '[]'); bkPicks = picks && picks.length !== undefined ? picks : []; } catch (x) { bkPicks = []; }
+    $('bk-rand').onchange = function () { bkRandSet($('bk-rand').checked); };
+    $('bk-rand-all').onclick = function () {
+      var list = sortedBooks();
+      for (var k = 0; k < list.length; k++) if (list[k].entries.length && !bkPicked(list[k].name)) bkPickSet(list[k].name, true);
+      drawBooks();
+      drawRandom();
+    };
+    $('bk-rand-none').onclick = function () { bkPicks = []; save('bookpicks', '[]'); drawBooks(); drawRandom(); };
+    $('rand-off').onclick = function () { bkRandSet(false); try { $('prompt').focus(); } catch (x) {} };
+    $('rand-change').onclick = function () { panelTab = 'books'; histShow(true); };
+    drawRandom();
     $('bk-insert').onclick = bkInsertName;
     $('bk-import').onclick = function () { $('bk-file').click(); };
     $('bk-file').onchange = function () {

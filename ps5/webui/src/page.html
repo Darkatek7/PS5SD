@@ -124,6 +124,10 @@
     <p class="hint starter" id="starter" style="display:none"></p>
     <textarea id="prompt" class="big" rows="4" placeholder="What should it draw?"></textarea>
     <div class="tagbox" id="tagbox" role="listbox" aria-label="Tags" style="display:none"></div>
+    <div class="randnote" id="rand-note" style="display:none">
+      <p class="hint" id="rand-text"></p>
+      <div class="linkrow"><button type="button" class="linkbtn" id="rand-change" aria-controls="phist">Change the collections</button><button type="button" class="linkbtn" id="rand-off">Turn off</button></div>
+    </div>
     <p class="hint" id="wild-hint" style="display:none"><span id="wild-text"></span> <button type="button" class="info" data-help="help-wildcards" aria-label="More about wildcards">&#9432;</button></p>
     <div class="linkrow">
       <button type="button" class="linkbtn" id="neg-toggle" aria-expanded="false" aria-controls="neg-box">+ Negative prompt</button>
@@ -158,6 +162,13 @@
         <p class="hint" id="ph-none" style="display:none">No prompts yet. Each run adds its prompt here.</p>
       </div>
       <div id="ph-bpane" role="tabpanel" style="display:none">
+        <div class="bkrand">
+          <label class="opt"><input type="checkbox" id="bk-rand"> Random prompt for each image <button type="button" class="info" data-help="help-wildcards" aria-label="More about Random prompt">&#9432;</button></label>
+          <div id="bk-rand-info" style="display:none">
+            <p class="hint" id="bk-rand-text"></p>
+            <div class="linkrow"><button type="button" class="linkbtn" id="bk-rand-all">Tick all</button><button type="button" class="linkbtn" id="bk-rand-none">Tick none</button></div>
+          </div>
+        </div>
         <div class="bktabs" id="bk-tabs"></div>
         <div class="bkform" id="bk-namebox" style="display:none">
           <label for="bk-name" id="bk-name-lbl">Name of the collection</label>
@@ -169,7 +180,7 @@
         <p class="hint" id="bk-none" style="display:none">No entries yet. Save a prompt here, or import a .txt file with one entry per line.</p>
         <p class="hint" id="bk-nobook" style="display:none">No collections yet. Press + New, Save prompt or Import .txt.</p>
         <div class="bkacts" id="bk-acts" style="display:none">
-          <button type="button" class="linkbtn" id="bk-random" title="Put a random entry into the prompt now">Random prompt</button>
+          <button type="button" class="linkbtn" id="bk-random" title="Put a random entry of this collection into the prompt now">Use a random entry</button>
           <button type="button" class="linkbtn" id="bk-insert" title="Put the name of this collection into the prompt at the cursor">Insert __name__</button>
           <button type="button" class="linkbtn" id="bk-rename">Rename</button>
           <button type="button" class="linkbtn" id="bk-export" title="One line per entry; negative prompts are not in the file">Export .txt</button>
@@ -659,8 +670,9 @@
         <div class="step fanstep"><button type="button" id="fan-target-" aria-label="Lower">&minus;</button><input id="fan-target" type="number" min="70" max="91" step="1" value="85"><button type="button" id="fan-target+" aria-label="Higher">+</button></div>
       </div>
       <p class="fanwhat" id="fan-what"></p>
-      <svg class="fanplot" id="fan-plot" viewBox="0 0 320 168" role="img" aria-label="The fan by the chip's temperature"></svg>
-      <div class="fankey"><span class="k-mode">this mode</span><span class="k-own" id="fan-key-own">the console's own</span><span class="k-read">the last 2 minutes</span><span class="k-now">now</span></div>
+      <svg class="fanplot" id="fan-plot" viewBox="0 0 320 190" role="img" aria-label="The chip's temperature and the fan over the last 2 minutes"></svg>
+      <div class="fankey"><span class="k-mode">this mode's highest temperature</span><span class="k-own" id="fan-key-own">the console's own</span><span class="k-read">the chip, the fan</span><span class="k-now">now</span></div>
+      <p class="hint" id="fan-read"></p>
       <p class="hint" id="fan-meas"></p>
       <p class="hint" id="fan-note"></p>
     </section>
@@ -714,7 +726,8 @@
     <p><b>Trigger words as chips.</b> A LoRA's trigger words are a list, kept on the console. Under a LoRA you picked on the Create tab, each word is a chip: press it to turn it on or off (an off word is dimmed and never goes into a prompt). Under <b>Models</b>, <b>Installed</b>, <b>⋯</b>, <b>Info</b> you also add words (type one, then Enter or a comma) and remove them with <b>×</b>. A change on the Create tab is saved to the console at once; the Info dialog saves with <b>Save</b>. The mode says what the LoRA puts in for each image: <b>All of them</b> (the words that are on, in order), <b>One at random</b>, or <b>Some at random</b> with a number (that many different words, in list order). The mode counts for <code>__lora__</code> and <code>__lora:NAME__</code>, and the hint under the prompt says what each image picks from.</p>
     <p><code>__lora:NAME__</code> puts in the words of one LoRA, by its mode, at that place. NAME is the LoRA's path without its extension (<code>styles/ink-sketch</code>) or just its file name without the extension (<code>ink-sketch</code>); capitals do not matter, and the path wins when both match. It works for any LoRA on the console, picked or not, and does not add it to the job. A name that matches no LoRA stays as typed, and the hint says so. <code>__lora__</code> then leaves out a LoRA that a <code>__lora:NAME__</code> in the same prompt names. With a LoRA in mode <b>One</b> or <b>Some</b>, <b>Add __lora:NAME__</b> puts the placeholder at the cursor, so each image picks its own words; in mode <b>All</b>, <b>Add trigger words</b> puts the words themselves.</p>
     <p>An entry can have a negative prompt. When the prompt is exactly one <code>__name__</code>, the image's negative prompt is the one of the entry it picked, then the negative prompt you typed. In any other prompt only the typed one is used. <code>__lora__</code> in the negative prompt stays as typed.</p>
-    <p><b>Collections</b> under the prompt opens the lists. Pick one, then <b>Use</b> puts an entry into the prompt (and its negative prompt, if it has one), <b>⋯</b> edits or deletes it. <b>Random prompt</b> puts a random entry into the prompt now, <b>Insert __name__</b> puts the placeholder at the cursor. <b>Save prompt</b> keeps the prompt and the negative prompt as you typed them (the placeholders, not an expansion) in a collection; <code>saved</code> is the default. <b>Import .txt</b> reads a Dynamic Prompts wildcard file: one entry per line, empty lines and lines that start with <code>#</code> skipped; the file name gives the collection's name, and when it is there you can add to it or give a new name. <b>Export .txt</b> saves <code>&lt;name&gt;.txt</code> with one line per entry (a line break inside an entry becomes a space; negative prompts are not in the file). A collection holds at most 2000 entries, and there can be 200.</p>
+    <p><b>Collections</b> under the prompt opens the lists. Pick one, then <b>Use</b> puts an entry into the prompt (and its negative prompt, if it has one), <b>⋯</b> edits or deletes it. <b>Use a random entry</b> puts a random entry into the prompt now, <b>Insert __name__</b> puts the placeholder at the cursor. <b>Save prompt</b> keeps the prompt and the negative prompt as you typed them (the placeholders, not an expansion) in a collection; <code>saved</code> is the default. <b>Import .txt</b> reads a Dynamic Prompts wildcard file: one entry per line, empty lines and lines that start with <code>#</code> skipped; the file name gives the collection's name, and when it is there you can add to it or give a new name. <b>Export .txt</b> saves <code>&lt;name&gt;.txt</code> with one line per entry (a line break inside an entry becomes a space; negative prompts are not in the file). A collection holds at most 2000 entries, and there can be 200.</p>
+    <p><b>Random prompt for each image</b> (at the top of the Collections tab) takes a random entry of the collections you tick as the prompt of each image, instead of the prompt box. Every entry of the ticked collections is as likely as any other, and its <code>{a|b}</code>, <code>__names__</code> and <code>__lora__</code> are expanded as usual. The entry's negative prompt comes first, then the one you typed. Each image keeps the entry it took, so <b>Use all</b> gives that entry back (and turns Random prompt off, as <b>Use</b> does). The ticks and the switch are kept in this browser.</p>
     <p><b>History</b> under the prompt lists the last 50 prompts, with their negative prompts and models. A click puts one back (the negative prompt too), the <b>×</b> removes one. The list is kept on the console, so every browser and device has it. A prompt with a placeholder is kept as you typed it.</p>
     <h2 id="help-extend">Extend a picture</h2>
     <p>Start from an image (or press Edit on one of the gallery), then <b>Extend</b>: pick 128 to 512 px for each side that should grow and press Extend. The page puts the picture on a larger canvas, fills the new part with the colours of the edge and masks it, a little way into the picture too, so the join blends. Say in the prompt what should be there and press Generate. The strength goes to 1, and the picture keeps its own pixels (<b>Only the masked area</b>); the part that is made reaches as far into the picture as the new part is wide, so the model sees what it continues. <b>Undo the last</b> takes the last extension back. A picture can grow to 4096 px on a side.</p>
@@ -764,7 +777,7 @@
     <h2 id="help-apikey">API key</h2>
     <p>Apps send it as <code>Authorization: Bearer &lt;key&gt;</code>, A1111 apps as the password of their API login. The <a href="#help" data-doc="api">HTTP API</a> page has the details and how to reach the console from outside your network.</p>
     <h2 id="help-fan">Fan</h2>
-    <p>The PS5 speeds its fan up when the chip gets near a target temperature, 91 °C on the console we measured. Until then the fan stays at about 23%, so the chip runs up to 90 °C and more during long runs. The modes lower that target, and the console's own fan control still sets the speed.</p>
+    <p>The PS5 turns its fan faster as the chip nears a target temperature, 91 °C on the console we measured. In long runs with FLUX.2 Klein 9B the fan ran at about 30% and the chip at 85 °C on average, with short peaks up to 91 °C. The modes lower that target, and the console's own fan control still sets the speed. The chart shows the last 2 minutes: the chip's temperature with the mode's highest temperature as a line, and the fan below it. The chip's reading swings with each step while the fan follows slowly, so short peaks over the line are normal. Point at the chart to read one second.</p>
     <p><b>Quiet</b> leaves the console's target as it is. <b>Balanced</b> is 3 °C under it, <b>Cool</b> 6 °C under it, <b>Manual</b> the target you set, from 70 °C up to the console's own. The lower the target, the louder the fan.</p>
     <p>The chart shows the mode: the fan flat at its minimum, then straight up at the mode's highest temperature, where the console turns it as fast as it needs to. The dashed line is the console's own. The grey dots are the chip's temperature and the fan of the last 2 minutes, the blue one is now. Under the chart: how fast the fan turned and how hot the chip got in that mode on our console, with FLUX.2 Klein 9B making one image after another.</p>
     <p>The target goes down one degree every 20 seconds, because a big step at once drives the fan to almost full speed. It needs an ELF loader on port 9021, like the readings: PS5SD starts a small payload, ps5sd-fan. When PS5SD closes, or the mode is Quiet, the payload puts the console's own target back within 15 seconds and ends. A target under 70 °C, which another payload can leave behind (the fan then runs loud all the time), counts as 91 °C: the modes work from there, and Quiet puts 91 °C back.</p>

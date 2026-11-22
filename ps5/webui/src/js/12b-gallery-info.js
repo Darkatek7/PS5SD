@@ -260,8 +260,11 @@
     }
     if (!st.video && st.mode !== 'guide') setMode('image');
     persist();
+    // the prompt of this image counts again: Random prompt for each image goes off
+    var randOff = randomBooks() !== null;
+    if (randOff) bkRandSet(false);
     var file = infoModel(j);
-    toast('The prompt and the settings of ' + name + ' are in the form.' +
+    toast('The prompt and the settings of ' + name + ' are in the form.' + (randOff ? ' Random prompt is off now.' : '') +
       (other && file ? ' Its model, ' + file + ', is not installed; the same seed gives the same image only with it.' : '') +
       (missing.length ? ' Not installed: ' + missing.join(', ') + '.' : ''), other || missing.length ? 9000 : 4000);
   }

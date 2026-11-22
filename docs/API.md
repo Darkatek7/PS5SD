@@ -643,6 +643,23 @@ curl -X POST http://10.0.0.101:7860/ps5sd/v1/app/promptbooks/saved/entries \
   `__lora:NAME__` that matched no LoRA as `lora:NAME`; they stay as typed. A bad body is `400`.
 - A prompt that is exactly one `__name__` also takes that entry's negative prompt, in front of the
   `negative_prompt` you sent.
+- `books` (a list of 1 to 200 collection names) instead of `prompt`: each item is a random entry of these
+  collections together, expanded as above. This is the web UI's **Random prompt for each image**. Every entry
+  is as likely as any other, and a name given twice counts once. The entry's negative prompt comes first, then
+  the `negative_prompt` you sent. `__lora__` takes the LoRAs of `lora` (there is no prompt to read tags from).
+  Each item has its own `template` and `negative_template` (the entry's prompt, and its negative prompt then
+  yours), and the answer has no top-level ones. A name without a collection goes to `unknown`. `prompt` and
+  `books` together, or collections without entries, are a `400`.
+
+  ```json
+  { "books": ["portraits", "places"], "negative_prompt": "lowres", "count": 2 }
+  ```
+
+  ```json
+  { "items": [ { "prompt": "an old fisherman, red coat", "negative_prompt": "lowres",
+                 "template": "an old fisherman, {red|blue} coat", "negative_template": "lowres" } ],
+    "unknown": [] }
+  ```
 
 To make images from it, send each item to img_gen with `template` and `negative_template`, so the image
 keeps the template. The saved image has `Template: ...` and `Negative Template: ...` in its parameters, and

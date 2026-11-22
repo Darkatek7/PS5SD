@@ -1126,7 +1126,9 @@ class MockGenerate:
                 except (ValueError, IndexError, struct.error):
                     pass
                 return "<%d chars>" % len(v)
-            cut = {k: shown(v) for k, v in j.items()}
+            # the texts stay whole (a template from a collection can be long)
+            texts = ("prompt", "negative_prompt", "template", "negative_template")
+            cut = {k: (v if k in texts else shown(v)) for k, v in j.items()}
             if isinstance(j.get("ref_images"), list):
                 cut["ref_images"] = [shown(x) for x in j["ref_images"]]
             with self.lock:

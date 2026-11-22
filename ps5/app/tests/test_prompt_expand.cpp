@@ -307,9 +307,81 @@ void test_triggers() {
     check(lora_run("__lora:style/pixel-art__", {}, 1, 1, ovr)[0] == "own", "and for the named LoRA too");
 }
 
+// expand_books: a random entry of several collections together is the template of an image
+void test_books() {
+    const PromptBookMap bm = books();
+    {
+        PromptRng                rng(7);
+        PromptExpander           x(bm, "", rng);
+        std::map<std::string, int> seen;
+        bool                     templates_ok = true, negatives_ok = true;
+        for (int i = 0; i < 3000; i++) {
+            PromptExpansion e;
+            std::string     t, nt;
+            if (!x.expand_books({ "People", "single", "people", "nope", "empty" }, "typed", e, t, nt)) {
+                templates_ok = false;
+                break;
+            }
+            seen[t]++;
+            if (t == "a young {sailor|pilot}") {
+                negatives_ok = negatives_ok && nt == "blurry, typed" && e.negative == "blurry, typed" &&
+                               (e.prompt == "a young sailor" || e.prompt == "a young pilot");
+            } else if (t == "only") {
+                negatives_ok = negatives_ok && nt == "ugly, typed" && e.prompt == "only";
+            } else if (t == "a __hats__ wearer") {
+                negatives_ok = negatives_ok && nt == "typed" && e.prompt == "a cap wearer";
+            } else if (t != "an old fisherman") {
+                templates_ok = false;
+            }
+        }
+        check(templates_ok && seen.size() == 4, "every entry of the collections comes up, nothing else");
+        check(negatives_ok, "the entry's negative prompt, then the typed one, in the template and the expansion");
+        // a name given twice counts once: 4 entries, each about 750 of 3000
+        bool even = true;
+        for (const auto & kv : seen) {
+            even = even && kv.second > 600 && kv.second < 900;
+        }
+        check(even, "each entry is as likely as any other");
+        check(x.unknown().size() == 1 && x.unknown()[0] == "nope", "a name without a collection is unknown");
+    }
+    {
+        PromptRng       rng(1);
+        PromptExpander  x(bm, "", rng);
+        PromptExpansion e;
+        std::string     t, nt;
+        check(!x.expand_books({ "empty", "nope", "lora" }, "", e, t, nt), "no entries: false");
+    }
+    {
+        PromptRng       rng(1);
+        PromptExpansion e;
+        std::string     t, nt;
+        PromptBookMap   m2 = bm;
+        m2["withlora"]     = { { "__lora__, a cat", "" } };
+        PromptExpander  y(m2, "pixel art", rng);
+        check(y.expand_books({ "withlora" }, "", e, t, nt) && e.prompt == "pixel art, a cat" && t == "__lora__, a cat" && nt.empty(),
+              "an entry's __lora__ takes the job's words");
+    }
+    // the same seed gives the same items
+    std::string a, b;
+    for (int run_no = 0; run_no < 2; run_no++) {
+        PromptRng      rng(42);
+        PromptExpander x(bm, "", rng);
+        std::string    all;
+        for (int i = 0; i < 20; i++) {
+            PromptExpansion e;
+            std::string     t, nt;
+            x.expand_books({ "people", "bad" }, "", e, t, nt);
+            all += e.prompt + "|";
+        }
+        (run_no == 0 ? a : b) = all;
+    }
+    check(a == b, "the same seed picks the same entries");
+}
+
 }  // namespace
 
 int main() {
+    test_books();
     test_expand();
     test_lora();
     test_negative();

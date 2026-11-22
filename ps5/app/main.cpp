@@ -1798,14 +1798,31 @@ static int prompts_expand_route(const std::string & m, const std::string & p, co
     if (!j.is_object()) {
         return bad("the body must be a JSON object");
     }
-    if (!j.contains("prompt") || !j["prompt"].is_string()) {
-        return bad("the body needs \"prompt\" (a string)");
+    // "books": each item is a random entry of these collections together, instead of a typed prompt
+    const bool               has_books = j.contains("books");
+    std::vector<std::string> book_names;
+    if (has_books) {
+        if (j.contains("prompt")) {
+            return bad("give \"prompt\" or \"books\", not both");
+        }
+        if (!j["books"].is_array() || j["books"].empty() || j["books"].size() > PromptBooks::kMaxBooks) {
+            return bad("\"books\" is a list of 1 to 200 collection names");
+        }
+        for (const auto & b : j["books"]) {
+            if (!b.is_string() || b.get<std::string>().empty() || b.get<std::string>().size() > PromptBooks::kMaxName) {
+                return bad("each item of \"books\" is the name of a collection");
+            }
+            book_names.push_back(b.get<std::string>());
+        }
+    } else if (!j.contains("prompt") || !j["prompt"].is_string()) {
+        return bad("the body needs \"prompt\" (a string) or \"books\" (a list of collection names)");
     }
     if (j.contains("negative_prompt") && !j["negative_prompt"].is_string()) {
         return bad("\"negative_prompt\" must be a string");
     }
-    const std::string prompt = j["prompt"].get<std::string>(), negative = j.value("negative_prompt", std::string());
-    if (prompt.find_first_not_of(" \t\r\n") == std::string::npos) {
+    const std::string prompt = has_books ? std::string() : j["prompt"].get<std::string>();
+    const std::string negative = j.value("negative_prompt", std::string());
+    if (!has_books && prompt.find_first_not_of(" \t\r\n") == std::string::npos) {
         return bad("the prompt is empty");
     }
     if (prompt.size() > PromptBooks::kMaxText || negative.size() > PromptBooks::kMaxText) {
@@ -1853,6 +1870,20 @@ static int prompts_expand_route(const std::string & m, const std::string & p, co
     PromptRng           rng(seed);
     PromptExpander      expander(books, std::move(source), rng);
     nlohmann::json      items = nlohmann::json::array();
+    if (has_books) {
+        // each item has its own template: the entry it took
+        for (int64_t i = 0; i < count; i++) {
+            PromptExpansion e;
+            std::string     t, nt;
+            if (!expander.expand_books(book_names, negative, e, t, nt)) {
+                return bad("none of the collections in \"books\" has an entry");
+            }
+            items.push_back({ { "prompt", e.prompt }, { "negative_prompt", e.negative }, { "template", t }, { "negative_template", nt } });
+        }
+        out = nlohmann::json{ { "items", items }, { "unknown", expander.unknown() } }.dump(-1, ' ', false,
+                                                                                          nlohmann::json::error_handler_t::replace);
+        return 200;
+    }
     for (int64_t i = 0; i < count; i++) {
         const PromptExpansion e = expander.expand(prompt, negative);
         items.push_back({ { "prompt", e.prompt }, { "negative_prompt", e.negative } });

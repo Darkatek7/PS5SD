@@ -237,9 +237,39 @@
     return out.join(', ');
   }
 
+  // The collections of these names that have entries (each once, without regard to case), and how many
+  // entries they hold together.
+  function booksOf(names) {
+    var out = [], seen = {}, total = 0;
+    for (var i = 0; i < (names || []).length; i++) {
+      var b = isLoraName(names[i]) ? null : findBook(names[i]);
+      if (!b || seen[b.name.toLowerCase()] || !b.entries.length) continue;
+      seen[b.name.toLowerCase()] = 1;
+      out.push(b);
+      total += b.entries.length;
+    }
+    return { books: out, total: total };
+  }
+
+  // A random entry of several collections together, each entry as likely as any other; null: none.
+  function pickFromBooks(names, rnd) {
+    var got = booksOf(names);
+    if (!got.total) return null;
+    var i = pickIndex(got.total, rnd);
+    for (var k = 0; k < got.books.length; k++) {
+      var es = got.books[k].entries;
+      if (i < es.length) return es[i];
+      i -= es.length;
+    }
+    return null;
+  }
+
   // One expansion for one image: p.template and p.negTemplate (what was typed) give p.prompt and p.negative.
   // A prompt that is exactly one __name__ takes the negative prompt of the entry it picked, before the typed
   // one. Used by generate, a page run (every image after the first) and the queue.
+  // p.books (Random prompt for each image, 09h): the typed prompt is not used; a random entry of these
+  // collections is this image's template (p.pickTemplate; p.pickNegTemplate is its negative prompt, then the
+  // typed one), the same rule as POST prompts/expand with "books".
   function expandJob(p, pick) {
     var rnd = pick || Math.random;
     var ctx = { find: findBook, lora: function (took) { return loraWordsOf(p.loras, rnd, took); },
@@ -248,6 +278,18 @@
         return e ? { path: e.path, words: loraPickWords(e, r) } : null;
       } };
     var negCtx = { find: findBook, lora: null, named: null };
+    p.pickTemplate = undefined;
+    p.pickNegTemplate = undefined;
+    if (p.books && p.books.length) {
+      var pe = pickFromBooks(p.books, rnd), neg = String(p.negTemplate || '');
+      if (pe) {
+        p.pickTemplate = pe.prompt;
+        p.pickNegTemplate = joinParts(pe.negative || '', neg);
+        p.prompt = expandText(pe.prompt, ctx, rnd);
+        p.negative = joinParts(pe.negative ? expandText(pe.negative, negCtx, rnd) : '', expandText(neg, negCtx, rnd));
+        return;
+      }
+    }
     var tpl = String(p.template), extra = '', prompt;
     var m = tpl.match(/^\s*__([A-Za-z0-9_-]{1,40})__\s*$/);
     var book = m && !isLoraName(m[1]) ? findBook(m[1]) : null;
@@ -304,7 +346,7 @@
 
   // The note under the prompt while it has a placeholder.
   function drawWildHint() {
-    var t = $('prompt').value, s = wildHintText(t);
+    var t = $('prompt').value, s = randomBooks() ? '' : wildHintText(t);
     text($('wild-text'), s);
     show('wild-hint', !!s, 'block');
   }

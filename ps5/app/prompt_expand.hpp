@@ -12,7 +12,8 @@
 // collection stops there. A __name__ without a collection (or with an empty one) stays as typed.
 // Where a placeholder became empty, the separators it leaves are tidied (", ," -> ",", no comma or
 // space at the ends). A prompt that is exactly one __name__ takes the negative prompt of the entry it
-// picked, before the typed negative prompt.
+// picked, before the typed negative prompt. expand_books() takes a random entry of several collections
+// together as the template of one image (the page's "Random prompt for each image").
 //
 // Header only, no console code (ps5/app/tests builds it on the PC). The random source is seedable, so
 // the same seed, collections and LoRAs give the same items.
@@ -147,6 +148,58 @@ class PromptExpander {
             neg += (neg.empty() ? "" : ", ") + typed;
         }
         return { prompt, neg };
+    }
+
+    // One image from a random entry of several collections together (the page's "Random prompt for each
+    // image", POST prompts/expand's "books"): each entry is as likely as any other, a name given twice counts
+    // once, a name without a collection goes to unknown(). The entry is this image's template: tmpl is its
+    // prompt, neg_tmpl its negative prompt and then the typed one (neg_typed), joined with ", ". false: none of
+    // the collections has an entry.
+    bool expand_books(const std::vector<std::string> & names, const std::string & neg_typed, PromptExpansion & out,
+                      std::string & tmpl, std::string & neg_tmpl) {
+        std::vector<const std::vector<PromptBookEntry> *> lists;
+        std::set<std::string>                             seen;
+        size_t                                            total = 0;
+        for (const auto & n : names) {
+            const std::string k = lower(n);
+            if (!seen.insert(k).second) {
+                continue;
+            }
+            const auto it = is_lora(k) ? books_.end() : books_.find(k);
+            if (it == books_.end()) {
+                note_unknown(n);
+                continue;
+            }
+            if (!it->second.empty()) {
+                lists.push_back(&it->second);
+                total += it->second.size();
+            }
+        }
+        if (total == 0) {
+            return false;
+        }
+        size_t                  i = pick(total);
+        const PromptBookEntry * e = nullptr;
+        for (const auto * l : lists) {
+            if (i < l->size()) {
+                e = &(*l)[i];
+                break;
+            }
+            i -= l->size();
+        }
+        tmpl     = e->prompt;
+        neg_tmpl = e->negative;
+        if (!neg_typed.empty()) {
+            neg_tmpl += (neg_tmpl.empty() ? "" : ", ") + neg_typed;
+        }
+        out.prompt              = text(e->prompt, true);
+        std::string       neg   = e->negative.empty() ? std::string() : text(e->negative, false);
+        const std::string typed = text(neg_typed, false);
+        if (!typed.empty()) {
+            neg += (neg.empty() ? "" : ", ") + typed;
+        }
+        out.negative = neg;
+        return true;
     }
 
     static std::string tidy(const std::string & t) {

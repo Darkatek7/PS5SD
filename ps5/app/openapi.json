@@ -6571,7 +6571,7 @@
         ],
         "operationId": "expandPrompt",
         "summary": "Expand a prompt template",
-        "description": "Expands `{a|b}`, `__name__` (a random entry of a collection) and `__lora__` (the trigger words of the job's LoRAs, by each one's mode) and `__lora:NAME__` (one installed LoRA's words) as the web UI does, `count` times, each picked anew. A prompt that is exactly one `__name__` also takes that entry's negative prompt. Send each item to img_gen with `template` and `negative_template` set, so the image keeps the template.",
+        "description": "Expands `{a|b}`, `__name__` (a random entry of a collection) and `__lora__` (the trigger words of the job's LoRAs, by each one's mode) and `__lora:NAME__` (one installed LoRA's words) as the web UI does, `count` times, each picked anew. A prompt that is exactly one `__name__` also takes that entry's negative prompt. Send each item to img_gen with `template` and `negative_template` set, so the image keeps the template. With `books` instead of `prompt`, each item is a random entry of those collections, with its own template.",
         "requestBody": {
           "required": true,
           "content": {
@@ -8156,14 +8156,24 @@
       },
       "PromptExpandRequest": {
         "type": "object",
-        "required": [
-          "prompt"
-        ],
         "properties": {
           "prompt": {
             "type": "string",
-            "description": "The template, 1 to 8000 bytes: `{a|b}`, `__name__`, `__lora__` and `__lora:NAME__`.",
+            "description": "The template, 1 to 8000 bytes: `{a|b}`, `__name__`, `__lora__` and `__lora:NAME__`. Leave it out with `books`.",
             "example": "__lora__, portrait of __people__, {red|blue} coat"
+          },
+          "books": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 200,
+            "items": {
+              "type": "string"
+            },
+            "description": "Instead of `prompt`: each item is a random entry of these collections together (the web UI's Random prompt for each image), each entry as likely as any other, expanded as a prompt. The entry's negative prompt comes before `negative_prompt`. `__lora__` takes the LoRAs of `lora`. Each item then has its own `template` and `negative_template`.",
+            "example": [
+              "portraits",
+              "places"
+            ]
           },
           "negative_prompt": {
             "type": "string",
@@ -8246,24 +8256,23 @@
             "description": "The same seed, collections and LoRAs give the same items. Without it the picks are random."
           }
         },
-        "additionalProperties": true
+        "additionalProperties": true,
+        "description": "Give `prompt` or `books`, not both."
       },
       "PromptExpandResult": {
         "type": "object",
         "required": [
-          "template",
-          "negative_template",
           "items",
           "unknown"
         ],
         "properties": {
           "template": {
             "type": "string",
-            "description": "The prompt as sent; give it to img_gen as `template`."
+            "description": "The prompt as sent; give it to img_gen as `template`. Not there with `books`."
           },
           "negative_template": {
             "type": "string",
-            "description": "The negative prompt as sent; give it to img_gen as `negative_template`."
+            "description": "The negative prompt as sent; give it to img_gen as `negative_template`. Not there with `books`."
           },
           "items": {
             "type": "array",
@@ -8279,6 +8288,14 @@
                 },
                 "negative_prompt": {
                   "type": "string"
+                },
+                "template": {
+                  "type": "string",
+                  "description": "With `books`: the entry this item took; give it to img_gen as `template`."
+                },
+                "negative_template": {
+                  "type": "string",
+                  "description": "With `books`: the entry's negative prompt, then `negative_prompt`; give it to img_gen as `negative_template`."
                 }
               }
             }
