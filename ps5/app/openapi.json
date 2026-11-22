@@ -52,7 +52,7 @@
     },
     {
       "name": "prompts",
-      "description": "The web UI's prompt history, kept on the console."
+      "description": "The web UI's prompt history and prompt collections, kept on the console."
     },
     {
       "name": "A1111",
@@ -5962,6 +5962,608 @@
           }
         }
       }
+    },
+    "/ps5sd/v1/app/promptbooks": {
+      "get": {
+        "tags": [
+          "prompts"
+        ],
+        "operationId": "listPromptBooks",
+        "summary": "The prompt collections",
+        "description": "Every collection with all its entries. They are kept in `/data/PS5SD/promptbooks.json`.",
+        "responses": {
+          "200": {
+            "description": "The list.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "books": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/PromptBook"
+                      }
+                    }
+                  },
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key is needed, or it is wrong (code `unauthorized`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "prompts"
+        ],
+        "operationId": "createPromptBook",
+        "summary": "Make a collection",
+        "description": "Makes a collection, with entries when given.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "name"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "entries": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/components/schemas/PromptBookEntryInput"
+                    }
+                  }
+                },
+                "additionalProperties": true
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The new collection.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PromptBook"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A bad body, a bad name, or a limit passed (code `invalid_request`, or `too_many` for 200 collections or 2000 entries).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The name is taken (code `conflict`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key is needed, or it is wrong (code `unauthorized`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ps5sd/v1/app/promptbooks/{name}": {
+      "get": {
+        "tags": [
+          "prompts"
+        ],
+        "operationId": "getPromptBook",
+        "summary": "One collection",
+        "description": "",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "description": "The collection's name, matched without regard to case.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The collection.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PromptBook"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such collection (code `not_found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key is needed, or it is wrong (code `unauthorized`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "prompts"
+        ],
+        "operationId": "updatePromptBook",
+        "summary": "Rename a collection or replace its entries",
+        "description": "`name` renames it, `entries` replaces its entries (new ids from 1 up). One of them is needed; nothing changes when one part is refused.",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "description": "The collection's name, matched without regard to case.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "entries": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/components/schemas/PromptBookEntryInput"
+                    }
+                  }
+                },
+                "additionalProperties": true
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The collection.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PromptBook"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A bad body, a bad name, or a limit passed (code `invalid_request`, or `too_many` for 200 collections or 2000 entries).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such collection (code `not_found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The name is taken (code `conflict`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key is needed, or it is wrong (code `unauthorized`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "prompts"
+        ],
+        "operationId": "deletePromptBook",
+        "summary": "Delete a collection",
+        "description": "",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "description": "The collection's name, matched without regard to case.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The collection is gone.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "deleted": {
+                      "type": "string",
+                      "description": "The name as it was made."
+                    }
+                  },
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such collection (code `not_found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key is needed, or it is wrong (code `unauthorized`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ps5sd/v1/app/promptbooks/{name}/entries": {
+      "post": {
+        "tags": [
+          "prompts"
+        ],
+        "operationId": "addPromptBookEntry",
+        "summary": "Add an entry",
+        "description": "Adds an entry at the end, and makes the collection when there is none. The same prompt and negative prompt there already: 200 with that entry, nothing added.",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "description": "The collection's name, matched without regard to case.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PromptBookEntryInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The new entry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PromptBookEntry"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "The same entry was there already.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PromptBookEntry"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A bad body, a bad name, or a limit passed (code `invalid_request`, or `too_many` for 200 collections or 2000 entries).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key is needed, or it is wrong (code `unauthorized`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ps5sd/v1/app/promptbooks/{name}/entries/{id}": {
+      "post": {
+        "tags": [
+          "prompts"
+        ],
+        "operationId": "updatePromptBookEntry",
+        "summary": "Change an entry",
+        "description": "`prompt` and/or `negative`.",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "description": "The collection's name, matched without regard to case.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The `id` of an entry.",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "prompt": {
+                    "type": "string"
+                  },
+                  "negative": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": true
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The entry as kept.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PromptBookEntry"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A bad body, a bad name, or a limit passed (code `invalid_request`, or `too_many` for 200 collections or 2000 entries).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such collection or entry (code `not_found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key is needed, or it is wrong (code `unauthorized`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "prompts"
+        ],
+        "operationId": "deletePromptBookEntry",
+        "summary": "Remove an entry",
+        "description": "",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "description": "The collection's name, matched without regard to case.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The `id` of an entry.",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The entry is gone.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "deleted": {
+                      "type": "integer"
+                    }
+                  },
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such collection or entry (code `not_found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key is needed, or it is wrong (code `unauthorized`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ps5sd/v1/app/prompts/expand": {
+      "post": {
+        "tags": [
+          "prompts"
+        ],
+        "operationId": "expandPrompt",
+        "summary": "Expand a prompt template",
+        "description": "Expands `{a|b}`, `__name__` (a random entry of a collection) and `__lora__` (the trigger words of the LoRAs) as the web UI does, `count` times, each picked anew. A prompt that is exactly one `__name__` also takes that entry's negative prompt. Send each item to img_gen with `template` and `negative_template` set, so the image keeps the template.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PromptExpandRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The items.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PromptExpandResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A bad body (code `invalid_request`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key is needed, or it is wrong (code `unauthorized`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -6925,6 +7527,16 @@
             "type": "boolean",
             "default": false,
             "description": "Saves the files as `tmp_sd_...`; they are deleted when PS5SD starts, unless kept."
+          },
+          "template": {
+            "type": "string",
+            "maxLength": 8000,
+            "description": "The text the prompt was made from (`{a|b}`, `__name__`). The saved image keeps it in its parameters as `Template: ...` and in `ps5sd.template`. Also for vid_gen. Over 8000 bytes or not a string: 400."
+          },
+          "negative_template": {
+            "type": "string",
+            "maxLength": 8000,
+            "description": "As `template`, for the negative prompt (`Negative Template: ...`, `ps5sd.negative_template`). Written whenever it is sent, an empty one as `\"\"`, so a reader can tell an empty negative prompt from no template information."
           }
         },
         "additionalProperties": true
@@ -7344,6 +7956,176 @@
           },
           "civitai": {
             "type": "boolean"
+          }
+        },
+        "additionalProperties": true
+      },
+      "PromptBookEntry": {
+        "type": "object",
+        "required": [
+          "id",
+          "prompt",
+          "negative"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer",
+            "description": "Unique within its collection and never reused there.",
+            "example": 3
+          },
+          "prompt": {
+            "type": "string",
+            "description": "A whole prompt or a few words, 1 to 8000 bytes.",
+            "example": "an old fisherman"
+          },
+          "negative": {
+            "type": "string",
+            "description": "The negative prompt; empty for none.",
+            "example": ""
+          }
+        },
+        "additionalProperties": true
+      },
+      "PromptBook": {
+        "type": "object",
+        "required": [
+          "name",
+          "time",
+          "entries"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "1 to 40 letters, digits, `-` and `_`; unique without regard to case; `lora` is reserved.",
+            "example": "people"
+          },
+          "time": {
+            "type": "integer",
+            "description": "When the collection last changed, in seconds since 1970.",
+            "example": 1795300000
+          },
+          "entries": {
+            "type": "array",
+            "maxItems": 2000,
+            "items": {
+              "$ref": "#/components/schemas/PromptBookEntry"
+            }
+          }
+        },
+        "additionalProperties": true
+      },
+      "PromptBookEntryInput": {
+        "type": "object",
+        "required": [
+          "prompt"
+        ],
+        "properties": {
+          "prompt": {
+            "type": "string",
+            "description": "1 to 8000 bytes after trimming."
+          },
+          "negative": {
+            "type": "string",
+            "description": "0 to 8000 bytes."
+          }
+        },
+        "additionalProperties": true
+      },
+      "PromptExpandRequest": {
+        "type": "object",
+        "required": [
+          "prompt"
+        ],
+        "properties": {
+          "prompt": {
+            "type": "string",
+            "description": "The template, 1 to 8000 bytes: `{a|b}`, `__name__` and `__lora__`.",
+            "example": "__lora__, portrait of __people__, {red|blue} coat"
+          },
+          "negative_prompt": {
+            "type": "string",
+            "description": "The negative template. `{a|b}` and `__name__` work; `__lora__` stays as typed."
+          },
+          "lora": {
+            "type": "array",
+            "description": "The LoRAs for `__lora__`, as img_gen takes them (plain path strings work too; a multiplier of 0 is off). Without it, the `<lora:NAME:weight>` tags of the prompt count.",
+            "items": {
+              "oneOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "path": {
+                      "type": "string"
+                    },
+                    "multiplier": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "path"
+                  ]
+                }
+              ]
+            }
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "default": 1,
+            "description": "How many items to make; each is picked anew."
+          },
+          "seed": {
+            "type": "integer",
+            "description": "The same seed, collections and LoRAs give the same items. Without it the picks are random."
+          }
+        },
+        "additionalProperties": true
+      },
+      "PromptExpandResult": {
+        "type": "object",
+        "required": [
+          "template",
+          "negative_template",
+          "items",
+          "unknown"
+        ],
+        "properties": {
+          "template": {
+            "type": "string",
+            "description": "The prompt as sent; give it to img_gen as `template`."
+          },
+          "negative_template": {
+            "type": "string",
+            "description": "The negative prompt as sent; give it to img_gen as `negative_template`."
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "prompt",
+                "negative_prompt"
+              ],
+              "properties": {
+                "prompt": {
+                  "type": "string"
+                },
+                "negative_prompt": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "unknown": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The `__name__`s that matched no collection with entries; they stay as typed."
           }
         },
         "additionalProperties": true

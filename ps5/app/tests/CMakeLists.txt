@@ -103,6 +103,16 @@ add_executable(test_prompt_history test_prompt_history.cpp)
 target_include_directories(test_prompt_history PRIVATE .. "${SD_DIR}/thirdparty")
 add_test(NAME prompt_history COMMAND test_prompt_history)
 
+# The web UI's prompt collections (prompt_books.hpp; header only).
+add_executable(test_prompt_books test_prompt_books.cpp)
+target_include_directories(test_prompt_books PRIVATE .. "${SD_DIR}/thirdparty")
+add_test(NAME prompt_books COMMAND test_prompt_books)
+
+# The expansion of {a|b}, __name__ and __lora__ (prompt_expand.hpp; header only).
+add_executable(test_prompt_expand test_prompt_expand.cpp)
+target_include_directories(test_prompt_expand PRIVATE .. "${SD_DIR}/thirdparty")
+add_test(NAME prompt_expand COMMAND test_prompt_expand)
+
 # The slideshow on the TV: the list, the controller's steps, the show (slideshow.hpp, header-only).
 add_executable(test_slideshow test_slideshow.cpp)
 target_include_directories(test_slideshow PRIVATE ..)

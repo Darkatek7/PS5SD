@@ -5,10 +5,11 @@
   var promptHist = null;   // [{id, prompt, negative, model, time}], the newest first; null: not asked yet
   var histOk = true;       // false: the app has no such route (404): the button stays hidden
   var HIST_MAX = 50;
+  var panelTab = 'hist';   // the panel under the prompt: 'hist' or 'books' (09h)
 
   function drawHistButton() {
     show('prompt-hist', histOk && promptHist !== null, 'inline-flex');
-    if (!histOk) show('phist', false);
+    if (!histOk && !booksOk) show('phist', false);
   }
 
   function loadPromptHistory(then) {
@@ -20,7 +21,7 @@
         histOk = false;
       }
       drawHistButton();
-      if ($('phist').style.display !== 'none') drawHistory();
+      if ($('phist').style.display !== 'none' && panelTab === 'hist') drawHistory();
       if (then) then();
     });
   }
@@ -31,7 +32,8 @@
   // (with the same negative prompt and model) as the newest one is not sent again.
   function rememberPrompt(p) {
     if (!histOk) return;
-    var prompt = trimmed(p.template !== undefined ? p.template : p.prompt), neg = trimmed(p.negative);
+    var prompt = trimmed(p.template !== undefined ? p.template : p.prompt);
+    var neg = trimmed(p.negTemplate !== undefined ? p.negTemplate : p.negative);
     var model = trimmed(st.label || st.model || '').substring(0, 80);
     if (!prompt) return;
     var top = promptHist && promptHist[0];
@@ -43,7 +45,7 @@
       for (var i = 0; i < list.length; i++) if (list[i].id !== data.id) keep.push(list[i]);
       promptHist = keep.slice(0, HIST_MAX);
       drawHistButton();
-      if ($('phist').style.display !== 'none') drawHistory();
+      if ($('phist').style.display !== 'none' && panelTab === 'hist') drawHistory();
     });
   }
 
@@ -77,13 +79,17 @@
     }
   }
 
+  function histToggle() {
+    if ($('phist').style.display !== 'none' && panelTab === 'hist') { histShow(false); return; }
+    panelTab = 'hist';
+    histShow(true);
+  }
+
   function histShow(on) {
     show('phist', on, 'block');
-    $('prompt-hist').setAttribute('aria-expanded', on ? 'true' : 'false');
-    if (on) {
-      drawHistory();
-      loadPromptHistory();   // what another browser added meanwhile
-    }
+    $('prompt-hist').setAttribute('aria-expanded', on && panelTab === 'hist' ? 'true' : 'false');
+    $('prompt-books').setAttribute('aria-expanded', on && panelTab === 'books' ? 'true' : 'false');
+    if (on) panelSwitch(histOk || !booksOk ? panelTab : 'books');   // draws the tab and asks for what another browser added
   }
 
   function useHistoryPrompt(e) {

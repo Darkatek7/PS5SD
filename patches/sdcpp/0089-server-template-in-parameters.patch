@@ -1,0 +1,277 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: ps5sd <ps5sd@localhost>
+Date: Sun, 22 Nov 2026 12:00:00 +0200
+Subject: [PATCH] server: the prompt template in a saved image's parameters
+
+img_gen and vid_gen take two more optional body fields, "template" and
+"negative_template": the text the prompt was made from (the web UI's {a|b}
+and __name__ placeholders), as strings of at most 8000 bytes (another type or
+a longer text is a 400, as other bad fields are). A saved image or video then
+has them in its parameters, as A1111's Dynamic Prompts writes them:
+"Template: <t>, Negative Template: <n>, " in front of "Preset:" (a value with
+a comma, a colon, a quote or a line break is a JSON string, like A1111's
+quote()), and "template" and "negative_template" in the "ps5sd" object of
+sd.cpp's JSON. "template" is written when it is not empty; "negative_template"
+whenever the body had it, an empty one as "", so a reader can tell an empty
+negative prompt from no template information. The request carries them as
+ImgGenJobRequest::prompt_template and VidGenJobRequest::prompt_template to
+save_output_images and save_output_video; without the fields the output is
+the same as before.
+---
+ examples/server/async_jobs.cpp   |  5 +++--
+ examples/server/gallery.cpp      | 40 +++++++++++++++++++++++++++++++++-------
+ examples/server/gallery.h        |  7 +++++--
+ examples/server/routes_sdcpp.cpp |  6 ++++++
+ examples/server/runtime.cpp      | 29 +++++++++++++++++++++++++++++
+ examples/server/runtime.h        | 20 ++++++++++++++++++++
+ 6 files changed, 96 insertions(+), 11 deletions(-)
+
+diff --git a/examples/server/async_jobs.cpp b/examples/server/async_jobs.cpp
+index c220bfa..2426fa9 100644
+--- a/examples/server/async_jobs.cpp
++++ b/examples/server/async_jobs.cpp
+@@ -476,7 +476,8 @@ bool execute_img_gen_job(ServerRuntime& runtime,
+         const int num_results                = results.count();
+         const std::vector<std::string> saved = job.cancel_requested.load() ? std::vector<std::string>()
+                                                                            : save_output_images(*runtime.svr_params, results, runtime.ctx_params,
+-                                                                                                &job.img_gen.gen_params, job.img_gen.temporary);
++                                                                                                &job.img_gen.gen_params, job.img_gen.temporary,
++                                                                                                &job.img_gen.prompt_template);
+         activity.finish(!job.cancel_requested.load() && num_results > 0, saved_paths(saved));
+         if (job.cancel_requested.load() || num_results <= 0) {
+             error_message = sd_server_failure_reason("generate_image returned no results");
+@@ -602,7 +603,7 @@ bool execute_vid_gen_job(ServerRuntime& runtime,
+     // PS5SD: into --output-dir like an image, so the gallery lists it.
+     activity.finish(true, save_output_video(*runtime.svr_params, video_bytes, job.vid_gen.output_format,
+                                             generation_info_to_image_metadata(str_params),
+-                                            &results[0], job.vid_gen.temporary));
++                                            &results[0], job.vid_gen.temporary, &job.vid_gen.prompt_template));
+ 
+     output_media_b64       = base64_encode(video_bytes);
+     output_media_mime_type = video_mime_type(job.vid_gen.output_format);
+diff --git a/examples/server/gallery.cpp b/examples/server/gallery.cpp
+index 27df0bf..749ba29 100644
+--- a/examples/server/gallery.cpp
++++ b/examples/server/gallery.cpp
+@@ -175,11 +175,23 @@ static bool write_thumbnail(const fs::path& dir, const std::string& name, const
+ // ActivityJob::begin, to this save) in an image's parameters: "Preset: <name>, Time: 52.3 s, "
+ // before "Version:" in A1111's text, and "ps5sd": {"preset", "seconds"} in
+ // sd.cpp's JSON at its end; an empty "Model: " gets the diffusion model's name.
+-// The text as it is without a preset and a time, or when it has no such places.
+-static std::string with_preset(const std::string& parameters) {
++// The request's template and negative template go in front of them ("Template: <t>, Negative Template: <n>, ")
++// and into the same JSON object. The text as it is without any of these, or when it has no such places.
++// A1111's quote() of a value: as it is, or a JSON string when it has a comma, a colon, a quote or a line break
++// (an empty one too: "").
++static std::string quote_parameter(const std::string& value) {
++    if (!value.empty() && value.find_first_of(",:\"\r\n") == std::string::npos) {
++        return value;
++    }
++    return json(value).dump(-1, ' ', true, json::error_handler_t::replace);
++}
++
++static std::string with_preset(const std::string& parameters, const PromptTemplate* tmpl = nullptr) {
+     std::string name     = preset_name_now();
+     const double seconds = sd_server_generation_seconds();
+-    if ((name.empty() && seconds < 0) || parameters.empty()) {
++    const bool has_template = tmpl != nullptr && !tmpl->prompt.empty();
++    const bool has_negative = tmpl != nullptr && tmpl->has_negative;
++    if ((name.empty() && seconds < 0 && !has_template && !has_negative) || parameters.empty()) {
+         return parameters;
+     }
+     for (char& c : name) {
+@@ -200,6 +212,12 @@ static std::string with_preset(const std::string& parameters) {
+             if (seconds >= 0) {
+                 extra["seconds"] = tenths;
+             }
++            if (has_template) {
++                extra["template"] = tmpl->prompt;
++            }
++            if (has_negative) {
++                extra["negative_template"] = tmpl->negative;
++            }
+             j["ps5sd"] = extra;
+             out        = out.substr(0, at_json) + ", SDCPP: " + j.dump(-1, ' ', false, json::error_handler_t::replace);
+         }
+@@ -207,6 +225,12 @@ static std::string with_preset(const std::string& parameters) {
+     const size_t at_version = out.rfind("Version: stable-diffusion.cpp", at_json);  // npos: the whole text
+     if (at_version != std::string::npos) {
+         std::string add;
++        if (has_template) {
++            add += "Template: " + quote_parameter(tmpl->prompt) + ", ";
++        }
++        if (has_negative) {
++            add += "Negative Template: " + quote_parameter(tmpl->negative) + ", ";
++        }
+         if (!name.empty()) {
+             add += "Preset: " + name + ", ";
+         }
+@@ -277,7 +301,8 @@ std::vector<std::string> save_output_images(const SDSvrParams& svr_params,
+                                             SDImageVec& images,
+                                             const SDContextParams* ctx_params,
+                                             const SDGenerationParams* gen_params,
+-                                            bool temporary) {
++                                            bool temporary,
++                                            const PromptTemplate* prompt_template) {
+     std::vector<std::string> saved;
+     if (svr_params.output_dir.empty()) {
+         return saved;
+@@ -298,7 +323,7 @@ std::vector<std::string> save_output_images(const SDSvrParams& svr_params,
+             continue;
+         }
+         // A1111's text of the image's own generation info (its seed, its LoRAs), sd.cpp's JSON of it at the end
+-        const std::string parameters = known ? with_preset(generation_info_to_image_metadata(images.generation_info(i))) : "";
++        const std::string parameters = known ? with_preset(generation_info_to_image_metadata(images.generation_info(i)), prompt_template) : "";
+         std::vector<uint8_t> bytes   = png_with_parameters(encode_image_to_vector(EncodedImageFormat::PNG,
+                                                                                 image.data,
+                                                                                 image.width,
+@@ -336,8 +361,9 @@ std::string save_output_video(const SDSvrParams& svr_params,
+                               const std::string& format,
+                               const std::string& parameters_in,
+                               const sd_image_t* first_frame,
+-                              bool temporary) {
+-    const std::string parameters = with_preset(parameters_in);
++                              bool temporary,
++                              const PromptTemplate* prompt_template) {
++    const std::string parameters = with_preset(parameters_in, prompt_template);
+     if (svr_params.output_dir.empty() || bytes.empty() ||
+         (format != "webm" && format != "webp" && format != "avi")) {
+         return "";
+diff --git a/examples/server/gallery.h b/examples/server/gallery.h
+index 3d68f68..4bffafa 100644
+--- a/examples/server/gallery.h
++++ b/examples/server/gallery.h
+@@ -19,11 +19,13 @@
+ // like the others, but not in the gallery's list (the application deletes them
+ // when it starts). The loaded preset's name (preset_name_now) goes into the
+ // parameters as "Preset: <name>", and into the JSON as "ps5sd": {"preset"}.
++// A request's prompt_template (PromptTemplate) goes in the same way, in front of "Preset:".
+ std::vector<std::string> save_output_images(const SDSvrParams& svr_params,
+                                             SDImageVec& images,
+                                             const SDContextParams* ctx_params    = nullptr,
+                                             const SDGenerationParams* gen_params = nullptr,
+-                                            bool temporary                       = false);
++                                            bool temporary                       = false,
++                                            const PromptTemplate* prompt_template = nullptr);
+ 
+ // PS5SD: a generated video (vid_gen), into --output-dir as
+ // sd_<date>_<time>_<n>.<format> (webm, webp or avi). Returns the full path,
+@@ -34,7 +36,8 @@ std::string save_output_video(const SDSvrParams& svr_params,
+                               const std::string& format,
+                               const std::string& parameters = "",
+                               const sd_image_t* first_frame = nullptr,
+-                              bool temporary                = false);
++                              bool temporary                = false,
++                              const PromptTemplate* prompt_template = nullptr);
+ 
+ // PS5SD: the saved paths one a line, in the order of the results, for
+ // sd_activity_job_end ("" when nothing was saved).
+diff --git a/examples/server/routes_sdcpp.cpp b/examples/server/routes_sdcpp.cpp
+index eaa2b81..98d7ac8 100644
+--- a/examples/server/routes_sdcpp.cpp
++++ b/examples/server/routes_sdcpp.cpp
+@@ -470,6 +470,9 @@ static bool parse_img_gen_request(const json& body,
+     request.preview_mode     = body.value("preview", std::string("none"));
+     request.preview_interval = body.value("preview_interval", 1);
+     request.temporary        = request_is_temporary(body);
++    if (!parse_prompt_template(body, request.prompt_template, error_message)) {
++        return false;
++    }
+     apply_preset_extras(runtime, request.gen_params);
+     // Intentionally disable prompt-embedded LoRA tag parsing for server APIs.
+     if (!request.gen_params.resolve_and_validate(IMG_GEN, "", runtime.ctx_params->hires_upscalers_dir, true)) {
+@@ -501,6 +504,9 @@ static bool parse_vid_gen_request(const json& body,
+     request.preview_mode     = body.value("preview", std::string("none"));
+     request.preview_interval = body.value("preview_interval", 1);
+     request.temporary        = request_is_temporary(body);
++    if (!parse_prompt_template(body, request.prompt_template, error_message)) {
++        return false;
++    }
+     apply_preset_extras(runtime, request.gen_params);
+     // Intentionally disable prompt-embedded LoRA tag parsing for server APIs.
+     if (!request.gen_params.resolve_and_validate(VID_GEN, "", runtime.ctx_params->hires_upscalers_dir, true)) {
+diff --git a/examples/server/runtime.cpp b/examples/server/runtime.cpp
+index 3f0fbc7..a01296b 100644
+--- a/examples/server/runtime.cpp
++++ b/examples/server/runtime.cpp
+@@ -683,6 +683,35 @@ bool request_is_temporary(const json& body) {
+            body["temporary"].get<bool>();
+ }
+ 
++bool parse_prompt_template(const json& body, PromptTemplate& out, std::string& error_message) {
++    out = PromptTemplate();
++    if (!body.is_object()) {
++        return true;
++    }
++    const struct {
++        const char* key;
++        std::string* value;
++    } fields[] = {{"template", &out.prompt}, {"negative_template", &out.negative}};
++    for (const auto& field : fields) {
++        if (!body.contains(field.key) || body[field.key].is_null()) {
++            continue;
++        }
++        if (!body[field.key].is_string()) {
++            error_message = std::string(field.key) + " must be a string";
++            return false;
++        }
++        *field.value = body[field.key].get<std::string>();
++        if (field.value == &out.negative) {
++            out.has_negative = true;
++        }
++        if (field.value->size() > k_max_template_bytes) {
++            error_message = std::string(field.key) + " is at most " + std::to_string(k_max_template_bytes) + " bytes";
++            return false;
++        }
++    }
++    return true;
++}
++
+ extern "C" void sd_server_set_request_defaults(int steps, float cfg, const char* sampler, const char* scheduler, int width, int height) {
+     std::lock_guard<std::mutex> lock(g_request_defaults_mutex);
+     g_request_defaults.steps     = steps;
+diff --git a/examples/server/runtime.h b/examples/server/runtime.h
+index 4658e6b..f4fbb7e 100644
+--- a/examples/server/runtime.h
++++ b/examples/server/runtime.h
+@@ -88,9 +88,22 @@ struct ServerADetailerPass {
+ // PS5SD: stops the generation that runs (sd_cancel_generation), without waiting for a model that loads.
+ void cancel_generation(ServerRuntime& rt);
+ 
++// "template" and "negative_template" of a request: the text the prompt was made from. With_preset puts them
++// into the parameters as "Template: <t>, Negative Template: <n>, " (A1111's Dynamic Prompts keys) before
++// "Preset:", and into the JSON as "ps5sd": {"template", "negative_template"}; a value with a comma, a colon,
++// a quote or a line break is written as a JSON string (A1111's quote()). "template" only when it is not empty;
++// "negative_template" whenever the body had it (an empty one as ""), so a reader can tell an empty negative
++// prompt from no template information.
++struct PromptTemplate {
++    std::string prompt;
++    std::string negative;
++    bool has_negative = false;  // "negative_template" was in the body, also when empty
++};
++
+ struct ImgGenJobRequest {
+     SDGenerationParams gen_params;
+     bool temporary            = false;  // PS5SD: saved as tmp_<name>, not in the gallery's list
++    PromptTemplate prompt_template;     // PS5SD: "template" and "negative_template", kept in the saved parameters
+     std::string output_format = "png";
+     int output_compression    = 100;
+     std::string preview_mode  = "none";
+@@ -113,6 +126,7 @@ bool validate_server_img_gen_request(const ServerRuntime& runtime,
+ struct VidGenJobRequest {
+     SDGenerationParams gen_params;
+     bool temporary            = false;  // PS5SD: as ImgGenJobRequest's
++    PromptTemplate prompt_template;     // PS5SD: as ImgGenJobRequest's
+     std::string output_format = "webm";
+     int output_compression    = 100;
+     std::string preview_mode  = "none";
+@@ -169,3 +183,9 @@ void apply_preset_extras(const ServerRuntime& runtime, SDGenerationParams& param
+ std::string preset_name_now();
+ // "temporary": true in a request body (img_gen, vid_gen).
+ bool request_is_temporary(const json& body);
++
++// "template" and "negative_template" in a request body (img_gen, vid_gen): the text the prompt was made from
++// (the web UI's {a|b} and __name__), kept in the saved image's parameters. Strings of at most
++// k_max_template_bytes; false with the reason for another type or a longer text.
++constexpr size_t k_max_template_bytes = 8000;
++bool parse_prompt_template(const json& body, PromptTemplate& out, std::string& error_message);

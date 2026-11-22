@@ -110,7 +110,7 @@
     if (params) {
       main.push(chip('Run again', 'again', function () {
         setForm(st.last); $('prompt').value = st.last.template !== undefined ? st.last.template : st.last.prompt;
-        $('neg').value = st.last.negative; negSync(); generate();
+        $('neg').value = st.last.negTemplate !== undefined ? st.last.negTemplate : st.last.negative; negSync(); generate();
       }, 'Make it again with the same settings'));
       var seed = r ? r.seed : st.last.seed;
       // a run's image from the server has no seed the page knows

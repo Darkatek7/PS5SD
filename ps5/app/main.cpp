@@ -75,6 +75,8 @@
 #include "download_core.hpp"
 #include "gallery_labels.hpp"
 #include "prompt_tags.hpp"
+#include "prompt_books.hpp"
+#include "prompt_expand.hpp"
 #include "prompt_history.hpp"
 #include "downloader.hpp"
 #include "https_client.hpp"
@@ -187,6 +189,7 @@ constexpr const char * kModels  = "/data/PS5SD/models";
 constexpr const char * kPresets = "/data/PS5SD/presets";
 constexpr const char * kTags    = "/data/PS5SD/tags";  // tag files for the prompt's completion
 constexpr const char * kPrompts = "/data/PS5SD/prompts.json";  // the web UI's prompt history
+constexpr const char * kPromptBooks = "/data/PS5SD/promptbooks.json";  // the web UI's prompt collections
 #ifndef PS5SD_NO_DISPLAY
 constexpr const char * kFont    = "/app0/assets/fonts/dejavu-sans-mono.huifont";
 #endif
@@ -203,6 +206,8 @@ const ModelLibrary g_library{ kModels, kPresets };
 GalleryLabels g_labels{ kOutputs };
 // The last 50 prompts of the web UI (prompt_history.hpp).
 PromptHistory g_prompts{ kPrompts };
+// The prompt collections of the web UI (prompt_books.hpp).
+PromptBooks g_books{ kPromptBooks };
 
 // The copier of the gallery to a USB drive (usb_copy.hpp), made on first use
 // and never destroyed: its thread ends on request_stop, and the title ends
@@ -1534,6 +1539,29 @@ bool set_api_key(bool on, std::string & error) {
 //                       (a repeat moves to the front; 201 with the entry);
 //                       prompts/<id> (DELETE) removes one, prompts (DELETE)
 //                       empties the list (prompt_history.hpp).
+//   promptbooks (GET)   {"books": [{"name", "time", "entries": [{"id",
+//                       "prompt", "negative"}]}]}: the prompt collections of
+//                       the web UI; (POST) {"name", "entries": [...]} makes
+//                       one (201 with it, 409 when the name is taken, 400
+//                       for a bad name, 400 too_many over 200 collections or
+//                       2000 entries). promptbooks/<name> (GET) one, (POST)
+//                       {"name": "<new>"} and/or {"entries": [...]} renames
+//                       it and/or replaces its entries (ids from 1), (DELETE)
+//                       removes it ({"deleted": "<name>"}). Names match
+//                       without regard to case. promptbooks/<name>/entries
+//                       (POST) {"prompt", "negative"} adds an entry (201;
+//                       makes the collection; the same entry there already:
+//                       200 with it); promptbooks/<name>/entries/<id> (POST)
+//                       {"prompt"} and/or {"negative"} changes one, (DELETE)
+//                       removes it ({"deleted": <id>}) (prompt_books.hpp).
+//   prompts/expand (POST) {"prompt", "negative_prompt", "lora": [{"path",
+//                       "multiplier"}], "count": 1 to 100, "seed"}: expands
+//                       {a|b}, __name__ (a random entry of a collection) and
+//                       __lora__ (the trigger words of the LoRAs, or of the
+//                       prompt's <lora:NAME:w> tags) as the web UI does:
+//                       {"template", "negative_template", "items": [{"prompt",
+//                       "negative_prompt"}], "unknown": [...]}; the same seed
+//                       gives the same items (prompt_expand.hpp).
 //   gallery/keep (POST) {"name": "tmp_<file>"}: keeps an image made with
 //                       "temporary" ({"kept": "<file>"}).
 //   gallery/copy (POST) {"to": "usb0", "names": [...]}: copies gallery files
@@ -1631,6 +1659,199 @@ extern "C" int sd_app_upload(const char * path, uint64_t length, sd_app_reader r
     return status;
 }
 
+// The prompt collections: promptbooks, promptbooks/<name>, promptbooks/<name>/entries and
+// promptbooks/<name>/entries/<id> (prompt_books.hpp). Answers the status, or 0 when the route is not one of these.
+static int promptbooks_route(const std::string & m, const std::string & p, const std::string & text, std::string & out) {
+    if (p != "promptbooks" && p.rfind("promptbooks/", 0) != 0) {
+        return 0;
+    }
+    std::vector<std::string> seg;  // "promptbooks", <name>, "entries", <id>
+    for (size_t at = 0;;) {
+        const size_t next = p.find('/', at);
+        seg.push_back(p.substr(at, next == std::string::npos ? std::string::npos : next - at));
+        if (next == std::string::npos) {
+            break;
+        }
+        at = next + 1;
+    }
+    const size_t n = seg.size();
+    if (n > 4 || (n >= 2 && seg[1].empty()) || (n >= 3 && seg[2] != "entries") || (n == 4 && seg[3].empty())) {
+        return 0;
+    }
+    const bool is_get = m == "GET", is_post = m == "POST", is_delete = m == "DELETE";
+    const bool known  = (n == 1 && (is_get || is_post)) || (n == 2 && (is_get || is_post || is_delete)) || (n == 3 && is_post) ||
+                       (n == 4 && (is_post || is_delete));
+    if (!known) {
+        return 0;
+    }
+    const auto bad = [&](const std::string & why) {
+        out = error_json(why);
+        return 400;
+    };
+    const std::string name = n > 1 ? seg[1] : std::string();
+    int64_t           id   = 0;
+    if (n == 4) {
+        if (seg[3].size() > 15 || seg[3].find_first_not_of("0123456789") != std::string::npos) {
+            return bad("not an entry id: " + seg[3]);
+        }
+        id = std::stoll(seg[3]);
+    }
+    nlohmann::json body_json;
+    if (is_post) {
+        body_json = nlohmann::json::parse(text, nullptr, false);
+        if (!body_json.is_object()) {
+            return bad("the body must be a JSON object");
+        }
+    }
+    // a string field: 0 absent, 1 a string, -1 of the wrong type
+    const auto field = [&](const char * key, std::string & value) {
+        if (!body_json.contains(key)) {
+            return 0;
+        }
+        if (!body_json[key].is_string()) {
+            return -1;
+        }
+        value = body_json[key].get<std::string>();
+        return 1;
+    };
+    nlohmann::json   result;
+    std::string      error;
+    PromptBookStatus st = PromptBookStatus::Ok;
+    int              ok = 200;
+    if (n == 1 && is_get) {
+        out = g_books.list_json();
+        return 200;
+    } else if (n == 1) {
+        std::string                  book_name;
+        std::vector<PromptBookEntry> entries;
+        if (field("name", book_name) != 1) {
+            return bad("the body needs \"name\" (a string)");
+        }
+        if (body_json.contains("entries") && !PromptBooks::parse_entries(body_json["entries"], entries, error)) {
+            return bad(error);
+        }
+        st = g_books.create(book_name, entries, result, error);
+        ok = 201;
+    } else if (n == 2 && is_get) {
+        st = g_books.get(name, result, error);
+    } else if (n == 2 && is_post) {
+        std::string                  new_name;
+        std::vector<PromptBookEntry> entries;
+        const int                    has_name    = field("name", new_name);
+        const bool                   has_entries = body_json.contains("entries");
+        if (has_name < 0) {
+            return bad("\"name\" must be a string");
+        }
+        if (has_entries && !PromptBooks::parse_entries(body_json["entries"], entries, error)) {
+            return bad(error);
+        }
+        if (has_name == 0 && !has_entries) {
+            return bad("the body needs \"name\" and/or \"entries\"");
+        }
+        st = g_books.update(name, has_name == 1 ? &new_name : nullptr, has_entries ? &entries : nullptr, result, error);
+    } else if (n == 2) {
+        std::string spelled = name;
+        st                  = g_books.remove_book(spelled, error);
+        result              = nlohmann::json{ { "deleted", spelled } };
+    } else if (n == 3) {
+        std::string prompt, negative;
+        if (field("prompt", prompt) != 1) {
+            return bad("the body needs \"prompt\" (a string)");
+        }
+        if (field("negative", negative) < 0) {
+            return bad("\"negative\" must be a string");
+        }
+        st = g_books.add_entry(name, prompt, negative, result, error);
+        ok = st == PromptBookStatus::Created ? 201 : 200;  // Ok: the same entry was there
+    } else if (is_post) {
+        std::string prompt, negative;
+        const int   has_prompt = field("prompt", prompt), has_negative = field("negative", negative);
+        if (has_prompt < 0 || has_negative < 0) {
+            return bad("\"prompt\" and \"negative\" must be strings");
+        }
+        if (has_prompt == 0 && has_negative == 0) {
+            return bad("the body needs \"prompt\" and/or \"negative\"");
+        }
+        st = g_books.edit_entry(name, id, has_prompt == 1 ? &prompt : nullptr, has_negative == 1 ? &negative : nullptr, result, error);
+    } else {
+        st     = g_books.remove_entry(name, id, error);
+        result = nlohmann::json{ { "deleted", id } };
+    }
+    if (st == PromptBookStatus::Ok || st == PromptBookStatus::Created) {
+        out = result.dump(-1, ' ', false, nlohmann::json::error_handler_t::replace);
+        return ok;
+    }
+    out = error_json(error, st == PromptBookStatus::TooMany ? "too_many" : "");
+    return st == PromptBookStatus::NotFound ? 404 : st == PromptBookStatus::Conflict ? 409 : st == PromptBookStatus::WriteFailed ? 500 : 400;
+}
+
+// POST prompts/expand: the web UI's expansion (prompt_expand.hpp) for API clients. 0 when it is not this route.
+static int prompts_expand_route(const std::string & m, const std::string & p, const std::string & text, std::string & out) {
+    if (m != "POST" || p != "prompts/expand") {
+        return 0;
+    }
+    const auto bad = [&](const std::string & why) {
+        out = error_json(why);
+        return 400;
+    };
+    const nlohmann::json j = nlohmann::json::parse(text, nullptr, false);
+    if (!j.is_object()) {
+        return bad("the body must be a JSON object");
+    }
+    if (!j.contains("prompt") || !j["prompt"].is_string()) {
+        return bad("the body needs \"prompt\" (a string)");
+    }
+    if (j.contains("negative_prompt") && !j["negative_prompt"].is_string()) {
+        return bad("\"negative_prompt\" must be a string");
+    }
+    const std::string prompt = j["prompt"].get<std::string>(), negative = j.value("negative_prompt", std::string());
+    if (prompt.find_first_not_of(" \t\r\n") == std::string::npos) {
+        return bad("the prompt is empty");
+    }
+    if (prompt.size() > PromptBooks::kMaxText || negative.size() > PromptBooks::kMaxText) {
+        return bad("a prompt is at most 8000 bytes");
+    }
+    int64_t count = 1;
+    if (j.contains("count")) {
+        if (!j["count"].is_number_integer() || j["count"].get<int64_t>() < 1 || j["count"].get<int64_t>() > 100) {
+            return bad("count is a whole number from 1 to 100");
+        }
+        count = j["count"].get<int64_t>();
+    }
+    uint64_t seed = 0;
+    if (j.contains("seed")) {
+        if (!j["seed"].is_number_integer()) {
+            return bad("seed must be a whole number");
+        }
+        seed = static_cast<uint64_t>(j["seed"].get<int64_t>());
+    } else {
+        std::random_device rd;
+        seed = (static_cast<uint64_t>(rd()) << 32) ^ rd();
+    }
+    std::string lora_words, error;
+    const auto  words_of = [](const std::string & file) {
+        const nlohmann::json side = read_sidecar(std::string(kLoras) + "/" + file);
+        return side.is_object() && side.contains("activation text") && side["activation text"].is_string()
+                   ? side["activation text"].get<std::string>()
+                   : std::string();
+    };
+    const bool has_lora = j.contains("lora");
+    if (!collect_lora_words(has_lora ? j["lora"] : nlohmann::json(), has_lora, prompt, words_of, lora_words, error)) {
+        return bad(error);
+    }
+    const PromptBookMap books = g_books.entries_by_name();
+    PromptRng           rng(seed);
+    PromptExpander      expander(books, lora_words, rng);
+    nlohmann::json      items = nlohmann::json::array();
+    for (int64_t i = 0; i < count; i++) {
+        const PromptExpansion e = expander.expand(prompt, negative);
+        items.push_back({ { "prompt", e.prompt }, { "negative_prompt", e.negative } });
+    }
+    out = nlohmann::json{ { "template", prompt }, { "negative_template", negative }, { "items", items }, { "unknown", expander.unknown() } }
+              .dump(-1, ' ', false, nlohmann::json::error_handler_t::replace);
+    return 200;
+}
+
 extern "C" int sd_app_request(const char * method, const char * path, const char * body, size_t body_len,
                               char ** out_body, size_t * out_len, const char ** content_type) {
     const std::string m = method;
@@ -1648,6 +1869,18 @@ extern "C" int sd_app_request(const char * method, const char * path, const char
     // The downloader's routes (downloader.hpp: catalog, downloads, hf/search);
     // it catches its own errors.
     int status = downloader_route(m, p, body != nullptr ? std::string(body, body_len) : std::string(), out);
+    // The prompt collections and the expansion (written out so scripts/check-openapi.py sees the routes).
+    if (status <= 0 && ((m == "GET" && p == "promptbooks") || (m == "POST" && p == "promptbooks") ||
+                        (m == "POST" && p == "prompts/expand"))) {
+        const std::string text = body != nullptr ? std::string(body, body_len) : std::string();
+        status                 = promptbooks_route(m, p, text, out);
+        if (status <= 0) {
+            status = prompts_expand_route(m, p, text, out);
+        }
+    }
+    if (status <= 0 && (m == "GET" || m == "POST" || m == "DELETE") && p.rfind("promptbooks/", 0) == 0) {
+        status = promptbooks_route(m, p, body != nullptr ? std::string(body, body_len) : std::string(), out);
+    }
     if (status > 0) {
         // answered
     } else if (m == "GET" && p == "models") {

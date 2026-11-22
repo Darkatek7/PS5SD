@@ -33,10 +33,12 @@
       $('prompt').focus();
       return;
     }
-    // {a|b} in the prompt: this image's pick; the typed prompt stays in p.template (Run again, the history)
+    // {a|b}, __name__ and __lora__ in the prompt: this image's pick; what was typed stays in p.template and
+    // p.negTemplate (Run again, the history, the job's "template")
     p.template = p.prompt;
-    p.wild = hasWildcard(p.prompt);
-    if (p.wild) p.prompt = expandWildcards(p.template);
+    p.negTemplate = p.negative;
+    p.wild = isRandom(p.template) || isRandom(p.negTemplate);
+    expandJob(p);
     var n = runCount();
     rememberPrompt(p);
     // while something runs, the same settings wait in the server's queue
@@ -107,6 +109,17 @@
     if (p.repeat > 1) body.repeat = p.repeat;
     if (p.clip > 0) body.clip_skip = p.clip;
     if (p.temp) body.temporary = true;
+    return withTemplates(body, p);
+  }
+
+  // The typed prompt and negative prompt go along when an expansion changed either (the image keeps them for
+  // Use all): the template when it differs, the negative template then always, also when it is empty, so Use all
+  // can tell an empty typed negative prompt from an image without template info.
+  function withTemplates(body, p) {
+    var tDiff = p.template !== undefined && p.template !== p.prompt;
+    var nDiff = p.negTemplate !== undefined && p.negTemplate !== p.negative;
+    if (tDiff) body.template = p.template;
+    if (tDiff || nDiff) body.negative_template = p.negTemplate || '';
     return body;
   }
 
@@ -134,7 +147,7 @@
     if (loraBody(p).length) body.lora = loraBody(p);
     if (p.clip > 0) body.clip_skip = p.clip;
     if (p.temp) body.temporary = true;
-    return body;
+    return withTemplates(body, p);
   }
 
   // Posts a job (an image or a video, by the model in use). cb(code, data) when the server answers.

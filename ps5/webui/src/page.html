@@ -124,18 +124,63 @@
     <p class="hint starter" id="starter" style="display:none"></p>
     <textarea id="prompt" class="big" rows="4" placeholder="What should it draw?"></textarea>
     <div class="tagbox" id="tagbox" role="listbox" aria-label="Tags" style="display:none"></div>
-    <p class="hint" id="wild-hint" style="display:none">Each image picks one option of every <code>{a|b|c}</code>. <button type="button" class="info" data-help="help-wildcards" aria-label="More about wildcards">&#9432;</button></p>
+    <p class="hint" id="wild-hint" style="display:none"><span id="wild-text"></span> <button type="button" class="info" data-help="help-wildcards" aria-label="More about wildcards">&#9432;</button></p>
     <div class="linkrow">
       <button type="button" class="linkbtn" id="neg-toggle" aria-expanded="false" aria-controls="neg-box">+ Negative prompt</button>
       <span class="fill"></span>
       <button type="button" class="linkbtn" id="prompt-hist" aria-expanded="false" aria-controls="phist" style="display:none" title="The last prompts, kept on the console">History</button>
+      <button type="button" class="linkbtn" id="prompt-books" aria-expanded="false" aria-controls="phist" style="display:none" title="Lists of prompts or words; __name__ in a prompt picks one">Collections</button>
+      <button type="button" class="linkbtn" id="prompt-save" aria-expanded="false" aria-controls="bk-savebox" style="display:none" title="Keep this prompt in a collection">Save prompt</button>
       <button type="button" class="linkbtn" id="prompt-copy">Copy</button>
       <button type="button" class="linkbtn" id="prompt-paste" style="display:none">Paste</button>
     </div>
+    <div class="phist" id="bk-savebox" style="display:none">
+      <div class="phead"><span class="pht">Save the prompt</span></div>
+      <div class="bkform">
+        <label for="bks-sel">Collection</label>
+        <select id="bks-sel"></select>
+        <input type="text" id="bks-name" maxlength="40" placeholder="Name: letters, digits, - and _" aria-label="Name of the new collection" autocomplete="off" autocapitalize="off" spellcheck="false" style="display:none">
+        <p class="hint bad" id="bks-msg"></p>
+        <div class="bkbar"><button type="button" class="linkbtn" id="bks-ok">Save</button><button type="button" class="linkbtn" id="bks-cancel">Cancel</button></div>
+      </div>
+    </div>
     <div class="phist" id="phist" style="display:none">
-      <div class="phead"><span class="pht">Prompt history</span><button type="button" class="linkbtn" id="ph-clear">Clear all</button><button type="button" class="linkbtn" id="ph-close">Close</button></div>
-      <div class="phlist" id="ph-list"></div>
-      <p class="hint" id="ph-none" style="display:none">No prompts yet. Each run adds its prompt here.</p>
+      <div class="phead">
+        <div class="ptabs" role="tablist" aria-label="Prompt history and collections">
+          <button type="button" role="tab" id="pt-hist" class="on" aria-selected="true" aria-controls="ph-hpane">History</button>
+          <button type="button" role="tab" id="pt-books" aria-selected="false" aria-controls="ph-bpane" style="display:none">Collections</button>
+        </div>
+        <span class="fill"></span>
+        <button type="button" class="linkbtn" id="ph-clear">Clear all</button><button type="button" class="linkbtn" id="ph-close">Close</button>
+      </div>
+      <div id="ph-hpane" role="tabpanel">
+        <div class="phlist" id="ph-list"></div>
+        <p class="hint" id="ph-none" style="display:none">No prompts yet. Each run adds its prompt here.</p>
+      </div>
+      <div id="ph-bpane" role="tabpanel" style="display:none">
+        <div class="bktabs" id="bk-tabs"></div>
+        <div class="bkform" id="bk-namebox" style="display:none">
+          <label for="bk-name" id="bk-name-lbl">Name of the collection</label>
+          <input type="text" id="bk-name" maxlength="40" placeholder="Letters, digits, - and _" autocomplete="off" autocapitalize="off" spellcheck="false">
+          <p class="hint bad" id="bk-name-msg"></p>
+          <div class="bkbar"><button type="button" class="linkbtn" id="bk-name-ok">OK</button><button type="button" class="linkbtn" id="bk-name-cancel">Cancel</button></div>
+        </div>
+        <div class="phlist" id="bk-list"></div>
+        <p class="hint" id="bk-none" style="display:none">No entries yet. Save a prompt here, or import a .txt file with one entry per line.</p>
+        <p class="hint" id="bk-nobook" style="display:none">No collections yet. Press + New, Save prompt or Import .txt.</p>
+        <div class="bkacts" id="bk-acts" style="display:none">
+          <button type="button" class="linkbtn" id="bk-random" title="Put a random entry into the prompt now">Random prompt</button>
+          <button type="button" class="linkbtn" id="bk-insert" title="Put the name of this collection into the prompt at the cursor">Insert __name__</button>
+          <button type="button" class="linkbtn" id="bk-rename">Rename</button>
+          <button type="button" class="linkbtn" id="bk-export" title="One line per entry; negative prompts are not in the file">Export .txt</button>
+          <button type="button" class="linkbtn" id="bk-delbook">Delete collection</button>
+        </div>
+        <div class="bkacts">
+          <button type="button" class="linkbtn" id="bk-import" title="A text file with one entry per line">Import .txt</button>
+          <input type="file" id="bk-file" accept=".txt,text/plain" style="display:none" aria-label="A .txt file with one entry per line">
+        </div>
+        <p class="hint" id="bk-msg" style="display:none"></p>
+      </div>
     </div>
     <div id="neg-box" style="display:none">
       <label for="neg">Negative prompt</label>
@@ -662,9 +707,13 @@
     <p>Which layer of the text encoder the prompt is read from, counted from the end. Auto is what stable-diffusion.cpp does by itself: 1 for SD 1.5 and 2 for SD 2.1 and SDXL models (Pony and Illustrious too). Some SD 1.5 anime models want 2. The setting shows for the models that read the prompt with CLIP (SD 1.5, SD 2.1, SDXL); FLUX, Wan and the others read it with another encoder. Any number from 1 to 12 can be typed; an empty field is Auto, and it says what Auto is for the loaded model. With 1 an SDXL model makes noise, so the server reads a 1 as Auto for every model but SD 1.5. A preset can set it with <code>clip_skip=2</code> in its <code># defaults:</code> line.</p>
     <h2 id="help-starters">Prompt starters</h2>
     <p>Some models want each prompt to begin the same way: Pony models with <code>score_9, score_8_up, score_7_up</code>, and a negative prompt with <code>score_4, score_5</code>. A preset can carry them in a <code># prompt:</code> and a <code># negative:</code> line. While it is loaded, the server puts them before the prompts of every run, from this page and from the API, and the Create tab shows them above the fields. A prompt that starts with them already does not get them twice.</p>
-    <h2 id="help-wildcards">Wildcards and the prompt history</h2>
-    <p>In the prompt, <code>{red|blue|green}</code> is one of its options, picked anew for each image: a run of 8 images with <code>a {red|blue|green} car</code> makes cars of different colours. Each image is a job of its own, with its own pick, and the image keeps the prompt that made it. A brace without a <code>|</code> stays as it is, and an option can be empty (<code>{snowy|}</code>).</p>
-    <p><b>History</b> under the prompt lists the last 50 prompts, with their negative prompts and models. A click puts one back (the negative prompt too), the <b>×</b> removes one. The list is kept on the console, so every browser and device has it. A prompt with a wildcard is kept as you typed it.</p>
+    <h2 id="help-wildcards">Wildcards, collections and the prompt history</h2>
+    <p>In the prompt, <code>{red|blue|green}</code> is one of its options, picked anew for each image: a run of 8 images with <code>a {red|blue|green} car</code> makes cars of different colours. Each image is a job of its own, with its own pick, and the image keeps the prompt that made it, and the text you typed (Use all gives that back). A brace without a <code>|</code> stays as it is, and an option can be empty (<code>{snowy|}</code>).</p>
+    <p>A <b>collection</b> is a named list of prompts, or of a few words each, kept on the console for every model and browser. <code>__people__</code> in a prompt is a random entry of the collection <code>people</code>, picked anew for each image. A prompt that is only <code>__portraits__</code> with a count of 10 makes 10 different prompts. An entry may hold <code>{a|b}</code> and other <code>__names__</code> itself. A name without a collection (or with an empty one) stays as typed, and the hint under the prompt says so. Names have 1 to 40 letters, digits, <code>-</code> and <code>_</code>; <code>People</code> and <code>people</code> are the same collection.</p>
+    <p><code>__lora__</code> is the trigger words of the LoRAs that go into the job (the ones that are on), in the order they are picked, at that place. A LoRA without words adds nothing, and the commas around an empty place are tidied. While the prompt has <code>__lora__</code>, <b>Add trigger words</b> on a LoRA says <b>Via __lora__</b>. Without it, Add trigger words puts the words where the cursor was last in the prompt.</p>
+    <p>An entry can have a negative prompt. When the prompt is exactly one <code>__name__</code>, the image's negative prompt is the one of the entry it picked, then the negative prompt you typed. In any other prompt only the typed one is used. <code>__lora__</code> in the negative prompt stays as typed.</p>
+    <p><b>Collections</b> under the prompt opens the lists. Pick one, then <b>Use</b> puts an entry into the prompt (and its negative prompt, if it has one), <b>⋯</b> edits or deletes it. <b>Random prompt</b> puts a random entry into the prompt now, <b>Insert __name__</b> puts the placeholder at the cursor. <b>Save prompt</b> keeps the prompt and the negative prompt as you typed them (the placeholders, not an expansion) in a collection; <code>saved</code> is the default. <b>Import .txt</b> reads a Dynamic Prompts wildcard file: one entry per line, empty lines and lines that start with <code>#</code> skipped; the file name gives the collection's name, and when it is there you can add to it or give a new name. <b>Export .txt</b> saves <code>&lt;name&gt;.txt</code> with one line per entry (a line break inside an entry becomes a space; negative prompts are not in the file). A collection holds at most 2000 entries, and there can be 200.</p>
+    <p><b>History</b> under the prompt lists the last 50 prompts, with their negative prompts and models. A click puts one back (the negative prompt too), the <b>×</b> removes one. The list is kept on the console, so every browser and device has it. A prompt with a placeholder is kept as you typed it.</p>
     <h2 id="help-extend">Extend a picture</h2>
     <p>Start from an image (or press Edit on one of the gallery), then <b>Extend</b>: pick 128 to 512 px for each side that should grow and press Extend. The page puts the picture on a larger canvas, fills the new part with the colours of the edge and masks it, a little way into the picture too, so the join blends. Say in the prompt what should be there and press Generate. The strength goes to 1, and the picture keeps its own pixels (<b>Only the masked area</b>); the part that is made reaches as far into the picture as the new part is wide, so the model sees what it continues. <b>Undo the last</b> takes the last extension back. A picture can grow to 4096 px on a side.</p>
     <h2 id="help-nokeep">Images that are not kept</h2>
@@ -908,6 +957,7 @@
 @@include js/09e-event-stream.js
 @@include js/09f-wildcards.js
 @@include js/09g-prompt-history.js
+@@include js/09h-prompt-books.js
 @@include js/10-controls.js
 @@include js/10b-create-layout.js
 @@include js/11-help.js

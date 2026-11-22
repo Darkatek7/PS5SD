@@ -25,6 +25,39 @@
     return out;
   }
 
+  // A value of A1111's settings line ("Template: x, Negative Template: y, Preset: z"): as it is, or a JSON string
+  // when it holds a comma, a colon, a quote or a line break (A1111's quote()). null when the key is not there.
+  function settingValue(line, key) {
+    var m = new RegExp('(^|, )' + key + ': ').exec(line);
+    if (!m) return null;
+    var at = m.index + m[0].length, i;
+    if (line.charAt(at) === '"') {
+      for (i = at + 1; i < line.length; i++) {
+        if (line.charAt(i) === '\\') i++;
+        else if (line.charAt(i) === '"') break;
+      }
+      try { var v = JSON.parse(line.substring(at, i + 1)); return typeof v === 'string' ? v : ''; } catch (e) { /* plain */ }
+    }
+    var rest = line.substring(at), next = /, [A-Z][A-Za-z0-9 ]*: /.exec(rest);
+    return next ? rest.substring(0, next.index) : rest;
+  }
+
+  // The template and the negative template an image was made from: sd.cpp's JSON (ps5sd.template), else the
+  // settings line of the parameters text. {t, n}, each null when the image has none (a negative template may be
+  // there and empty: the typed negative prompt was empty).
+  function infoTemplates(d) {
+    var ps = d.sdcpp && d.sdcpp.ps5sd ? d.sdcpp.ps5sd : {}, t = null, n = null;
+    if (typeof ps.template === 'string') t = ps.template;
+    if (typeof ps.negative_template === 'string') n = ps.negative_template;
+    if (t === null && n === null && d.parameters) {
+      var txt = String(d.parameters).replace(/,\s*SDCPP:\s*\{[\s\S]*$/, '');
+      var at = txt.lastIndexOf('\nSteps: ');
+      var line = at >= 0 ? txt.substring(at + 1) : /^Steps: /.test(txt) ? txt : '';
+      if (line) { t = settingValue(line, 'Template'); n = settingValue(line, 'Negative Template'); }
+    }
+    return { t: t, n: n };
+  }
+
   // The model file of a request: the diffusion model (FLUX, Wan, Z-Image), else the checkpoint.
   function infoModel(j) {
     var m = j.models || {};
@@ -83,7 +116,10 @@
     if (infoWait[it.name].length > 1 || data === null) return;
     infoCache[it.name] = null;   // asked
     req('GET', '/ps5sd/v1/gallery/info/' + encodeURIComponent(it.name), null, function (code, d) {
-      if (code === 200 && d) d.sdcpp = infoShape(d.sdcpp);
+      if (code === 200 && d) {
+        d.sdcpp = infoShape(d.sdcpp);
+        if (d.sdcpp) d.sdcpp.tpl = infoTemplates(d);
+      }
       infoCache[it.name] = code === 200 && d ? d : {};
       var list = infoWait[it.name] || [];
       delete infoWait[it.name];
@@ -208,8 +244,10 @@
       for (var k = 0; k < (loraList || []).length; k++) if (baseName(loraList[k].path) === ls[i].name) path = loraList[k].path;
       if (path) loras.push({ path: path, m: Number(ls[i].multiplier) || 0 }); else missing.push(ls[i].name);
     }
-    $('prompt').value = j.prompt ? j.prompt.positive || '' : '';
-    $('neg').value = j.prompt ? j.prompt.negative || '' : '';
+    // an image made from a template gives the template back, not the text that came of it
+    var tp = j.tpl || { t: null, n: null };
+    $('prompt').value = tp.t !== null ? tp.t : j.prompt ? j.prompt.positive || '' : '';
+    $('neg').value = tp.n !== null ? tp.n : j.prompt ? j.prompt.negative || '' : '';
     negShow(!!$('neg').value);
     setForm({
       w: j.width, h: j.height, steps: s.steps, cfg: round2(g.txt_cfg),

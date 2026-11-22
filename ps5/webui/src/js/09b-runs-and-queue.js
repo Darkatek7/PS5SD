@@ -258,8 +258,8 @@
     for (var k in run.first) q[k] = run.first[k];
     q.repeat = 1;
     q.seed = run.done === 0 ? run.seed0 : run.named ? run.seed0 + run.done : Math.floor(Math.random() * 2147483647);
-    // a wildcard picks again for every image after the first (the first has its pick from generate())
-    if (q.wild && run.done > 0) q.prompt = expandWildcards(q.template);
+    // a wildcard or a __name__ picks again for every image after the first (the first has its pick from generate())
+    if (q.wild && run.done > 0) expandJob(q);
     st.followPrompt = q.wild ? q.prompt : '';
     st.seed = q.seed;
     st.last = q;
@@ -347,7 +347,7 @@
       q.repeat = 1;
       if (k > 0) {
         q.seed = p.named ? p.seed + k : Math.floor(Math.random() * 2147483647);
-        if (p.wild) q.prompt = expandWildcards(p.template);
+        if (p.wild) expandJob(q);
       }
       k++;
       postJob(q, function (code, data) {

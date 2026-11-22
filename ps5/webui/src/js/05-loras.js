@@ -114,7 +114,7 @@
         if (loraTrigger(s.path)) {
           var tb = el('button', 'linkbtn ltrig', 'Add trigger words');
           tb.type = 'button';
-          tb.title = 'Put its trigger words at the end of the prompt: ' + loraTrigger(s.path);
+          tb.title = 'Put its trigger words at the cursor of the prompt: ' + loraTrigger(s.path);
           tb.onclick = function () { addTriggerWords(s.path); };
           tb.setAttribute('data-path', s.path);
           nm.appendChild(tb);
@@ -301,13 +301,11 @@
     return out;
   }
 
+  // At the caret of the prompt (09h remembers the last one), else at its end.
   function addTriggerWords(path) {
     var miss = missingWords(path);
     if (!miss.length) { toast('Its trigger words are in the prompt already.'); return; }
-    var v = $('prompt').value.replace(/[\s,]+$/, '');
-    $('prompt').value = (v ? v + ', ' : '') + miss.join(', ');
-    persist();
-    updateTriggerButtons();
+    putAtCaret(miss.join(', '), ', ');
     toast('Added to the prompt: ' + miss.join(', ') + '.');
   }
 
@@ -315,10 +313,12 @@
   function updateTriggerButtons() {
     var bs = $('lora-sel').getElementsByClassName('ltrig');
     for (var i = 0; i < bs.length; i++) {
+      var via = hasLoraPlaceholder($('prompt').value);
       var none = missingWords(bs[i].getAttribute('data-path')).length === 0;
-      bs[i].disabled = none;
-      text(bs[i], none ? 'Words are in the prompt' : 'Add trigger words');
+      bs[i].disabled = via || none;
+      text(bs[i], via ? 'Via __lora__' : none ? 'Words are in the prompt' : 'Add trigger words');
     }
+      drawWildHint();   // __lora__ says how many words there are
   }
 
   // The settings a fast LoRA needs (a few steps at a low CFG), by its file name; null for other LoRAs.

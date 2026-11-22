@@ -2,7 +2,8 @@
 """Dev helper: serve the web UI at / and forward every other path to a PS5SD server.
 
     python scripts/webui-dev.py [--port 8787] [--target http://10.0.0.101:7860] [--mock-downloads] [--mock-models]
-                                [--mock-gallery N] [--mock-prompts] [--mock-generate] [--read-only]
+                                [--mock-gallery N] [--mock-prompts] [--mock-promptbooks]
+                                [--mock-generate] [--read-only]
 
 The page is put together from ps5/webui/src on every request (as scripts/bundle-webui.sh does
 for the build), so an edit shows after a reload.
@@ -39,10 +40,15 @@ does: no "favourites" key and no "fav" in the answer, so the page must hide the 
 --mock-prompts answers the prompt history (GET, POST and DELETE /ps5sd/v1/app/prompts) in memory, as the app does:
 the newest first, at most 50, a repeat moves to the front, an empty prompt is a 400. --mock-models implies it.
 
+--mock-promptbooks answers the prompt collections (GET, POST, DELETE /ps5sd/v1/app/promptbooks, a collection, its
+entries) in memory with the app's rules: names of 1 to 40 letters, digits, - and _, unique without regard to case,
+"lora" reserved (400), a taken name 409, an entry of 1 to 8000 bytes, a repeated entry answers 200 with the old one.
+--mock-models implies it.
+
 --mock-generate answers POST /sdcpp/v1/img_gen and GET /sdcpp/v1/jobs/<id> here: a job is done half a second after
 it was posted and gives one PNG of the requested size (a colour from the prompt: red, green or blue when the prompt
-says so, else from its hash), so a run, a queue and an edit can be tried with --read-only. GET /__mock/requests lists
-the bodies it got (images cut to their length), DELETE /__mock/requests empties the list.
+says so, else from its hash), so a run, a queue and an edit can be tried with --read-only. GET /sdcpp/v1/capabilities answers img_gen with repeat, so the page sends jobs (not
+the A1111 route). GET /__mock/requests lists the bodies it got (images cut to their length), DELETE /__mock/requests empties the list.
 
 --mock-standby starts like a fresh install: no model is loaded, the library answers
 "standby": true, and every route outside /ps5sd/ answers 503 as sd-server --standby does,
@@ -823,6 +829,181 @@ class MockPrompts:
         return None
 
 
+class MockPromptBooks:
+    """--mock-promptbooks: the prompt collections of the app in memory (prompt_books.hpp), with its rules: a name
+    of 1 to 40 letters, digits, - and _ (unique without regard to case, "lora" reserved), entries of 1 to 8000
+    bytes, at most 200 collections and 2000 entries in one."""
+
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.books = []   # [{"name", "time", "entries": [{"id", "prompt", "negative"}], "_next"}]
+
+    @staticmethod
+    def err(code, status, msg):
+        return status, {"error": {"code": code, "message": msg}}
+
+    def _find(self, name):
+        for b in self.books:
+            if b["name"].lower() == name.lower():
+                return b
+        return None
+
+    @staticmethod
+    def _out(b):
+        return {"name": b["name"], "time": b["time"], "entries": [dict(e) for e in b["entries"]]}
+
+    def _name_error(self, name):
+        if not isinstance(name, str) or not re.match(r"^[A-Za-z0-9_-]{1,40}$", name):
+            return self.err("bad_request", 400, "a name has 1 to 40 letters, digits, - and _")
+        if name.lower() == "lora":
+            return self.err("bad_request", 400, "lora is reserved for the trigger words of the LoRAs")
+        return None
+
+    def _entry(self, j, need_prompt=True):
+        """(prompt, negative) trimmed, or an error tuple."""
+        if not isinstance(j, dict):
+            return self.err("bad_request", 400, "the body must be an object")
+        for k in ("prompt", "negative"):
+            if k in j and not isinstance(j[k], str):
+                return self.err("bad_request", 400, k + " must be a string")
+        p = j.get("prompt", "").strip() if "prompt" in j else None
+        n = j.get("negative", "").strip() if "negative" in j else None
+        if need_prompt and not p:
+            return self.err("bad_request", 400, "the prompt is empty")
+        if p is not None and "prompt" in j and not p:
+            return self.err("bad_request", 400, "the prompt is empty")
+        if (p and len(p.encode()) > 8000) or (n and len(n.encode()) > 8000):
+            return self.err("bad_request", 400, "a text is too long")
+        return p, n
+
+    def _entries(self, lst):
+        if not isinstance(lst, list):
+            return self.err("bad_request", 400, "entries must be a list")
+        if len(lst) > 2000:
+            return self.err("too_many", 400, "a collection holds at most 2000 entries")
+        out = []
+        for i, e in enumerate(lst):
+            r = self._entry(e)
+            if r[0] == 400 and isinstance(r[1], dict):
+                return r
+            out.append({"id": i + 1, "prompt": r[0], "negative": r[1] or ""})
+        return out
+
+    def handle(self, method, path, body):
+        """Returns (status, object), or None for another route."""
+        route = urllib.parse.urlparse(path).path
+        m = re.match(r"^/ps5sd/v1/app/promptbooks(?:/([^/]*))?(?:/entries(?:/([^/]*))?)?$", route)
+        if not m:
+            return None
+        name = urllib.parse.unquote(m.group(1)) if m.group(1) is not None else None
+        eid = m.group(2)
+        entries = "/entries" in route
+        j = None
+        if method == "POST":
+            try:
+                j = json.loads(body or b"")
+            except ValueError:
+                j = None
+        with self.lock:
+            if name is None:
+                if method == "GET":
+                    return 200, {"books": [self._out(b) for b in self.books]}
+                if method == "POST":
+                    if not isinstance(j, dict):
+                        return self.err("bad_request", 400, "the body must be an object")
+                    bad = self._name_error(j.get("name"))
+                    if bad:
+                        return bad
+                    if self._find(j["name"]):
+                        return self.err("conflict", 409, "a collection with this name is there")
+                    if len(self.books) >= 200:
+                        return self.err("too_many", 400, "at most 200 collections")
+                    es = self._entries(j.get("entries", []))
+                    if isinstance(es, tuple):
+                        return es
+                    b = {"name": j["name"], "time": int(time.time()), "entries": es}
+                    self.books.append(b)
+                    return 201, self._out(b)
+                return None
+            b = self._find(name)
+            if not entries:
+                if method == "GET":
+                    return (200, self._out(b)) if b else self.err("not_found", 404, "no collection " + name)
+                if method == "DELETE":
+                    if not b:
+                        return self.err("not_found", 404, "no collection " + name)
+                    self.books.remove(b)
+                    return 200, {"deleted": b["name"]}
+                if method == "POST":
+                    if not b:
+                        return self.err("not_found", 404, "no collection " + name)
+                    if not isinstance(j, dict):
+                        return self.err("bad_request", 400, "the body must be an object")
+                    new = j.get("name")
+                    if "name" in j:
+                        bad = self._name_error(new)
+                        if bad:
+                            return bad
+                        other = self._find(new)
+                        if other and other is not b:
+                            return self.err("conflict", 409, "a collection with this name is there")
+                    if "entries" in j:
+                        es = self._entries(j["entries"])
+                        if isinstance(es, tuple):
+                            return es
+                        b["entries"] = es
+                    if "name" in j:
+                        b["name"] = new
+                    b["time"] = int(time.time())
+                    return 200, self._out(b)
+                return None
+            # entries
+            if eid is None and method == "POST":
+                r = self._entry(j)
+                if r[0] == 400 and isinstance(r[1], dict):
+                    return r
+                p, n = r[0], r[1] or ""
+                bad = None if b else self._name_error(name)
+                if bad:
+                    return bad
+                if not b:
+                    if len(self.books) >= 200:
+                        return self.err("too_many", 400, "at most 200 collections")
+                    b = {"name": name, "time": int(time.time()), "entries": []}
+                    self.books.append(b)
+                for e in b["entries"]:
+                    if e["prompt"] == p and e["negative"] == n:
+                        return 200, dict(e)
+                if len(b["entries"]) >= 2000:
+                    return self.err("too_many", 400, "a collection holds at most 2000 entries")
+                e = {"id": max([x["id"] for x in b["entries"]] + [b.get("last", 0)]) + 1, "prompt": p, "negative": n}
+                b["last"] = e["id"]
+                b["entries"].append(e)
+                b["time"] = int(time.time())
+                return 201, dict(e)
+            if eid is not None and eid.isdigit() and method in ("POST", "DELETE"):
+                e = None
+                for x in (b["entries"] if b else []):
+                    if x["id"] == int(eid):
+                        e = x
+                if not e:
+                    return self.err("not_found", 404, "no entry " + eid)
+                if method == "DELETE":
+                    b["entries"].remove(e)
+                    b["time"] = int(time.time())
+                    return 200, {"deleted": int(eid)}
+                r = self._entry(j, need_prompt=False)
+                if r[0] == 400 and isinstance(r[1], dict):
+                    return r
+                if r[0] is not None:
+                    e["prompt"] = r[0]
+                if r[1] is not None:
+                    e["negative"] = r[1]
+                b["time"] = int(time.time())
+                return 200, dict(e)
+        return None
+
+
 def make_png(w, h, rgb):
     """A solid-colour PNG of w x h (RGB, 8 bit)."""
     raw = (b"\x00" + bytes(rgb) * w) * h
@@ -861,6 +1042,9 @@ class MockGenerate:
                     self.requests = []
                     return 200, {"requests": []}
                 return 200, {"requests": list(self.requests)}
+        if method == "GET" and route == "/sdcpp/v1/capabilities":
+            return 200, {"supported_modes": ["img_gen"], "features": {"cancel_generating": True},
+                         "limits": {"max_repeat": 16}, "upscalers": []}
         if method == "POST" and route in ("/sdcpp/v1/img_gen", "/sdapi/v1/txt2img"):
             try:
                 j = json.loads(body or b"{}")
@@ -1018,6 +1202,7 @@ class Handler(BaseHTTPRequestHandler):
     storage = None
     gallery = None
     prompts = None
+    books = None
     generate = None
     read_only = False
 
@@ -1190,6 +1375,11 @@ class Handler(BaseHTTPRequestHandler):
             if res is not None:
                 self._json(res[0], res[1])
                 return
+        if self.books is not None and re.match(r"^/ps5sd/v1/app/promptbooks(/|$)", self.path):
+            res = self.books.handle(self.command, self.path, body)
+            if res is not None:
+                self._json(res[0], res[1])
+                return
         if self.storage is not None and self._storage(body):
             return
         if self.models is not None and self.path.split("?")[0] == APP + "info":
@@ -1260,6 +1450,8 @@ if __name__ == "__main__":
                     help="with --mock-gallery: answer the labels route as an app from before 1.6.0 (no favourites)")
     ap.add_argument("--mock-prompts", action="store_true",
                     help="answer the prompt history (GET, POST, DELETE /ps5sd/v1/app/prompts) here; implied by --mock-models")
+    ap.add_argument("--mock-promptbooks", action="store_true",
+                    help="answer the prompt collections (/ps5sd/v1/app/promptbooks) here; implied by --mock-models")
     ap.add_argument("--mock-generate", action="store_true",
                     help="answer POST /sdcpp/v1/img_gen and GET /sdcpp/v1/jobs/<id> here with solid-colour PNGs; "
                          "GET /__mock/requests shows what was posted")
@@ -1280,6 +1472,8 @@ if __name__ == "__main__":
         Handler.loras = MockLoras()
     if a.mock_prompts or Handler.models:
         Handler.prompts = MockPrompts()
+    if a.mock_promptbooks or Handler.models:
+        Handler.books = MockPromptBooks()
     if a.mock_generate:
         Handler.generate = MockGenerate()
     if a.mock_standby:

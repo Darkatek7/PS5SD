@@ -246,6 +246,12 @@ instead of trapping, so `main.cpp` reports an out-of-memory load or generation a
   with `resize_before_vae=false`.
   `patches/sdcpp/0088` lets `GET /ps5sd/v1/app/icon.png` and `GET /ps5sd/v1/app/manifest.webmanifest`
   through without the API key: a browser fetches a page's icon and manifest without it.
+  `patches/sdcpp/0089` takes `template` and `negative_template` in an `img_gen` or `vid_gen` body (strings, at
+  most 8000 bytes) and writes them into the saved image's parameters (`Template: ...`, `Negative Template: ...`
+  in the text, `"ps5sd": {"template", "negative_template"}` in the JSON); the web UI's Use all reads them back.
+  `prompt_books.hpp` keeps the prompt collections (`/data/PS5SD/promptbooks.json`) and `prompt_expand.hpp` expands
+  `{a|b}`, `__name__` and `__lora__` for `POST /ps5sd/v1/app/prompts/expand`; the page does the same in
+  `js/09f-wildcards.js`. Both are tested in `ps5/app/tests/`.
   The request's own settings (steps, CFG, size) win over the server's defaults, which are sd.cpp's, not
   the one-shot's SD-Turbo ones. `main.cpp` defines the activity hooks of `server_hooks.h` (in its own
   object: from an archive, lld could take the weak no-ops instead), which feed the status and the

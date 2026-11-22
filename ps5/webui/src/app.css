@@ -624,6 +624,42 @@
     font-size: 1.3rem; }
   .phx:hover { color: var(--bad); background: var(--raised); }
   .phist .hint { margin: 0; padding: 0.8rem 0.9rem; }
+  .phist .hint:empty { display: none; }
+  .phead .fill { flex: 1; }
+  .ptabs { display: flex; min-width: 0; }
+  .ptabs button { min-height: 2.5rem; margin: 0 0.2rem 0 0; padding: 0 0.7rem; background: transparent; border: 0; border-radius: 2rem; color: var(--muted); font-weight: 500; }
+  .ptabs button:hover { background: var(--raised); color: var(--text); }
+  .ptabs button.on { background: var(--accent); color: #fff; }
+  .bktabs { display: flex; flex-wrap: wrap; padding: 0.5rem 0.6rem 0.2rem; border-bottom: 1px solid var(--border); }
+  .bkb { min-height: 2.4rem; margin: 0 0.4rem 0.4rem 0; padding: 0 0.8rem; background: transparent; border: 1px solid var(--border); border-radius: 2rem; color: var(--text); font-weight: 400; overflow-wrap: anywhere; }
+  .bkb:hover { background: var(--raised); }
+  .bkb.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .bkb.bknew { color: var(--accent); border-style: dashed; }
+  .bkwrap { border-bottom: 1px solid var(--border); }
+  .bkwrap:last-child { border-bottom: 0; }
+  .bkwrap .phrow { border-bottom: 0; }
+  .bkent { flex: 1; min-width: 0; padding: 0.55rem 0.2rem 0.55rem 0.9rem; }
+  .bkent .pht, .bkent .phm { display: -webkit-box; -webkit-box-orient: vertical; overflow: hidden; text-overflow: ellipsis; overflow-wrap: anywhere; }
+  .bkent .pht { -webkit-line-clamp: 3; line-clamp: 3; }
+  .bkent .phm { -webkit-line-clamp: 1; line-clamp: 1; margin-top: 0.15rem; color: var(--faint); font-size: 0.78rem; }
+  .bkuse, .bkdots { flex: none; align-self: center; min-height: 2.5rem; margin: 0 0.1rem; padding: 0 0.7rem; background: transparent; border: 0; border-radius: 2rem; color: var(--accent); font-weight: 500; }
+  .bkdots { min-width: 2.5rem; padding: 0; color: var(--faint); font-size: 1.2rem; }
+  .bkuse:hover, .bkdots:hover { background: var(--raised); }
+  .bkbar { display: flex; flex-wrap: wrap; padding: 0 0.9rem 0.4rem; }
+  .bkbar .linkbtn { margin: 0 0.8rem 0 0; }
+  .bkedit { padding: 0.6rem 0.9rem 0.2rem; }
+  .bkedit textarea { margin-bottom: 0.4rem; }
+  .bkedit .bkbar, .bkform .bkbar { padding-left: 0; }
+  .bkform { padding: 0.6rem 0.9rem 0.3rem; border-bottom: 1px solid var(--border); }
+  .bkform label { display: block; margin: 0 0 0.3rem; }
+  .bkform select, .bkform input[type="text"] { display: block; width: 100%; box-sizing: border-box; margin: 0 0 0.4rem; }
+  .bkform .hint { padding: 0 0 0.4rem; }
+  .bkacts { display: flex; flex-wrap: wrap; padding: 0.3rem 0.9rem 0.2rem; border-top: 1px solid var(--border); }
+  .bkacts .linkbtn { margin: 0 0.9rem 0 0; }
+  .bkacts .linkbtn:disabled { color: var(--faint); text-decoration: none; }
+  .bkmore { display: block; margin: 0.3rem auto; }
+  #bk-list:empty { display: none; }
+  .linkrow { flex-wrap: wrap; }
   .initbar { display: flex; align-items: center; flex-wrap: wrap; margin-top: 0.8rem; }
   .initbar button { flex: none; min-height: 2.75rem; margin-right: 0.8rem; }
   .initbar .hint { margin: 0; }

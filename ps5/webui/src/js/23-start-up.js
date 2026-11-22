@@ -216,10 +216,11 @@
     $('st-refresh').onclick = enterStorage;
     $('lb-use').onclick = function () { useSettings(); };
     $('lb-infobtn').onclick = toggleLbInfo;
-    $('prompt-hist').onclick = function () { histShow($('phist').style.display === 'none'); };
+    $('prompt-hist').onclick = histToggle;
     $('ph-close').onclick = function () { histShow(false); try { $('prompt-hist').focus(); } catch (e) {} };
     $('ph-clear').onclick = clearHistory;
     loadPromptHistory();
+    initPromptBooks();
     $('prompt-copy').onclick = function () { copyText($('prompt').value, 'The prompt'); };
     $('neg-copy').onclick = function () { copyText($('neg').value, 'The negative prompt'); };
     show('prompt-paste', canPaste(), 'inline-block');

@@ -52,6 +52,7 @@ PS5SD's):
 | Code | Status | Meaning |
 |---|---|---|
 | `invalid_request` | 400 | the body is not JSON, a field is missing or of the wrong type, a value is not allowed |
+| `too_many` | 400 | a write would pass a limit of the prompt collections (200 collections, 2000 entries in one; see [Prompt collections](#prompt-collections)) |
 | `unauthorized` | 401 | the API key is needed, or it is wrong |
 | `forbidden` | 403 | a request with the login cookie lacks the header `X-PS5SD-Request` |
 | `not_found` | 404 | no such route, file, job, download or preset (`loras/lookup`: Civitai does not know the file) |
@@ -547,6 +548,91 @@ newest. A prompt with a wildcard (see below) is kept as typed, not as one run ex
 | `DELETE /ps5sd/v1/app/prompts/<id>` | removes one entry: `{"deleted": <id>}`; `404` when no entry has that id |
 | `DELETE /ps5sd/v1/app/prompts` | empties the list: `{"deleted": <how many>}` |
 
+## Prompt collections
+
+A collection ("prompt book") is a named list of entries. An entry is a whole prompt, with an optional negative
+prompt, or a few words. The web UI's **Collections** tab and **Save prompt** button use them, and so can any
+client. They are kept on the console, in `/data/PS5SD/promptbooks.json`, for every model and every browser.
+
+- A name is 1 to 40 letters, digits, `-` and `_`. It is unique without regard to case: `People` and `people`
+  are one collection, and it keeps the spelling it was made with. In a path, the name matches without regard
+  to case. `lora` (any case) is reserved for `__lora__`.
+- An entry has `prompt` (1 to 8000 bytes after trimming) and `negative` (0 to 8000 bytes), and an `id` that is
+  unique in its collection and never used again there.
+- At most 200 collections, and 2000 entries in one. A write that would pass a limit is `400` with the code
+  `too_many`.
+- A book is `{"name", "time", "entries": [{"id", "prompt", "negative"}]}`. `time` is the last change, in
+  seconds since 1970. The books are in the order they were made, the entries in the user's order.
+
+| Route | |
+|---|---|
+| `GET /ps5sd/v1/app/promptbooks` | `{"books": [<book>, ...]}`, each with all its entries |
+| `POST /ps5sd/v1/app/promptbooks` | `{"name": "people", "entries": [{"prompt": "...", "negative": "..."}]}` (`entries` is optional): makes a collection. `201` with it; `409` when the name is taken |
+| `GET /ps5sd/v1/app/promptbooks/<name>` | one book; `404` |
+| `POST /ps5sd/v1/app/promptbooks/<name>` | `{"name": "<new>"}` and/or `{"entries": [...]}`: renames it and/or replaces its entries (the new ids count from 1). `200` with the book; `404`; `409` when the new name is taken. Nothing changes when one part is refused |
+| `DELETE /ps5sd/v1/app/promptbooks/<name>` | `{"deleted": "<name>"}`; `404` |
+| `POST /ps5sd/v1/app/promptbooks/<name>/entries` | `{"prompt": "...", "negative": "..."}`: adds an entry at the end, and makes the collection when it is not there, so saving a prompt to `saved` is one call. `201` with the entry. The same prompt and negative prompt there already: `200` with that entry, nothing added |
+| `POST /ps5sd/v1/app/promptbooks/<name>/entries/<id>` | `{"prompt": "..."}` and/or `{"negative": "..."}`: changes an entry. `200` with it; `404` |
+| `DELETE /ps5sd/v1/app/promptbooks/<name>/entries/<id>` | `{"deleted": <id>}`; `404` |
+
+A body that is not a JSON object, a field of the wrong type, an empty prompt or a bad name is `400`.
+
+```sh
+curl -X POST http://10.0.0.101:7860/ps5sd/v1/app/promptbooks/saved/entries \
+  -H 'Content-Type: application/json' \
+  -d '{"prompt": "portrait of an old fisherman, soft light", "negative": "blurry"}'
+```
+
+### Expand a prompt
+
+`POST /ps5sd/v1/app/prompts/expand` does what the web UI does before it sends a job: it expands `{a|b}`,
+`__name__` and `__lora__` (see [Wildcards](#wildcards)), so an API client gets the same prompts.
+
+```json
+{ "prompt": "__lora__, portrait of __people__, {red|blue} coat", "negative_prompt": "__bad__",
+  "lora": [ { "path": "style/pixel-art-xl.safetensors", "multiplier": 0.8 } ], "count": 4, "seed": 42 }
+```
+
+- `prompt` is required (1 to 8000 bytes). `negative_prompt` is optional.
+- `count` is 1 to 100 (default 1). Each item is picked anew.
+- `seed` is optional, a whole number. The same seed, collections and LoRAs give the same items. Without it, the
+  picks are random.
+- `lora` names the LoRAs for `__lora__`, in the shape img_gen takes (`[{"path", "multiplier"}]`; plain path
+  strings work too; a multiplier of 0 is off). Without `lora`, the LoRAs named in the prompt's
+  `<lora:NAME:weight>` tags count; the tags stay in the text. A LoRA's trigger words are the "activation text"
+  of its info (see [LoRA info](#lora-info)). A LoRA that is not there, or has no words, adds nothing.
+- Answer `200`:
+
+  ```json
+  { "template": "__lora__, portrait of __people__, {red|blue} coat", "negative_template": "__bad__",
+    "items": [ { "prompt": "pixel art, portrait of an old fisherman, red coat", "negative_prompt": "lowres" } ],
+    "unknown": [ "bad" ] }
+  ```
+
+  `items` has `count` entries. `unknown` lists the `__name__`s that matched no collection with entries; they
+  stay as typed. A bad body is `400`.
+- A prompt that is exactly one `__name__` also takes that entry's negative prompt, in front of the
+  `negative_prompt` you sent.
+
+To make images from it, send each item to img_gen with `template` and `negative_template`, so the image
+keeps the template. The saved image has `Template: ...` and `Negative Template: ...` in its parameters, and
+`template` and `negative_template` in the `ps5sd` part of the JSON at the end. A `negative_template` that is
+sent is always written, an empty one as `""`, so a reader can tell an empty negative prompt from no template
+information; `template` is written when it is not empty. Each is at most 8000 bytes (`400` otherwise; the
+same for vid_gen). Without the fields the parameters are as before (see [sd-server's own API](#sd-servers-own-api)):
+
+```python
+import requests
+base = "http://10.0.0.101:7860"
+x = requests.post(base + "/ps5sd/v1/app/prompts/expand",
+                  json={"prompt": "portrait of __people__, {red|blue} coat", "count": 4}).json()
+for item in x["items"]:
+    requests.post(base + "/sdcpp/v1/img_gen", json={
+        "prompt": item["prompt"], "negative_prompt": item["negative_prompt"],
+        "template": x["template"], "negative_template": x["negative_template"],
+        "width": 512, "height": 512})
+```
+
 ### Wildcards
 
 In the web UI's prompt, `{red|blue|green}` picks one option for each image. The page expands it before
@@ -555,6 +641,13 @@ keeps the expanded one. A run of several images (the count next to Generate) is 
 the other, each with its own pick; while something runs, the same count queues one job per image. A brace
 without a `|` stays as it is. The server does not know wildcards: a client that wants them expands
 them itself.
+
+`__name__` is a random entry of the collection `name` (see [Prompt collections](#prompt-collections)), picked
+anew for each image, and `__lora__` is the trigger words of the picked LoRAs. An entry may hold `{a|b}` and
+other `__names__`; up to 8 passes are made, so an entry that names its own collection stops there. A
+`__name__` without a collection stays as typed. The web UI expands `__name__` and `__lora__` in the page, not
+the server, the same as `{a|b}`: img_gen sees a plain prompt. A client that wants them calls
+`POST /ps5sd/v1/app/prompts/expand`, which uses the same rules.
 
 ## Jobs: queue and cancel
 
@@ -702,6 +795,10 @@ first frame; Wan 2.1 has no use for it. The job runs as the images do, and a 33-
 - `fps` and `frame_count`.
 
 The video is also saved in `/data/PS5SD/outputs` as `sd_<date>_<time>_<n>.webm`, so it shows in the gallery.
+
+**Template**: `img_gen` and `vid_gen` take `"template"` and `"negative_template"`, strings of at most 8000 bytes
+(`400` otherwise): the text the prompt was made from. The saved image keeps them in its parameters; see
+[Expand a prompt](#expand-a-prompt).
 
 **Not kept**: `"temporary": true` on `img_gen` or `vid_gen` saves the images or the video as
 `tmp_sd_<date>_<time>_<n>.<ext>` instead. They are served like the gallery's files
