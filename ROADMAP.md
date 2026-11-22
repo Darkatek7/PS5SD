@@ -10,6 +10,8 @@ can rely on.
 
 ## Done
 
+- **1.8.3**: Random prompt for each image from the ticked collections, also through `prompts/expand`; the fan
+  chart as the chip and the fan over time.
 - **1.8.2**: a LoRA's trigger words as a list, each on or off, all or some of them at random for each image,
   `__lora:NAME__`, and all of it through the API.
 - **1.8.1**: prompt collections on the console, `__name__` and `__lora__` in a prompt, the prompt as typed in
@@ -623,7 +625,7 @@ The plan as of 2026-11-04, in order (1.1.0 was taken by the stable-diffusion.cpp
 2026-11-12, 1.2.0 by faster loading on 2026-11-14 and 1.3.0 by the gallery as a ZIP on 2026-11-17, so the
 rest moved up three numbers; 1.4.0 took the web UI's storage and USB items on 2026-11-19, and the pose of
 issue 13 and the `sdxl-full` conversion moved on; 1.5.0 took the pose, 1.6.0 the web UI's smaller steps,
-1.7.0 the slideshow, 1.8.0 MOSS-Image and the LoRA info of issue 24, 1.8.1 prompt collections, 1.8.2 the trigger words as a list). The times below are those of 1.0.0 on the console ([CONSOLE.md](docs/CONSOLE.md));
+1.7.0 the slideshow, 1.8.0 MOSS-Image and the LoRA info of issue 24, 1.8.1 prompt collections, 1.8.2 the trigger words as a list, 1.8.3 random prompts from collections). The times below are those of 1.0.0 on the console ([CONSOLE.md](docs/CONSOLE.md));
 every new number goes there with its date and build.
 
 ## 1.6.0: the web UI, smaller steps, done
@@ -712,6 +714,16 @@ Tested on the console ([CONSOLE.md](docs/CONSOLE.md#trigger-words-as-a-list-2026
 - [x] **`__lora:NAME__`**: one LoRA's words at that place; `__lora__` leaves out the LoRAs it names.
 - [x] **The API**: `loras/info` reads and sets the list and the mode, `GET loras` lists them, and
   `prompts/expand` uses them and takes them for one call.
+
+## 1.8.3: random prompts from collections, done
+
+Tested on the console ([CONSOLE.md](docs/CONSOLE.md#random-prompts-and-the-fan-chart-2026-11-22)).
+
+- [x] **Random prompt for each image**: a switch in the Collections tab and a tick at each collection; each
+  image takes a random entry of the ticked ones instead of the prompt box, and keeps it as its template.
+- [x] **The API**: `prompts/expand` takes `books` instead of `prompt`.
+- [x] **The fan chart**: the chip and the fan over the last 2 minutes, with the mode's highest temperature as a
+  line, instead of a fan line that the readings did not follow.
 
 ## 1.x, no version yet
 
