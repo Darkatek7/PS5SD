@@ -228,6 +228,8 @@
     req('GET', APP + '/presets/' + encodeURIComponent(m.id), null, function (code, data) {
       if (code !== 200 || !data || typeof data.text !== 'string') { toast(errText(code, data, 'Could not read the preset'), 6000); return; }
       peFor = m;
+      peNew = null;
+      show('pe-note', false);
       dlgFrom = document.activeElement;
       text($('pe-title'), 'Edit ' + (m.name || m.id));
       $('pe-text').value = peOrig = data.text;
@@ -242,11 +244,13 @@
   function closeEdit() {
     show('pe', false);
     peFor = null;
+    peNew = null;
     disarmPeHelp();
     if (dlgFrom) { try { dlgFrom.focus(); } catch (e) {} }
   }
 
   function saveEdit() {
+    if (peNew) { saveNew(); return; }  // Make a preset (14b)
     var m = peFor;
     if (!m) return;
     $('pe-save').disabled = true;

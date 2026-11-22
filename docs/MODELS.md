@@ -195,6 +195,40 @@ vae/sdxl_vae_fp16_fix.safetensors
 640
 ```
 
+### Make a preset for a diffusion model
+
+FLUX, Z-Image, MOSS-Image, Krea 2 and Wan come in parts. A diffusion model alone cannot run, and the Models
+tab marks it **Part of a model**. **Make a preset** on it writes a preset that names its text encoder and VAE:
+
+- When a preset of the same family is installed, it takes that preset's text encoder, VAE and settings.
+- Otherwise it takes what the catalog uses for the family (Krea 2: Qwen3-VL 4B and the Wan 2.1 VAE). It says
+  which file is not on the console and which model under **Get more** brings it.
+
+Check the lines and press **Save**. **Use** on the new preset loads it. For a family PS5SD does not know, the
+model's page on Hugging Face or Civitai names its text encoder and VAE.
+
+**Export .txt** in a preset's ⋯ menu saves its file. Upload it as **Preset (.txt)** to use it on another
+console. Its paths are relative to `/data/PS5SD/models`, so that console needs the same files in the same
+folders.
+
+### Files made for ComfyUI
+
+Some models on Hugging Face and Civitai are quantized for ComfyUI. The Models tab names the format, and
+**Use** is off for a file that cannot run:
+
+| Format | On the PS5 |
+|---|---|
+| NVFP4 | Cannot run. It is made for NVIDIA's newest GPUs, and stable-diffusion.cpp does not read it. |
+| INT8 with the format only in the file's metadata (`_quantization_metadata`, no `.comfy_quant` tensors), or with no format at all | Cannot run: stable-diffusion.cpp reads the format only from `.comfy_quant` tensors. |
+| torchao (unsloth's FP8 and INT8 files: layers named `_weight_qdata`) | Cannot run: stable-diffusion.cpp does not read it. |
+| INT8 (`int8_tensorwise`), W4A4 or W4A8 with `.comfy_quant` tensors | Cannot run. stable-diffusion.cpp reads it, but the PS5's GPU has no INT8 dot product, and running these layers on the CPU instead ends PS5SD. |
+| FP8 (`F8_E4M3`, `F8_E5M2`) | Runs. The PS5's GPU has no FP8, so stable-diffusion.cpp turns each layer into BF16 while it runs: FLUX.2 Klein 4B took 37 s an image instead of 22 s with the Q8_0 GGUF. |
+
+A GGUF of the same model (Q4_K_M, Q8_0) is the better choice on the PS5. When a file does not load, its row in
+the Models tab says why until another model loads. "stable-diffusion.cpp does not know the model in it" means
+that its tensor names are in a layout stable-diffusion.cpp does not read, whatever its format: BFL's own FLUX.3
+files are one.
+
 ### Krea 2 Turbo
 
 Krea 2 Turbo runs on the PS5, but it is not in the catalog. Its licence, the

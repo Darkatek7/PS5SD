@@ -225,7 +225,9 @@
   function videoOf(m, d) {
     var via = d.loaded ? findModel(d.loaded) : null;
     if (st.video && d.loaded && (d.loaded === m.id || (via && via.base === m.id))) return true;
-    return /^Wan/.test(m.family || '') || videoName(((m.name || '') + ' ' + (m.files || []).join(' ')).toLowerCase());
+    // the family the server read from the tensors decides (Krea 2 runs with Wan's VAE, and is no video model)
+    if (m.family) return /^Wan/.test(m.family);
+    return videoName(((m.name || '') + ' ' + (m.files || []).join(' ')).toLowerCase());
   }
 
   // A file name as a name: no extension, _ and - as spaces, the case kept; a quantization (Q8_0,
@@ -264,6 +266,22 @@
     parent.appendChild(box);
   }
 
+  // The weight format a model's row shows (models_json's "format"): that of the preset Use loads, else of the
+  // model; a preset of another format under it shows its own (presetRow).
+  function formatOf(g) {
+    return (g.def && g.def.format) || g.main.format || null;
+  }
+
+  // A format as a badge: amber when it runs, red when it cannot.
+  function formatBadge(f) {
+    return el('span', 'badge ' + (f.loads ? 'warn' : 'bad'), f.loads ? f.label : 'Cannot run: ' + f.label);
+  }
+
+  // Make a preset is for a diffusion model that came alone, in a format that runs (14b-make-preset.js).
+  function canMake(m) {
+    return m.kind === 'file' && m.part === 'diffusion model' && !(m.format && !m.format.loads) && !(m.missing && m.missing.length);
+  }
+
   // Loaded, or on its way.
   function stateOf(m, d) {
     if (d.loaded === m.id) return 'on';
@@ -287,11 +305,21 @@
     if (on) nm.appendChild(el('span', 'badge ok', single ? 'In use' : 'In use: ' + shortName(on, g.title)));
     else if (loading) nm.appendChild(el('span', 'badge warn', 'Loading…'));
     if (miss) nm.appendChild(el('span', 'badge bad', 'Incomplete'));
+    // the weight format, when sd.cpp runs it otherwise or not at all (ComfyUI INT8, NVFP4, FP8; API.md)
+    var fm = formatOf(g);
+    if (fm) nm.appendChild(formatBadge(fm));
     if (m.part) nm.appendChild(el('span', 'badge warn', 'Part of a model'));
     main.appendChild(nm);
     // only the diffusion model, text encoder or VAE: it runs in a preset that names the others
-    if (m.part) main.appendChild(el('div', 'mmeta', 'Only the ' + m.part + ' of a model, so it cannot run on its own. ' +
-      'Get more installs a model with all its files and a preset.'));
+    var makes = canMake(m);
+    if (m.part) main.appendChild(el('div', 'mmeta', 'Only the ' + m.part + ' of a model' + (m.family && m.part === 'diffusion model' ? ' (' + m.family + ')' : '') +
+      ', so it cannot run on its own. ' + (makes ? 'Make a preset names its text encoder and VAE.' : fm && !fm.loads ? ''
+        : 'Get more installs a model with all its files and a preset.')));
+    // the last load of one of its entries failed: why, until another model loads (with the format's note in it)
+    var le = d.load_error, why = '';
+    for (i = 0; le && i < g.items.length; i++) if (g.items[i].id === le.id) why = le.message;
+    if (fm && !(why && why.indexOf(fm.note) >= 0)) main.appendChild(el('div', 'mmeta' + (fm.loads ? '' : ' bad'), (single ? '' : fm.file + ': ') + fm.note));
+    if (why) main.appendChild(el('div', 'mmeta bad', why));
     addTags(main, tagsOf(m.name || m.id, m.files, videoOf(m, d), !!m.control_net, m.family));
     var spec = [bytes(m.bytes)];
     if (single && subMeta(m)) spec.push(subMeta(m));
@@ -305,9 +333,14 @@
     if (st.delErr && st.delErr.id === m.id) main.appendChild(el('div', 'mmeta bad', st.delErr.msg));
     row.appendChild(main);
     var acts = el('div', 'macts');
-    if (!on) {
+    if (makes) {
+      var mk = actionButton('Make a preset', function () { makePreset(m); });
+      mk.className = 'on';
+      mk.title = 'A preset that names this diffusion model, its text encoder and its VAE';
+      acts.appendChild(mk);
+    } else if (!on) {
       var dm = g.def.missing && g.def.missing.length;
-      var usable = !loading && !dm && !st.sw && !g.def.part;
+      var usable = !loading && !dm && !st.sw && !g.def.part && !(g.def.format && !g.def.format.loads);
       var b = actionButton(loading ? 'Loading…' : 'Use', function () { useModel(g.def); });
       b.disabled = !usable;
       if (usable) b.className = 'on';
@@ -358,13 +391,16 @@
     if (s === 'on') nm.appendChild(el('span', 'badge ok', 'In use'));
     else if (s === 'loading') nm.appendChild(el('span', 'badge warn', 'Loading…'));
     if (miss) nm.appendChild(el('span', 'badge bad', 'Files missing'));
+    var vf = v.format && v.format !== formatOf(g) ? v.format : null;
+    if (vf) nm.appendChild(formatBadge(vf));
     main.appendChild(nm);
     main.appendChild(el('div', 'mmeta', subMeta(v) || 'No settings of its own'));
+    if (vf) main.appendChild(el('div', 'mmeta' + (vf.loads ? '' : ' bad'), vf.file + ': ' + vf.note));
     if (st.delErr && st.delErr.id === v.id) main.appendChild(el('div', 'mmeta bad', st.delErr.msg));
     row.appendChild(main);
     var acts = el('div', 'sacts');
     if (s !== 'on') {
-      var usable = s !== 'loading' && !miss && !st.sw && !v.part;
+      var usable = s !== 'loading' && !miss && !st.sw && !v.part && !(v.format && !v.format.loads);
       var b = actionButton(s === 'loading' ? 'Loading…' : 'Use', function () { useModel(v); });
       b.disabled = !usable;
       acts.appendChild(b);
@@ -383,6 +419,8 @@
   function itemMenu(v, g, d, where) {
     var items = [], why = '';
     if (v.kind === 'preset') items.push({ label: 'Edit text', fn: function () { editPreset(v); } });
+    if (v.kind === 'preset') items.push({ label: 'Export .txt', fn: function () { exportPreset(v); } });
+    if (canMake(v)) items.push({ label: 'Make a preset', fn: function () { makePreset(v); } });
     if (v.kind === 'preset' && v.base) {
       var busy = d.loaded === v.id || d.active === v.id;
       if (busy) why = 'Switch to another preset to delete this one.';

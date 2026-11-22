@@ -826,6 +826,74 @@
         }
       }
     },
+    "/ps5sd/v1/app/models/files": {
+      "get": {
+        "tags": [
+          "models"
+        ],
+        "operationId": "listModelFiles",
+        "summary": "The model files",
+        "description": "Every model file in `/data/PS5SD/models` and its subfolders, and the tokenizers (`.json` in `tokenizers/`), by path, with what each is. The web UI's Make a preset picks a text encoder and a VAE from these. Since 1.8.4.",
+        "responses": {
+          "200": {
+            "description": "The files.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "files": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "path": {
+                            "type": "string",
+                            "description": "Relative to `/data/PS5SD/models`, with `/`.",
+                            "example": "text_encoders/Qwen3VL-4B-Instruct-Q4_K_M.gguf"
+                          },
+                          "bytes": {
+                            "type": "integer"
+                          },
+                          "part": {
+                            "type": "string",
+                            "description": "`diffusion model`, `text encoder`, `VAE`, `tokenizer`, or `\"\"` for a file that runs alone or cannot be told."
+                          },
+                          "family": {
+                            "type": "string",
+                            "description": "As a model's `family`."
+                          },
+                          "format": {
+                            "oneOf": [
+                              {
+                                "type": "null"
+                              },
+                              {
+                                "$ref": "#/components/schemas/WeightFormat"
+                              }
+                            ]
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key is needed, or it is wrong (code `unauthorized`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/ps5sd/v1/app/models/active": {
       "post": {
         "tags": [
@@ -938,7 +1006,7 @@
             }
           },
           "422": {
-            "description": "The entry is a single file that is only a part of a model (`part`); the message says what is missing and what to do (code `model_part`).",
+            "description": "The entry is a single file that is only a part of a model (`part`); the message says what is missing and what to do (code `model_part`). Or a file of it is in a weight format this build cannot run (`format`, code `model_format`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -1743,7 +1811,7 @@
         ],
         "operationId": "createPreset",
         "summary": "Save a preset",
-        "description": "Saves a model with other settings. It takes the model's arguments and its prompt starters from `base` (the loaded model when it is left out; the base's own base when that is a saved preset too). The id comes from the name. A key that is not one of the `defaults` keys, or a value with a space or another character than letters, digits and `. _ + - : , / %`, is a `400`; a name with others goes in percent-encoded.",
+        "description": "Saves a model with other settings. It takes the model's arguments and its prompt starters from `base` (the loaded model when it is left out; the base's own base when that is a saved preset too). The id comes from the name. A key that is not one of the `defaults` keys, or a value with a space or another character than letters, digits and `. _ + - : , / %`, is a `400`; a name with others goes in percent-encoded. Since 1.8.4 `{\"name\", \"text\"}` makes a new preset from its text instead (as the web UI's Make a preset writes it): at most 64 KB, naming a model.",
         "requestBody": {
           "required": true,
           "content": {
@@ -1766,6 +1834,11 @@
                   },
                   "defaults": {
                     "$ref": "#/components/schemas/PresetDefaults"
+                  },
+                  "text": {
+                    "type": "string",
+                    "description": "The preset file (since 1.8.4). With it, `base` and `defaults` are not used.",
+                    "example": "# name: Krea 2 Turbo\n--diffusion-model\nKrea-2-Turbo-Q4_K_M.gguf\n--llm\ntext_encoders/Qwen3VL-4B-Instruct-Q4_K_M.gguf\n--vae\nvae/wan_2.1_vae.safetensors\n"
                   }
                 },
                 "additionalProperties": true
@@ -4179,7 +4252,7 @@
             }
           },
           "422": {
-            "description": "The entry is only a part of a model (code `model_part`).",
+            "description": "The entry is only a part of a model (code `model_part`), or a file of it is in a weight format this build cannot run (code `model_format`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -4681,7 +4754,7 @@
             }
           },
           "422": {
-            "description": "The file is only a part of a model (code `model_part`).",
+            "description": "The file is only a part of a model (code `model_part`), or in a weight format this build cannot run (code `model_format`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -4831,7 +4904,7 @@
             }
           },
           "422": {
-            "description": "The file is only a part of a model (code `model_part`).",
+            "description": "The file is only a part of a model (code `model_part`), or in a weight format this build cannot run (code `model_format`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -6648,7 +6721,7 @@
         "required": [
           "error"
         ],
-        "description": "The shape of every answer of 400 and more. `message` is for people; `code` is for programs. The codes are: `invalid_request` (400), `unauthorized` (401), `forbidden` (403), `not_found` (404), `model_not_found` (404), `no_lora` (404), `conflict` (409), `switching` (409), `stopping` (409, 503), `in_use` (409), `expired` (410), `payload_too_large` (413), `model_part` (422), `rate_limited` (429), `queue_full` (429), `too_many_streams` (429), `generation_failed` (500), `load_failed` (500), `out_of_memory` (500), `cancelled` (500), `server_error` (500), `bad_gateway` (502), `standby` (503), `timeout` (504), `storage_full` (507). A status without a code of its own gives `http_<status>`. New codes may come. An answer may have more fields next to `error`.",
+        "description": "The shape of every answer of 400 and more. `message` is for people; `code` is for programs. The codes are: `invalid_request` (400), `unauthorized` (401), `forbidden` (403), `not_found` (404), `model_not_found` (404), `no_lora` (404), `conflict` (409), `switching` (409), `stopping` (409, 503), `in_use` (409), `expired` (410), `payload_too_large` (413), `model_part` (422), `model_format` (422), `rate_limited` (429), `queue_full` (429), `too_many_streams` (429), `generation_failed` (500), `load_failed` (500), `out_of_memory` (500), `cancelled` (500), `server_error` (500), `bad_gateway` (502), `standby` (503), `timeout` (504), `storage_full` (507). A status without a code of its own gives `http_<status>`. New codes may come. An answer may have more fields next to `error`.",
         "properties": {
           "error": {
             "type": "object",
@@ -6987,6 +7060,17 @@
           "part": {
             "type": "string",
             "description": "Set for a single file that is only a part of a model: `diffusion model`, `text encoder` or `VAE`. `\"\"` otherwise."
+          },
+          "format": {
+            "description": "Set when a file of the entry is in a weight format that stable-diffusion.cpp runs otherwise than a GGUF, or not at all (ComfyUI's quantized safetensors, FP8); `null` for ordinary files. With `loads` false a switch to the entry is refused with `422` (code `model_format`).",
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/WeightFormat"
+              }
+            ]
           },
           "prompt": {
             "type": "string",
@@ -8309,6 +8393,29 @@
           }
         },
         "additionalProperties": true
+      },
+      "WeightFormat": {
+        "type": "object",
+        "description": "The weight format of a model file (net_family.hpp).",
+        "properties": {
+          "file": {
+            "type": "string",
+            "description": "The file's name, without its folder."
+          },
+          "label": {
+            "type": "string",
+            "description": "`ComfyUI NVFP4`, `ComfyUI INT8`, `ComfyUI INT4 (W4A4)`, `ComfyUI W4A8`, `ComfyUI quantized`, `INT8`, `torchao FP8`, `torchao INT8`, `torchao`, `FP8 (scaled)` or `FP8`.",
+            "example": "ComfyUI NVFP4"
+          },
+          "note": {
+            "type": "string",
+            "description": "What it means on the PS5, for people."
+          },
+          "loads": {
+            "type": "boolean",
+            "description": "False: this build cannot run the file."
+          }
+        }
       }
     }
   }

@@ -66,7 +66,8 @@ PS5SD's):
 | `expired` | 410 | the job ended so long ago that its result is gone |
 | `payload_too_large` | 413 | the body is over 64 MB |
 | `model_part` | 422 | the file is only a part of a model (see `part` below) |
-| `unprocessable` | 422 | the request is well formed, but cannot be done (a 422 that is not `model_part`) |
+| `model_format` | 422 | a file of the model is in a weight format this build cannot run (see `format` below) |
+| `unprocessable` | 422 | the request is well formed, but cannot be done (a 422 that is not `model_part` or `model_format`) |
 | `rate_limited` | 429 | too many wrong API keys; `Retry-After` says how long to wait |
 | `queue_full` | 429 | the job queue is full |
 | `too_many_streams` | 429 | four event streams are open already (see [Events](#events-progress-without-polling)) |
@@ -284,6 +285,7 @@ apart, and still silent) or `no ELF loader`. Without it those
 | `GET /ps5sd/v1/app/info` | `{"name": "PS5SD", "version": "1.2.1", "sd_cpp": {"version", "commit"}}` |
 | `GET /ps5sd/v1/app/docs/<name>` | `MODELS.md`, `API.md` or `openapi.json` as the title carries them (`text/markdown`, the last `application/json`), for the web UI's Help tab; any other name is a 404 |
 | `GET /ps5sd/v1/app/models` | the library; see below |
+| `GET /ps5sd/v1/app/models/files` | `{"files": [{"path", "bytes", "part", "family", "format"}]}`: every model file in `/data/PS5SD/models` and its subfolders (`path` relative to it), and the tokenizers (`.json` in `tokenizers/`, `part` `tokenizer`), by path. `part`, `family` and `format` as for a model (below). The web UI's Make a preset picks a text encoder and a VAE from these |
 | `POST /ps5sd/v1/app/models/active` | `{"id": "<id>"}`: switch to that entry; the responses are below |
 | `DELETE /ps5sd/v1/app/models/<id>` | delete an entry; see below |
 | `POST /ps5sd/v1/app/fit` | the body of an `img_gen` or `vid_gen` request: will it fit in the GPU memory of the loaded model? The body needs `width` and `height` (`400` without them); `hires` (an object with `enabled` and `scale`), `control_image` or `"control": true` (a guide image, which has limits of its own) and `video_frames` (the frame count) are optional. The answer is `{"verdict", "message", "family", "width", "height", "frames"}`, with `width` and `height` of the largest pass (the hires target). `verdict` is `fits`, `tight` (larger than measured, or than every run since the model loaded: it may run out of memory, and a restart of PS5SD gives the most room) or `too_big` (measured not to fit); `message` says it for people. Nothing runs, and a run is never refused for it. See [CONSOLE.md](CONSOLE.md#memory-what-fits-and-why-runs-failed-2026-10-22) |
@@ -318,13 +320,19 @@ apart, and still silent) or `no ELF loader`. Without it those
   (CLIP, T5, an LLM such as Qwen3) or `VAE`. Such a file runs only in a preset that names the other
   files ([MODELS.md](MODELS.md#presets-models-of-several-files-and-options)), and a switch to it is
   refused with `422`. `""` for a preset and for a file that runs alone.
+- `format` is set when a file of the entry is in a weight format that stable-diffusion.cpp runs otherwise than
+  a GGUF, or not at all: `{"file", "label", "note", "loads"}`. `label` is `ComfyUI NVFP4`, `ComfyUI INT8`,
+  `ComfyUI INT4 (W4A4)`, `ComfyUI W4A8`, `ComfyUI quantized` (a `.comfy_quant` tensor that cannot be read),
+  `INT8` (I8 weights without a format), `torchao FP8`, `torchao INT8`, `torchao`, `FP8 (scaled)` or `FP8`; `note` says what it means on the PS5. With `"loads": false` a switch to the entry
+  is refused with `422` and the code `model_format`
+  ([MODELS.md](MODELS.md#files-made-for-comfyui)). `null` for ordinary files.
 - `loaded` is the entry the server has ready. It is `""` while a model loads and in standby.
 - `missing` lists the entry's files that are not on the console. An entry with missing files cannot be
   loaded.
 - `control_net` is the file name of the preset's `--control-net` (see [MODELS.md](MODELS.md#controlnet)), or `""`.
 - `family` is the network the entry runs, read from the tensor names and shapes of its diffusion model
   (not from its name or metadata): `FLUX.1`, `FLUX.2 Klein 4B`, `FLUX.2 Klein 9B`, `FLUX.2 Dev`, `FLUX.3 Klein`,
-  `SDXL`, `SD 2.1`, `SD 1.5`, `SD 3`, `Wan 1.3B`, `Wan 5B`, `Wan 14B`, `Z-Image`; `FLUX`, `FLUX.2` or `Wan` when only the
+  `SDXL`, `SD 2.1`, `SD 1.5`, `SD 3`, `Wan 1.3B`, `Wan 5B`, `Wan 14B`, `Z-Image`, `MOSS-Image`, `Krea 2`; `FLUX`, `FLUX.2` or `Wan` when only the
   kind can be told, `""` when nothing can (a `.ckpt`). A LoRA's `family` (`/ps5sd/v1/app/loras`) uses the same names: a
   LoRA works on a model of the same family.
 - `model_file` is the file name of the entry's main model file: its diffusion model, else its checkpoint.
@@ -467,6 +475,7 @@ A saved preset is a model with other settings: a preset file with `# base: <id>`
 | Route | |
 |---|---|
 | `POST /ps5sd/v1/app/presets` | `{"name": "Portrait fast", "base": "<model id>", "defaults": {"width": "832", "height": "1216", "steps": "10", "cfg": "6", "sampler": "dpm++2m", "scheduler": "ays", "clip_skip": "2", "loras": "detail.safetensors:0.8", "hires_scale": "1.5", "hires_steps": "0", "hires_denoise": "0.5", "hires_upscaler": "Latent"}}`: `201`, the library plus `"id"` of the new preset. It takes the model's arguments and its prompt starters from `base` (the loaded model when it is left out; the base's own base when that is a saved preset too). The id comes from the name. `400` for a name of more than one line or 100 characters, a key that is not one of these, or a value with a space or another character than letters, digits and `. _ + - : , / %`. A name with others goes in percent-encoded (`"loras": "my%20style.safetensors:0.8"`; [MODELS.md](MODELS.md#presets-models-of-several-files-and-options)) |
+| `POST /ps5sd/v1/app/presets` | since 1.8.4 `{"name": "Krea 2 Turbo", "text": "<the preset file>"}`: a new preset from its text, as the web UI's Make a preset writes it: `201`, the library plus `"id"`. The id comes from the name. `400` for a name as above, a text over 64 KB, or one that names no model |
 | `GET /ps5sd/v1/app/presets/<id>` | `{"id", "text"}`: the preset file as it is |
 | `POST /ps5sd/v1/app/presets/<id>` | `{"text": "..."}`: replaces the file (at most 64 KB, it must name a model); the answer is the library. Changed options count from the next load of that preset. Since 0.9.13 `{"defaults": {"steps": "8", ...}}` (the keys of `POST presets`) replaces only the preset's `# defaults:` line, and the rest of the file stays; `{}` removes the line. For the loaded preset the new settings are the API's defaults at once. `400` for a key or value a preset cannot keep, `404` for no such preset |
 | `DELETE /ps5sd/v1/app/presets/<id>` | deletes a saved preset's file, never a model file. `409` when it is in use, or when the preset is a model itself (no `base`; delete it with `DELETE models/<id>`) |

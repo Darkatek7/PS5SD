@@ -10,6 +10,9 @@ can rely on.
 
 ## Done
 
+- **1.8.4**: why a model cannot run ([issue 25](https://github.com/Darkatek7/PS5SD/issues/25)): files made for
+  ComfyUI marked and refused when they cannot run, Krea 2 known, the load error on the model's row, Make a
+  preset for a diffusion model, Export of a preset.
 - **1.8.3**: Random prompt for each image from the ticked collections, also through `prompts/expand`; the fan
   chart as the chip and the fan over time.
 - **1.8.2**: a LoRA's trigger words as a list, each on or off, all or some of them at random for each image,
@@ -625,7 +628,7 @@ The plan as of 2026-11-04, in order (1.1.0 was taken by the stable-diffusion.cpp
 2026-11-12, 1.2.0 by faster loading on 2026-11-14 and 1.3.0 by the gallery as a ZIP on 2026-11-17, so the
 rest moved up three numbers; 1.4.0 took the web UI's storage and USB items on 2026-11-19, and the pose of
 issue 13 and the `sdxl-full` conversion moved on; 1.5.0 took the pose, 1.6.0 the web UI's smaller steps,
-1.7.0 the slideshow, 1.8.0 MOSS-Image and the LoRA info of issue 24, 1.8.1 prompt collections, 1.8.2 the trigger words as a list, 1.8.3 random prompts from collections). The times below are those of 1.0.0 on the console ([CONSOLE.md](docs/CONSOLE.md));
+1.7.0 the slideshow, 1.8.0 MOSS-Image and the LoRA info of issue 24, 1.8.1 prompt collections, 1.8.2 the trigger words as a list, 1.8.3 random prompts from collections, 1.8.4 why a model cannot run). The times below are those of 1.0.0 on the console ([CONSOLE.md](docs/CONSOLE.md));
 every new number goes there with its date and build.
 
 ## 1.6.0: the web UI, smaller steps, done
@@ -724,6 +727,23 @@ Tested on the console ([CONSOLE.md](docs/CONSOLE.md#random-prompts-and-the-fan-c
 - [x] **The API**: `prompts/expand` takes `books` instead of `prompt`.
 - [x] **The fan chart**: the chip and the fan over the last 2 minutes, with the mode's highest temperature as a
   line, instead of a fan line that the readings did not follow.
+
+## 1.8.4: why a model cannot run, done
+
+Tested on the console ([CONSOLE.md](docs/CONSOLE.md#files-made-for-comfyui-2026-11-22)), for
+[issue 25](https://github.com/Darkatek7/PS5SD/issues/25).
+
+- [x] **Formats**: the Models tab names a file's weight format when it is one made for ComfyUI (NVFP4, INT8,
+  W4A4, W4A8, torchao, FP8). Those that cannot run on the PS5 are red, **Use** is off, and a switch is refused
+  with `model_format`. ComfyUI INT8 ended the title on the console, so it is one of them; FP8 runs.
+- [x] **Krea 2** is told from its tensors: its files show as a diffusion model, and its presets are no longer
+  listed as video models.
+- [x] **The load error** stays on the model's row until another model loads, and "get sd version from file
+  failed" is said in words.
+- [x] **Make a preset** on a diffusion model that came alone: the text encoder and VAE of an installed preset
+  of its family, else the catalog's, with a note on what is missing. `GET models/files` lists the files,
+  `POST presets` takes `{"name", "text"}`.
+- [x] **Export .txt** saves a preset's file, to share it.
 
 ## 1.x, no version yet
 

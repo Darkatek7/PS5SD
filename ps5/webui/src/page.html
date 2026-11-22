@@ -927,6 +927,7 @@
     <div class="dlg-title" id="pe-title">Edit preset</div>
     <p class="hint">One option a line, as in docs/MODELS.md. <code># name:</code> is the name, <code># defaults:</code> the settings.</p>
     <textarea id="pe-text" rows="14" spellcheck="false" autocapitalize="off"></textarea>
+    <p class="hint" id="pe-note" style="display:none"></p>
     <details class="pe-fields" id="pe-fields">
       <summary>Fields</summary>
       <p class="hint">The <code>#</code> lines at the top. <b>+</b> adds one there, or goes to the end of the one the preset has.</p>
@@ -987,6 +988,7 @@
 @@include js/12d-gallery-labels.js
 @@include js/13-models.js
 @@include js/14-presets.js
+@@include js/14b-make-preset.js
 @@include js/15-downloads.js
 @@include js/16-upload.js
 @@include js/17-catalog.js

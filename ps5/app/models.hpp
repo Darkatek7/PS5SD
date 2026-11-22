@@ -53,6 +53,8 @@
 #include <utility>
 #include <vector>
 
+#include "net_family.hpp"
+
 namespace ps5sd {
 
 struct ModelEntry {
@@ -101,6 +103,14 @@ struct ModelLibrary {
     bool create_preset(const std::string & name, const std::string & base_id,
                        const std::vector<std::pair<std::string, std::string>> & defaults, std::string & id,
                        std::string & error) const;
+
+    // A new preset of a model from its text (at most 64 KB, naming a model), as
+    // the web UI's "Make a preset" writes it; the id comes from the name, as
+    // create_preset's. False with a message for a name or a text that does not do.
+    bool new_preset(const std::string & name, const std::string & text, std::string & id, std::string & error) const;
+
+    // A free preset id from a name: <slug>, <slug>-2, ...
+    bool free_id(const std::string & name, std::string & id, std::string & error) const;
 
     // A preset's file as it is; false when there is none.
     bool read_preset(const std::string & id, std::string & text, std::string & error) const;
@@ -151,10 +161,11 @@ PresetSettings preset_settings(const std::vector<std::pair<std::string, std::str
 // The library as JSON for GET /ps5sd/v1/app/models: {"active", "loaded",
 // "switching", "standby", "load_error", "models": [{"id", "name", "kind",
 // "bytes", "files", "missing", "base", "control_net", "family", "model_file",
-// "part", "prompt", "negative", "defaults": {...}}]}. prompt, negative: the prompt
+// "part", "format", "prompt", "negative", "defaults": {...}}]}. prompt, negative: the prompt
 // starters ("# prompt:", "# negative:"), or "". control_net: the file name of the preset's
 // --control-net, or "". part: what a single file is when it is only a part of a
-// model (net_part), else "". standby: the server runs without a model.
+// model (net_part), else "". format: entry_format as {"file", "label", "note",
+// "loads"}, or null for ordinary files. standby: the server runs without a model.
 // load_error: set_load_error's, or null.
 std::string models_json(const ModelLibrary & library, const std::string & active, const std::string & loaded,
                         bool switching, bool standby = false);
@@ -191,6 +202,25 @@ std::string model_file(const ModelEntry & e);
 // to do; "" for a preset and for a file that can run alone.
 std::string part_reason(const ModelEntry & e);
 
+// The weight format of an entry's files that matters (net_format): the first
+// file that cannot run, else the first with a format; file is its name (no
+// folder). An empty format.label for an entry made of ordinary files.
+struct EntryFormat {
+    std::string file;
+    NetFormat   format;
+};
+
+EntryFormat entry_format(const ModelEntry & e);
+
+// Why an entry cannot run because of the format of a file ("<file> is <label>:
+// <note>"); "" when it can.
+std::string format_reason(const ModelEntry & e);
+
+// What sd.cpp said when a model did not load, for a person: its message as it
+// is, or a sentence for one that says little ("get sd version from file
+// failed": sd.cpp does not know the file's tensor names). "" for "".
+std::string load_reason(const std::string & sd_said);
+
 // The last entry that did not load and why, which models_json reports as
 // "load_error": {"id", "message"} until the next model loads (an empty id
 // clears it); safe from several threads.
@@ -202,6 +232,14 @@ std::string load_error_message(const std::string & id);
 // The switch as models_json says it, without the models: {"active", "loaded", "switching", "standby",
 // "load_error"}, for the event stream's model event.
 std::string model_state_json(const std::string & active, const std::string & loaded, bool switching, bool standby);
+
+// GET /ps5sd/v1/app/models/files: {"files": [{"path", "bytes", "part", "family",
+// "format"}]}, every model file under dir and its subfolders (path relative to
+// dir, with '/') and the tokenizers (.json under tokenizers/, part
+// "tokenizer"), sorted by path. part and family as net_part and net_family
+// give them; format as in models_json, or null. The web UI's "Make a preset"
+// picks a model's text encoder and VAE from these.
+std::string model_files_json(const std::string & dir);
 
 // GET /ps5sd/v1/app/upscalers: {"upscalers": [{"name", "file", "bytes"}]},
 // the upscaler files (.pth, .pt, .safetensors, .gguf) directly in dir, as

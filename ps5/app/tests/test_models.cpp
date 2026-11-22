@@ -8,6 +8,7 @@
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
+#include <map>
 #include <string>
 
 #include "json.hpp"
@@ -574,6 +575,80 @@ int main() {
         }
         check(guided == "canny.safetensors" && variant == "canny.safetensors", "control_net is the file name");
         check(plain.empty() && file.empty(), "control_net is empty without a ControlNet");
+    }
+
+    // A file in a format sd.cpp cannot run (NVFP4), and a preset that names an FP8 file (it runs, with a note)
+    {
+        const fs::path froot = root / "formats";
+        const auto     st    = [](const fs::path & p, const nlohmann::json & head) {
+            fs::create_directories(p.parent_path());
+            const std::string h  = head.dump();
+            const uint64_t    hn = h.size();
+            std::ofstream     f(p, std::ios::binary);
+            f.write(reinterpret_cast<const char *>(&hn), 8);
+            f << h;
+        };
+        const auto t = [](const char * dtype) { return nlohmann::json{ { "dtype", dtype }, { "shape", { 64, 64 } }, { "data_offsets", { 0, 0 } } }; };
+        st(froot / "models" / "krea2_nvfp4.safetensors",
+           { { "blocks.0.attn.wq.weight", t("U8") }, { "blocks.0.attn.wq.weight_scale", t("F8_E4M3") },
+             { "blocks.0.attn.wq.weight_scale_2", t("F32") }, { "first.weight", t("BF16") } });
+        st(froot / "models" / "diffusion_models" / "krea2_fp8.safetensors",
+           { { "blocks.0.attn.wq.weight", t("F8_E4M3") }, { "blocks.0.attn.wq.weight_scale", t("F32") } });
+        write(froot / "models" / "text_encoders" / "qwen.gguf", "x");
+        write(froot / "presets" / "krea2-fp8.txt", "--diffusion-model\ndiffusion_models/krea2_fp8.safetensors\n--llm\n"
+                                                    "text_encoders/qwen.gguf\n");
+        write(froot / "presets" / "krea2-nvfp4.txt", "--diffusion-model\nkrea2_nvfp4.safetensors\n--llm\n"
+                                                      "text_encoders/qwen.gguf\n");
+        ps5sd::ModelLibrary flib{ (froot / "models").u8string(), (froot / "presets").u8string() };
+        const auto          fj = nlohmann::json::parse(ps5sd::models_json(flib, "", "", false));
+        std::map<std::string, nlohmann::json> by_id;
+        for (const auto & m : fj["models"]) {
+            by_id[m["id"].get<std::string>()] = m;
+        }
+        check(by_id.size() == 3, "formats: two presets and the NVFP4 file");
+        const auto & nv = by_id["krea2_nvfp4.safetensors"];
+        check(nv["format"]["label"] == "ComfyUI NVFP4" && nv["format"]["loads"] == false &&
+                  nv["format"]["file"] == "krea2_nvfp4.safetensors" && nv["part"] == "diffusion model",
+              "an NVFP4 file: its format and that it cannot run");
+        check(by_id["krea2-nvfp4"]["format"]["loads"] == false, "a preset that names an NVFP4 file");
+        const auto & f8 = by_id["krea2-fp8"];
+        check(f8["format"]["label"] == "FP8 (scaled)" && f8["format"]["loads"] == true && f8["format"]["file"] == "krea2_fp8.safetensors",
+              "a preset with an FP8 file: its format, it runs");
+        ps5sd::ModelEntry fe;
+        std::string       ferr;
+        check(flib.find("krea2-nvfp4", fe, ferr) && ps5sd::format_reason(fe).find("krea2_nvfp4.safetensors is ComfyUI NVFP4: ") == 0,
+              "format_reason names the file and its format");
+        check(flib.find("krea2-fp8", fe, ferr) && ps5sd::format_reason(fe).empty(), "no format_reason for a file that runs");
+        check(j["models"][0]["format"].is_null(), "ordinary files: format null");
+        check(ps5sd::load_reason("get sd version from file failed: ''").find("does not know the model") != std::string::npos &&
+                  ps5sd::load_reason("out of memory") == "out of memory" && ps5sd::load_reason("").empty(),
+              "load_reason: a sentence for sd.cpp's unknown layout, others as they are");
+
+        // the files a preset can name (Make a preset), with their part, family and format
+        write(froot / "models" / "tokenizers" / "moss.json", "{}");
+        write(froot / "models" / "tokenizers" / "notes.txt", "x");
+        write(froot / "models" / "x.gguf.part", "x");
+        const auto files = nlohmann::json::parse(ps5sd::model_files_json((froot / "models").u8string()))["files"];
+        std::vector<std::string> paths;
+        for (const auto & f : files) {
+            paths.push_back(f["path"]);
+        }
+        check(paths == std::vector<std::string>{ "diffusion_models/krea2_fp8.safetensors", "krea2_nvfp4.safetensors",
+                                                 "text_encoders/qwen.gguf", "tokenizers/moss.json" },
+              "model files: every model file and the tokenizers, by path, no .part");
+        check(files.size() == 4 && files[0]["part"] == "diffusion model" && files[0]["family"] == "Krea 2" &&
+                  files[0]["format"]["label"] == "FP8 (scaled)" && files[2]["format"].is_null() && files[3]["part"] == "tokenizer",
+              "model files: part, family and format");
+
+        // a preset from its text (Make a preset)
+        std::string nid, nerr;
+        const std::string ntext = "# name: Krea 2 FP8\n--diffusion-model\ndiffusion_models/krea2_fp8.safetensors\n--llm\ntext_encoders/qwen.gguf\n";
+        check(flib.new_preset("Krea 2 FP8", ntext, nid, nerr) && nid == "krea-2-fp8", "new preset: its id from the name");
+        check(flib.new_preset("Krea 2 FP8", ntext, nid, nerr) && nid == "krea-2-fp8-2", "new preset: a second gets -2");
+        check(flib.find("krea-2-fp8", fe, ferr) && fe.name == "Krea 2 FP8" && fe.files.size() == 2, "new preset: found");
+        check(!flib.new_preset("x", "# name: x\n", nid, nerr) && nerr.find("names no model") != std::string::npos,
+              "new preset: refused without a model");
+        check(!flib.new_preset("", ntext, nid, nerr), "new preset: refused without a name");
     }
 
     fs::remove_all(root);

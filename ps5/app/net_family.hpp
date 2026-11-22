@@ -12,6 +12,8 @@
 //   SD 3             joint_blocks
 //   Wan 1.3B/5B/14B  blocks.N.self_attn, width 1536, 3072 or 5120
 //   Z-Image          layers.N with noise_refiner / context_refiner, or layers.N.attention
+//   MOSS-Image       blocks.N.proj.ffn_up_gate, shared_block_modulation
+//   Krea 2           txtfusion.*, blocks.N.attn.wq
 //
 // A checkpoint and a LoRA give the same label, so "this LoRA fits this model"
 // is the two labels being equal. "" when it cannot be told (a LoRA for the
@@ -21,6 +23,7 @@
 #pragma once
 
 #include <cstdint>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -29,11 +32,21 @@ namespace ps5sd {
 struct NetTensor {
     std::string          name;
     std::vector<int64_t> shape;  // torch order: [out, in] for a linear weight
+    std::string          dtype;  // a .safetensors file's ("BF16", "I8", "F8_E4M3", ...); "" in a GGUF
+};
+
+// What ComfyUI's quantizers wrote into a .safetensors file: the formats
+// ("int8_tensorwise", "nvfp4", "float8_e4m3fn", "convrot_w4a4",
+// "asym_w4a8_int8", ...) that "_quantization_metadata" in its "__metadata__"
+// names, and those its ".comfy_quant" tensors (a JSON each) name.
+struct ComfyQuant {
+    std::set<std::string> in_metadata;
+    std::set<std::string> in_tensors;
 };
 
 // The tensors of a .gguf or .safetensors file (by its first bytes); false for
-// anything else or a damaged header.
-bool read_net_tensors(const std::string & path, std::vector<NetTensor> & out);
+// anything else or a damaged header. With quant, also ComfyUI's formats.
+bool read_net_tensors(const std::string & path, std::vector<NetTensor> & out, ComfyQuant * quant = nullptr);
 
 // The family of a tensor list, as above.
 std::string net_family_of(const std::vector<NetTensor> & tensors);
@@ -51,5 +64,33 @@ std::string net_part_of(const std::vector<NetTensor> & tensors);
 
 // The part of a file, cached as net_family is.
 std::string net_part(const std::string & path);
+
+// The weight format of a file when stable-diffusion.cpp on the PS5 runs it
+// otherwise than a GGUF or an F16/BF16/F32 file, or not at all. ComfyUI's
+// quantized safetensors (sd.cpp 32d516c, src/model_io/safetensors_io.cpp):
+//
+//   int8_tensorwise, convrot_w4a4, asym_w4a8_int8 in .comfy_quant tensors:
+//       sd.cpp reads them; the PS5's GPU has no INT8 dot product, and sd.cpp's
+//       CPU fallback for these layers ends the title (SIGBUS, 2026-11-22). It
+//       cannot run the file here.
+//   the same only in "_quantization_metadata": sd.cpp does not read that, and
+//       the I8 weights mean nothing without it. It cannot run the file.
+//   nvfp4: sd.cpp has no NVFP4. It cannot run the file.
+//   torchao (unsloth's files: <layer>._weight_qdata, _weight_scale): sd.cpp
+//       does not read it. It cannot run the file.
+//   I8 weights without either: nothing says how to use them. It cannot run
+//       the file.
+//   F8_E4M3 / F8_E5M2 weights: sd.cpp turns them into BF16 as it runs, on the
+//       GPU (the PS5's has no FP8): about 1.7 times the time of a Q8_0 GGUF.
+struct NetFormat {
+    std::string label;          // "ComfyUI INT8", ...; "" for an ordinary file
+    std::string note;           // one or two sentences for a person
+    bool        loads = true;   // false: this build cannot run the file
+};
+
+NetFormat net_format_of(const std::vector<NetTensor> & tensors, const ComfyQuant & quant);
+
+// The format of a file, cached as net_family is.
+NetFormat net_format(const std::string & path);
 
 }  // namespace ps5sd

@@ -564,6 +564,50 @@ bool write_file(const fs::path & p, const std::string & text) {
 
 }  // namespace
 
+bool ModelLibrary::free_id(const std::string & name, std::string & id, std::string & error) const {
+    // <slug>, <slug>-2, ...
+    const std::string stem = slug(name);
+    for (int n = 1;; n++) {
+        id = n == 1 ? stem : stem + "-" + std::to_string(n);
+        std::error_code ec;
+        if (!fs::exists(fs::u8path(presets_dir) / fs::u8path(id + ".txt"), ec) &&
+            !fs::exists(fs::u8path(models_dir) / fs::u8path(id), ec)) {
+            return true;
+        }
+        if (n > 999) {
+            error = "no free id for " + name;
+            return false;
+        }
+    }
+}
+
+bool ModelLibrary::new_preset(const std::string & name_in, const std::string & text, std::string & id,
+                              std::string & error) const {
+    const std::string name = trim(name_in);
+    if (!valid_preset_name(name)) {
+        error = "a preset needs a name of one line (at most 100 characters)";
+        return false;
+    }
+    if (text.size() > 64 * 1024) {
+        error = "a preset is at most 64 KB";
+        return false;
+    }
+    if (parse_preset("new", text).files.empty()) {
+        error = "the preset names no model (-m, --diffusion-model, ...)";
+        return false;
+    }
+    if (!free_id(name, id, error)) {
+        return false;
+    }
+    std::error_code ec;
+    fs::create_directories(fs::u8path(presets_dir), ec);
+    if (!write_file(fs::u8path(presets_dir) / fs::u8path(id + ".txt"), text)) {
+        error = "could not write " + presets_dir + "/" + id + ".txt";
+        return false;
+    }
+    return true;
+}
+
 bool ModelLibrary::create_preset(const std::string & name_in, const std::string & base_id,
                                  const std::vector<std::pair<std::string, std::string>> & defaults, std::string & id,
                                  std::string & error) const {
@@ -599,19 +643,8 @@ bool ModelLibrary::create_preset(const std::string & name_in, const std::string 
         const bool        inside = p.parent_path().lexically_normal() == fs::u8path(models_dir).lexically_normal();
         args                     = "-m\n" + (inside ? p.filename().u8string() : p.u8string()) + "\n";
     }
-    // A free id from the name: <slug>, <slug>-2, ...
-    const std::string stem = slug(name);
-    for (int n = 1;; n++) {
-        id = n == 1 ? stem : stem + "-" + std::to_string(n);
-        std::error_code ec;
-        if (!fs::exists(fs::u8path(presets_dir) / fs::u8path(id + ".txt"), ec) &&
-            !fs::exists(fs::u8path(models_dir) / fs::u8path(id), ec)) {
-            break;
-        }
-        if (n > 999) {
-            error = "no free id for " + name;
-            return false;
-        }
+    if (!free_id(name, id, error)) {
+        return false;
     }
     std::string text = "# name: " + name + "\n# base: " + root + "\n";
     // the base's prompt starters: a variant is the same model with other settings
@@ -758,7 +791,33 @@ std::string part_reason(const ModelEntry & e) {
                                                          : "a diffusion model and a text encoder";
     return fs::u8path(e.files[0]).filename().u8string() + " is only a part of a model (" + what + "): it runs together with " +
            others + ". Install the model from Get more, which brings all its files and a preset, or write a preset "
-           "that names them (Help, Models: Presets).";
+           "that names them (Help, Models: Presets)" +
+           (part == "diffusion model" ? "; Make a preset on it in the web UI's Models tab writes one." : ".");
+}
+
+std::string load_reason(const std::string & sd_said) {
+    if (sd_said.find("get sd version from file failed") != std::string::npos) {
+        return "stable-diffusion.cpp does not know the model in it: its tensor names are in a layout it does not read "
+               "(BFL's own FLUX.3 files are one). A GGUF made for stable-diffusion.cpp, as the catalog has them, runs.";
+    }
+    return sd_said;
+}
+
+EntryFormat entry_format(const ModelEntry & e) {
+    EntryFormat out;
+    for (const std::string & file : e.files) {
+        const NetFormat f = net_format(file);
+        if (!f.label.empty() && (out.format.label.empty() || (out.format.loads && !f.loads))) {
+            out.file   = fs::u8path(file).filename().u8string();
+            out.format = f;
+        }
+    }
+    return out;
+}
+
+std::string format_reason(const ModelEntry & e) {
+    const EntryFormat f = entry_format(e);
+    return f.format.label.empty() || f.format.loads ? "" : f.file + " is " + f.format.label + ": " + f.format.note;
 }
 
 namespace {
@@ -806,6 +865,11 @@ std::string models_json(const ModelLibrary & library, const std::string & active
         for (const auto & kv : e.defaults) {
             defaults[kv.first] = kv.second;
         }
+        const EntryFormat f      = entry_format(e);
+        nlohmann::json    format = nullptr;
+        if (!f.format.label.empty()) {
+            format = { { "file", f.file }, { "label", f.format.label }, { "note", f.format.note }, { "loads", f.format.loads } };
+        }
         list.push_back({ { "id", e.id },
                          { "name", e.name },
                          { "kind", e.kind },
@@ -817,6 +881,7 @@ std::string models_json(const ModelLibrary & library, const std::string & active
                          { "family", model_family(e) },
                          { "model_file", model_file(e) },
                          { "part", e.kind == "file" && !e.files.empty() ? net_part(e.files[0]) : "" },
+                         { "format", format },
                          { "prompt", e.prompt_starter },
                          { "negative", e.negative_starter },
                          { "defaults", defaults } });
@@ -873,6 +938,43 @@ std::string loras_json(const std::string & dir) {
         list.push_back(entry);
     }
     return nlohmann::json{ { "loras", list } }.dump(-1, ' ', false, nlohmann::json::error_handler_t::replace);
+}
+
+std::string model_files_json(const std::string & dir) {
+    std::vector<std::pair<std::string, uint64_t>> files;
+    std::error_code                               ec;
+    const fs::path                                root = fs::u8path(dir);
+    for (fs::recursive_directory_iterator it(root, ec), end; !ec && it != end; it.increment(ec)) {
+        std::error_code e2;
+        if (!it->is_regular_file(e2)) {
+            continue;
+        }
+        const std::string rel  = it->path().lexically_relative(root).generic_u8string();
+        const std::string name = it->path().filename().u8string();
+        if (is_checkpoint_name(name) || (rel.rfind("tokenizers/", 0) == 0 && lower(it->path().extension().u8string()) == ".json")) {
+            const uint64_t size = it->file_size(e2);
+            files.emplace_back(rel, e2 ? 0 : size);
+        }
+    }
+    std::sort(files.begin(), files.end());
+    nlohmann::json list = nlohmann::json::array();
+    for (const auto & f : files) {
+        const std::string full = (root / fs::u8path(f.first)).u8string();
+        const bool        tok  = lower(fs::u8path(f.first).extension().u8string()) == ".json";
+        nlohmann::json    format = nullptr;
+        if (!tok) {
+            const NetFormat nf = net_format(full);
+            if (!nf.label.empty()) {
+                format = { { "file", fs::u8path(f.first).filename().u8string() }, { "label", nf.label }, { "note", nf.note }, { "loads", nf.loads } };
+            }
+        }
+        list.push_back({ { "path", f.first },
+                         { "bytes", f.second },
+                         { "part", tok ? "tokenizer" : net_part(full) },
+                         { "family", tok ? "" : net_family(full) },
+                         { "format", format } });
+    }
+    return nlohmann::json{ { "files", list } }.dump(-1, ' ', false, nlohmann::json::error_handler_t::replace);
 }
 
 std::string upscalers_json(const std::string & dir) {

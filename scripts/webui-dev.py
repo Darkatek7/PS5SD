@@ -278,7 +278,45 @@ class MockModels:
         "flux3/text_encoder.safetensors": 2500 * MB,
         "sd_turbo-f16-q8_0.gguf": 2023745376,
         "sdxs-512-tinySDdistilled_Q8_0.gguf": 682847200,
+        # files that came alone (issue 25): a diffusion model to Make a preset for, one in a format that cannot run,
+        # one that fails to load, and parts for the presets
+        "Krea-2-Turbo-Q4_K_M.gguf": 7200 * MB,
+        "krea2_turbo_nvfp4.safetensors": 7670 * MB,
+        "moss_image_sft_turbo_int8_convrot.safetensors": 5410 * MB,
+        "flux-2-klein-4b-fp8.safetensors": 4070 * MB,
+        "flux3-pruned-bfl-layout.safetensors": 5830 * MB,
+        "text_encoders/Qwen3VL-4B-Instruct-Q4_K_M.gguf": 2497281664,
+        "vae/flux2-vae.safetensors": 336213556,
     }
+    # what net_family.cpp tells from the tensors: path -> {part, family, format}
+    NVFP4 = {"label": "ComfyUI NVFP4", "loads": False,
+             "note": "NVFP4 is a 4-bit format for NVIDIA's newest GPUs, and stable-diffusion.cpp cannot read it. "
+                     "A GGUF of the model (Q4_K_M, Q8_0) runs on the PS5."}
+    INT8 = {"label": "ComfyUI INT8", "loads": False,
+            "note": "stable-diffusion.cpp reads it, but the PS5's GPU has no INT8 dot product, and running these layers "
+                    "on the CPU instead ends PS5SD. A GGUF of the model (Q4_K_M, Q8_0) runs on the PS5."}
+    FP8 = {"label": "FP8 (scaled)", "loads": True,
+           "note": "The PS5's GPU has no FP8, so stable-diffusion.cpp turns each layer into BF16 while it runs. "
+                   "It works, but takes about 1.7 times as long as a Q8_0 GGUF of the model."}
+    META = {
+        "Krea-2-Turbo-Q4_K_M.gguf": {"part": "diffusion model", "family": "Krea 2"},
+        "krea2_turbo_nvfp4.safetensors": {"part": "diffusion model", "family": "Krea 2", "format": NVFP4},
+        "moss_image_sft_turbo_int8_convrot.safetensors": {"part": "", "family": "MOSS-Image", "format": INT8},
+        "flux-2-klein-4b-fp8.safetensors": {"part": "", "family": "FLUX.2 Klein 4B", "format": FP8},
+        "flux3-pruned-bfl-layout.safetensors": {"part": "", "family": "FLUX.3 Klein"},
+        "text_encoders/Qwen3VL-4B-Instruct-Q4_K_M.gguf": {"part": "text encoder"},
+        "vae/flux2-vae.safetensors": {"part": "VAE"},
+        "vae/sdxl_vae_fp16_fix.safetensors": {"part": "VAE"},
+        "flux3/text_encoder.safetensors": {"part": "text encoder"},
+        "stable-diffusion-xl-base-1.0-Q8_0.gguf": {"family": "SDXL"},
+        "raehoshiIllustXL_v110.safetensors": {"family": "SDXL"},
+        "flux3-klein-int8.safetensors": {"part": "diffusion model", "family": "FLUX.3 Klein"},
+    }
+    # a switch to these ends in a failed load, with this reason (main.cpp's load_error)
+    FAILS = {"flux3-pruned-bfl-layout.safetensors":
+             "flux3-pruned-bfl-layout did not load: stable-diffusion.cpp does not know the model in it: its tensor "
+             "names are in a layout it does not read (BFL's own FLUX.3 files are one). A GGUF made for "
+             "stable-diffusion.cpp, as the catalog has them, runs."}
     SDXL_DEFAULTS = {"steps": "25", "cfg": "6", "width": "1024", "height": "1024", "sampler": "euler_a"}
 
     def __init__(self, downloads=None):
@@ -304,6 +342,7 @@ class MockModels:
         self.loaded = "sdxl-base"
         self.until = 0.0
         self.standby = False
+        self.load_error = None
 
     def _entries(self):
         out = []
@@ -320,19 +359,37 @@ class MockModels:
                 return e
         return None
 
+    def _format(self, files):
+        """models_json's "format": the first file that cannot run, else the first with a format; None."""
+        out = None
+        for f in files:
+            fm = self.META.get(f, {}).get("format")
+            if fm and (out is None or (out["loads"] and not fm["loads"])):
+                out = dict(fm, file=f.rsplit("/", 1)[-1])
+        return out
+
     def _json(self):
         if self.until and time.time() >= self.until:
             self.until = 0.0
-            self.loaded = self.active
+            if self.active in self.FAILS:
+                self.load_error = {"id": self.active, "message": self.FAILS[self.active]}
+                self.active = self.loaded
+            else:
+                self.loaded = self.active
             self.standby = False
         models = []
         for e in self._entries():
+            main = e["files"][0] if e["files"] else ""
             models.append({"id": e["id"], "name": e["name"], "kind": e["kind"], "defaults": e["defaults"],
                            "base": e.get("base", ""), "bytes": sum(self.files[f] for f in e["files"] if f in self.files),
                            "files": [self.DIR + f for f in e["files"]],
-                           "missing": [self.DIR + f for f in e["files"] if f not in self.files]})
+                           "missing": [self.DIR + f for f in e["files"] if f not in self.files],
+                           "family": self.META.get(main, {}).get("family", ""),
+                           "part": self.META.get(main, {}).get("part", "") if e["kind"] == "file" else "",
+                           "format": self._format(e["files"])})
         return {"active": self.active, "loaded": "" if self.until else self.loaded,
-                "switching": bool(self.until), "standby": self.standby and not self.until, "models": models}
+                "switching": bool(self.until), "standby": self.standby and not self.until,
+                "load_error": self.load_error, "models": models}
 
     def _sync_catalog(self, mid, gone):
         if self.downloads is None:
@@ -354,6 +411,13 @@ class MockModels:
         with self.lock:
             if method == "GET" and rest == "":
                 return 200, self._json()
+            if method == "GET" and rest == "/files":
+                out = []
+                for f in sorted(self.files):
+                    meta = self.META.get(f, {})
+                    out.append({"path": f, "bytes": self.files[f], "part": meta.get("part", ""),
+                                "family": meta.get("family", ""), "format": self._format([f])})
+                return 200, {"files": out}
             if method == "POST" and rest == "/active":
                 try:
                     mid = str(json.loads(body or b"{}").get("id") or "")
@@ -364,6 +428,13 @@ class MockModels:
                 e = self._find(mid)
                 if e is None or any(f not in self.files for f in e["files"]):
                     return 404, {"error": "unknown model, or files missing: " + mid}
+                part = self.META.get(e["files"][0], {}).get("part", "") if e["kind"] == "file" else ""
+                if part:
+                    return 422, {"error": {"code": "model_part", "message": mid + " is only a part of a model (the " + part + ")."}}
+                fm = self._format(e["files"])
+                if fm and not fm["loads"]:
+                    return 422, {"error": {"code": "model_format", "message": fm["file"] + " is " + fm["label"] + ": " + fm["note"]}}
+                self.load_error = None
                 cur = self._json()
                 if cur["switching"]:
                     return 409, {"error": "a model switch is already running"}
@@ -490,6 +561,20 @@ class MockModels:
                     j = json.loads(body or b"{}")
                 except ValueError:
                     j = {}
+                if isinstance(j, dict) and "text" in j:
+                    # Make a preset: {"name", "text"}
+                    if not isinstance(j.get("text"), str) or not j.get("name"):
+                        return 400, {"error": "the body must be {\"name\": \"...\", \"text\": \"<the preset file>\"}"}
+                    pid = re.sub(r"[^a-z0-9]+", "-", str(j["name"]).lower()).strip("-") or "preset"
+                    while self._find(pid) is not None:
+                        pid += "-2"
+                    p = {"id": pid, "name": str(j["name"]), "defaults": {}, "files": []}
+                    if not self._parse(p, j["text"]):
+                        return 400, {"error": "the preset names no model (-m, --diffusion-model, ...)"}
+                    self.presets.append(p)
+                    out = self._json()
+                    out["id"] = pid
+                    return 201, out
                 base = self._find(str(j.get("base") or self.loaded))
                 if base is None or not j.get("name"):
                     return 400, {"error": "the body must be {\"name\": \"...\", \"base\": \"<model id>\", \"defaults\": {...}}"}

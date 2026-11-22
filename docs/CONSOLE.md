@@ -1652,3 +1652,38 @@ read 54 to 88 °C (74 °C on average, up to 16 °C apart from one second to the 
 32%. The 1.8.0 chart drew each mode as a fan line (23% up to the highest temperature, then straight up), and
 the readings lay off it, at 30% far under the target. So 1.8.3 draws the chip and the fan over the last
 2 minutes, with the mode's highest temperature as a line.
+
+
+## Files made for ComfyUI (2026-11-22)
+
+FW 13.00, a 1.8.4 build (local Docker), driven with Python from the PC (issue 25). The console's model library
+had two ComfyUI INT8 files beside the GGUFs: a pruned FLUX.3 Klein (`flux3Klein_klein_pruned_int8`, 5.83 GB)
+and an INT8 Qwen3-VL text encoder (`flux3Klein_klein_txt_3299383`, 4.86 GB), both with `.comfy_quant` tensors.
+Downloaded for the test: BFL's `flux-2-klein-4b-fp8.safetensors` (FP8 with `_quantization_metadata`, 4.07 GB)
+and Bedovyy's `flux-2-klein-4b_learned_int8mixed_tensorwise.safetensors` (INT8 with `.comfy_quant`, 4.07 GB).
+
+**INT8.** A preset of FLUX.3 Klein Q4_K with the INT8 text encoder loaded (2.5 s for the encoder's tensors),
+and the title ended as the text encoder ran: SIGBUS (signal 0xa in the kernel log), twice in a row. The PS5's
+GPU has no INT8 dot product (`int dot: 0`), so sd.cpp runs these layers on the CPU, and that is where it
+ends. ComfyUI INT8, W4A4 and W4A8 count as "cannot run" since, and a switch to them is refused with
+`model_format`; on the 1.8.4 build that was so for both INT8 presets and for the INT8 Klein 4B.
+
+**An unknown layout.** The pruned FLUX.3 Klein did not load at all: sd.cpp said "get sd version from file
+failed". Its tensor names are BFL's own (`txt_mode_blocks.0.qkv`), and sd.cpp tells FLUX.3 by
+`txt_mode_blocks.0.q_proj`. The load error says this in words since.
+
+**FP8.** FLUX.2 Klein 4B at 1024x1024, 4 steps, seed 184, the second image of each:
+
+| Diffusion model | Sampling | Image | Pool free after |
+|---|---|---|---|
+| Q8_0 GGUF (the catalog's) | 16.8 s | 21.9 s | 4.37 GiB |
+| BFL FP8 | 31.6 s | 36.7 s | 4.02 GiB |
+
+The two pictures were the same apple on the same table. sd.cpp turns each FP8 layer into BF16 as it runs.
+
+**What the Models tab said.** With header-only copies of Comfy-Org's Krea 2 Turbo NVFP4 and unsloth's FLUX.3
+Klein FP8 (torchao) put on the console: Krea 2 and FLUX.3 Klein as the family, "Part of a model", and
+"Cannot run: ComfyUI NVFP4" and "Cannot run: torchao FP8" with Use off. The INT8 presets showed "Cannot run:
+ComfyUI INT8" on their own rows, and the FP8 preset "FP8 (scaled)" with its note. The library's other 36
+entries had no format and no new mark. `POST presets` with `{"name", "text"}` wrote the test presets. Every
+test file, preset and image was deleted afterwards.

@@ -1,8 +1,9 @@
 // Host test for net_family.cpp: the network of a model or LoRA from tensor
-// names and shapes (as the real files have them), and both file formats.
+// names and shapes (as the real files have them), both file formats, and
+// ComfyUI's quantized weights.
 //
 //   test_net_family                 the checks
-//   test_net_family FILE...         prints the family of each file (for a look at real files)
+//   test_net_family FILE...         prints the family, part and format of each file (for a look at real files)
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "net_family.hpp"
@@ -178,6 +179,21 @@ void test_others() {
     moss_model.push_back({ "blocks.0.proj.qkv.weight", { 9216, 3072 } });
     is(moss_model, "MOSS-Image", "MOSS-Image model");
 
+    // Krea 2: the model (realrebelai's GGUF and Comfy-Org's safetensors have the same names) and a kohya LoRA
+    T krea2;
+    krea2.push_back({ "first.weight", { 3072, 64 } });
+    krea2.push_back({ "txtfusion.layerwise_blocks.0.attn.wq.weight", { 2560, 2560 } });
+    krea2.push_back({ "txtfusion.projector.weight", { 3072, 2560 } });
+    krea2.push_back({ "blocks.0.attn.wq.weight", { 3072, 3072 } });
+    krea2.push_back({ "blocks.0.mlp.gate.weight", { 8192, 3072 } });
+    krea2.push_back({ "blocks.0.mod.lin.weight", { 18432, 3072 } });
+    krea2.push_back({ "tmlp.0.weight", { 3072, 256 } });
+    is(krea2, "Krea 2", "Krea 2 model");
+    T krea2_lora;
+    lora(krea2_lora, "lora_unet_blocks_7_attn_wq", 3072, 3072);
+    lora(krea2_lora, "lora_unet_blocks_7_mlp_gate", 3072, 8192);
+    is(krea2_lora, "Krea 2", "Krea 2 LoRA, kohya underscores");
+
     is(T{}, "", "no tensors");
 }
 
@@ -245,6 +261,132 @@ void test_files() {
     fs::remove_all(dir);
 }
 
+// A .safetensors file from a header and the data of its .comfy_quant tensors (name -> JSON); the other
+// tensors get no bytes. cut: leave the data out, as a download that stopped would.
+void write_safetensors(const std::filesystem::path & path, nlohmann::json head,
+                       const std::vector<std::pair<std::string, std::string>> & quant = {}, bool cut = false) {
+    std::string data;
+    for (const auto & q : quant) {
+        head[q.first] = { { "dtype", "U8" }, { "shape", { q.second.size() } },
+                          { "data_offsets", { data.size(), data.size() + q.second.size() } } };
+        data += q.second;
+    }
+    const std::string h  = head.dump();
+    const uint64_t    hn = h.size();
+    std::ofstream     f(path, std::ios::binary);
+    f.write(reinterpret_cast<const char *>(&hn), 8);
+    f << h;
+    if (!cut) {
+        f << data;
+    }
+}
+
+nlohmann::json tensor(const char * dtype, std::vector<int64_t> shape) {
+    return { { "dtype", dtype }, { "shape", shape }, { "data_offsets", { 0, 0 } } };
+}
+
+// The weight format (net_format), with the layouts of the files people bring from ComfyUI (issue 25).
+void test_formats() {
+    namespace fs       = std::filesystem;
+    const fs::path dir = fs::temp_directory_path() / "ps5sd-net-format";
+    fs::create_directories(dir);
+    const auto want = [&](const char * file, const std::string & label, bool loads, const std::string & what) {
+        const NetFormat f = net_format((dir / file).u8string());
+        check(f.label == label, what + ": \"" + f.label + "\", not \"" + label + "\"");
+        check(f.loads == loads, what + (loads ? ": does not load" : ": loads"));
+        check(label.empty() == f.note.empty(), what + ": a note when there is a format, none else");
+    };
+    const std::string int8 = R"({"format": "int8_tensorwise", "convrot": true, "convrot_groupsize": 256})";
+
+    // RunningHub's MOSS-Image INT8 convrot: I8 weights, a scale and a .comfy_quant for each layer
+    write_safetensors(dir / "moss_int8.safetensors",
+                      { { "blocks.0.proj.ffn_up_gate.weight", tensor("I8", { 16384, 3072 }) },
+                        { "blocks.0.proj.ffn_up_gate.weight_scale", tensor("F32", { 16384, 1 }) },
+                        { "blocks.0.proj.qkv.weight", tensor("I8", { 9216, 3072 }) },
+                        { "blocks.0.proj.qkv.weight_scale", tensor("F32", { 9216, 1 }) },
+                        { "shared_block_modulation.weight", tensor("BF16", { 18432, 3072 }) } },
+                      { { "blocks.0.proj.ffn_up_gate.comfy_quant", int8 }, { "blocks.0.proj.qkv.comfy_quant", int8 } });
+    want("moss_int8.safetensors", "ComfyUI INT8", false, ".comfy_quant INT8 (ends the title on the PS5)");
+    check(net_family((dir / "moss_int8.safetensors").u8string()) == "MOSS-Image", "INT8 MOSS-Image: its family");
+
+    // the same weights with the format only in __metadata__ (toxicdog's MOSS-Image SFT Turbo INT8 ConvRot)
+    const std::string layers = R"({"layers": {"blocks.0.proj.qkv": {"format": "int8_tensorwise", "convrot": true}}})";
+    write_safetensors(dir / "meta_int8.safetensors",
+                      { { "__metadata__", { { "format", "pt" }, { "_quantization_metadata", layers } } },
+                        { "blocks.0.proj.qkv.weight", tensor("I8", { 9216, 3072 }) },
+                        { "blocks.0.proj.qkv.weight_scale", tensor("F32", { 9216, 1 }) } });
+    want("meta_int8.safetensors", "ComfyUI INT8", false, "INT8 named in the metadata only");
+
+    // Comfy-Org's Krea 2 Turbo NVFP4: U8 weights with an F8 block scale and an F32 second scale
+    const std::string nvfp4 = R"({"layers": {"blocks.0.attn.wq": {"format": "nvfp4"}}})";
+    write_safetensors(dir / "krea2_nvfp4.safetensors",
+                      { { "__metadata__", { { "_quantization_metadata", nvfp4 } } },
+                        { "blocks.0.attn.wq.weight", tensor("U8", { 3072, 1536 }) },
+                        { "blocks.0.attn.wq.weight_scale", tensor("F8_E4M3", { 3072, 192 }) },
+                        { "blocks.0.attn.wq.weight_scale_2", tensor("F32", {}) } });
+    want("krea2_nvfp4.safetensors", "ComfyUI NVFP4", false, "NVFP4");
+    check(net_part((dir / "krea2_nvfp4.safetensors").u8string()) == "diffusion model", "NVFP4 Krea 2: a diffusion model");
+
+    // Comfy-Org's Krea 2 Turbo FP8 scaled
+    const std::string fp8 = R"({"layers": {"blocks.0.attn.wq": {"format": "float8_e4m3fn"}}})";
+    write_safetensors(dir / "krea2_fp8.safetensors",
+                      { { "__metadata__", { { "_quantization_metadata", fp8 } } },
+                        { "blocks.0.attn.wq.weight", tensor("F8_E4M3", { 3072, 3072 }) },
+                        { "blocks.0.attn.wq.weight_scale", tensor("F32", {}) } });
+    want("krea2_fp8.safetensors", "FP8 (scaled)", true, "FP8 scaled");
+
+    // an FP8 file as older tools wrote it: F8 weights, nothing else
+    write_safetensors(dir / "fp8.safetensors", { { "double_blocks.0.img_attn.qkv.weight", tensor("F8_E4M3", { 9216, 3072 }) } });
+    want("fp8.safetensors", "FP8", true, "plain FP8");
+
+    // Qwen3.5 9B W4A8 GPTQ: packed I8 weights with a codebook and F8 group scales (no FP8 weight)
+    write_safetensors(dir / "qwen_w4a8.safetensors",
+                      { { "model.layers.0.mlp.up_proj.weight", tensor("I8", { 12288, 2048 }) },
+                        { "model.layers.0.mlp.up_proj.weight_codebook", tensor("F32", { 16 }) },
+                        { "model.layers.0.mlp.up_proj.weight_s_channel", tensor("F32", { 12288 }) },
+                        { "model.layers.0.mlp.up_proj.weight_s_rel", tensor("F8_E4M3", { 12288, 256 }) } },
+                      { { "model.layers.0.mlp.up_proj.comfy_quant", R"({"format": "asym_w4a8_int8", "group_size": 16})" } });
+    want("qwen_w4a8.safetensors", "ComfyUI W4A8", false, "W4A8 (the same INT8 path)");
+
+    // unsloth's FLUX.3 Klein FP8 and INT8: torchao layers (_weight_qdata, _weight_scale, _weight_zero_point)
+    write_safetensors(dir / "torchao_fp8.safetensors",
+                      { { "mode_blocks.image.0.attn.to_k._weight_qdata", tensor("F8_E4M3", { 3072, 3072 }) },
+                        { "mode_blocks.image.0.attn.to_k._weight_scale", tensor("F32", { 3072, 1 }) },
+                        { "mode_blocks.image.0.attn.norm_q.weight", tensor("BF16", { 128 }) } });
+    want("torchao_fp8.safetensors", "torchao FP8", false, "torchao FP8");
+    write_safetensors(dir / "torchao_int8.safetensors",
+                      { { "mode_blocks.image.0.attn.to_k._weight_qdata", tensor("I8", { 3072, 3072 }) },
+                        { "mode_blocks.image.0.attn.to_k._weight_scale", tensor("F32", { 3072, 1 }) },
+                        { "mode_blocks.image.0.attn.to_k._weight_zero_point", tensor("I8", { 3072, 1 }) } });
+    want("torchao_int8.safetensors", "torchao INT8", false, "torchao INT8");
+
+    // I8 weights and nothing that says what they are (a diffusers INT8 export)
+    write_safetensors(dir / "bare_int8.safetensors", { { "transformer_blocks.0.attn.to_q.weight", tensor("I8", { 3072, 3072 }) },
+                                                       { "transformer_blocks.0.attn.norm_q.weight", tensor("BF16", { 128 }) } });
+    want("bare_int8.safetensors", "INT8", false, "I8 weights without a format");
+
+    // BFL's FLUX.2 Klein 4B FP8: scalar scales, an input scale (sd.cpp does not need it)
+    const std::string bfl = R"({"format_version": "1.0", "layers": {"double_blocks.0.img_attn.proj": {"format": "float8_e4m3fn"}}})";
+    write_safetensors(dir / "bfl_fp8.safetensors",
+                      { { "__metadata__", { { "_quantization_metadata", bfl } } },
+                        { "double_blocks.0.img_attn.proj.weight", tensor("F8_E4M3", { 3072, 3072 }) },
+                        { "double_blocks.0.img_attn.proj.weight_scale", tensor("F32", {}) },
+                        { "double_blocks.0.img_attn.proj.input_scale", tensor("F32", {}) } });
+    want("bfl_fp8.safetensors", "FP8 (scaled)", true, "BFL FP8");
+
+    // a .comfy_quant whose bytes are missing
+    write_safetensors(dir / "cut.safetensors", { { "blocks.0.proj.qkv.weight", tensor("I8", { 9216, 3072 }) } },
+                      { { "blocks.0.proj.qkv.comfy_quant", int8 } }, true);
+    want("cut.safetensors", "ComfyUI quantized", false, "a cut .comfy_quant");
+
+    // ordinary files
+    write_safetensors(dir / "bf16.safetensors", { { "blocks.0.attn.wq.weight", tensor("BF16", { 3072, 3072 }) },
+                                                  { "blocks.0.norm.scale", tensor("F32", { 3072 }) } });
+    want("bf16.safetensors", "", true, "BF16");
+    want("missing.safetensors", "", true, "a missing file");
+    fs::remove_all(dir);
+}
+
 // What part of a model a file is (net_part_of), with the names the real files use.
 void test_parts() {
     const auto part = [](const T & t, const std::string & want, const std::string & what) {
@@ -276,6 +418,8 @@ void test_parts() {
          "FLUX VAE");
     part({ { "decoder.conv1.weight", { 384, 16, 3, 3, 3 } }, { "decoder.upsamples.0.residual.0.gamma", { 384 } } }, "VAE",
          "Wan VAE");
+    part({ { "txtfusion.projector.weight", { 3072, 2560 } }, { "blocks.0.attn.wq.weight", { 3072, 3072 } } },
+         "diffusion model", "Krea 2 diffusion model");
     part({}, "", "nothing to tell");
 }
 
@@ -285,7 +429,9 @@ int main(int argc, char ** argv) {
     if (argc > 1) {
         for (int i = 1; i < argc; i++) {
             const std::string f = net_family(argv[i]), p = net_part(argv[i]);
-            std::printf("%-18s %-16s %s\n", f.empty() ? "?" : f.c_str(), p.empty() ? "-" : p.c_str(), argv[i]);
+            const NetFormat   m = net_format(argv[i]);
+            std::printf("%-18s %-16s %-20s %s\n", f.empty() ? "?" : f.c_str(), p.empty() ? "-" : p.c_str(),
+                        m.label.empty() ? "-" : (m.label + (m.loads ? "" : " (no)")).c_str(), argv[i]);
         }
         return 0;
     }
@@ -293,6 +439,7 @@ int main(int argc, char ** argv) {
     test_unets();
     test_others();
     test_files();
+    test_formats();
     test_parts();
     std::printf("%s (%d failure%s)\n", failures == 0 ? "ok" : "FAILED", failures, failures == 1 ? "" : "s");
     return failures == 0 ? 0 : 1;

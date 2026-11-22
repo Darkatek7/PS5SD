@@ -87,6 +87,7 @@
   function familyWord(s) {
     if (/moss/.test(s)) return 'MOSS-Image';  // before FLUX: MOSS-Image uses the FLUX.2 VAE
     if (/flux/.test(s)) return 'FLUX';
+    if (/krea/.test(s)) return 'Krea 2';  // after FLUX: FLUX.1 Krea is a FLUX.1
     if (/z[-_ ]?image/.test(s)) return 'Z-Image';
     if (/wan/.test(s)) return 'Wan';
     if (/sd ?3|sd_3|stable-diffusion-3/.test(s)) return 'SD 3';

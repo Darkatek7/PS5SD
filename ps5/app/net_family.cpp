@@ -20,6 +20,13 @@ namespace {
 
 // ---------- reading the tensor list ----------
 
+bool starts(const std::string & s, const std::string & p) { return s.compare(0, p.size(), p) == 0; }
+
+bool ends(const std::string & s, const std::string & p) {
+    return s.size() >= p.size() && s.compare(s.size() - p.size(), p.size(), p) == 0;
+}
+
+
 struct Reader {
     std::ifstream & in;
     bool            bad = false;
@@ -101,7 +108,17 @@ bool read_gguf(std::ifstream & in, std::vector<NetTensor> & out) {
     return !r.bad;
 }
 
-bool read_safetensors(std::ifstream & in, std::vector<NetTensor> & out) {
+// The "format" of a ComfyUI quantization JSON ({"format": "int8_tensorwise", ...}); "" for anything else.
+std::string comfy_format(const std::string & text) {
+    const nlohmann::json j = nlohmann::json::parse(text, nullptr, false);
+    if (!j.is_object()) {
+        return "";
+    }
+    const auto it = j.find("format");
+    return it != j.end() && it->is_string() ? it->get<std::string>() : "";
+}
+
+bool read_safetensors(std::ifstream & in, std::vector<NetTensor> & out, ComfyQuant * quant) {
     uint64_t n = 0;
     in.seekg(0);
     if (!in.read(reinterpret_cast<char *>(&n), sizeof n) || n < 2 || n > (100u << 20)) {
@@ -116,7 +133,24 @@ bool read_safetensors(std::ifstream & in, std::vector<NetTensor> & out) {
         return false;
     }
     for (const auto & kv : j.items()) {
-        if (kv.key() == "__metadata__" || !kv.value().is_object()) {
+        if (kv.key() == "__metadata__") {
+            // ComfyUI: {"_quantization_metadata": "{\"layers\": {\"<module>\": {\"format\": ...}}}"}
+            const auto qm = kv.value().is_object() ? kv.value().find("_quantization_metadata") : kv.value().end();
+            if (quant && qm != kv.value().end() && qm->is_string()) {
+                const nlohmann::json m = nlohmann::json::parse(qm->get<std::string>(), nullptr, false);
+                const auto layers = m.is_object() ? m.find("layers") : m.end();
+                if (layers != m.end() && layers->is_object()) {
+                    for (const auto & layer : layers->items()) {
+                        const auto f = layer.value().is_object() ? layer.value().find("format") : layer.value().end();
+                        if (f != layer.value().end() && f->is_string()) {
+                            quant->in_metadata.insert(f->get<std::string>());
+                        }
+                    }
+                }
+            }
+            continue;
+        }
+        if (!kv.value().is_object()) {
             continue;
         }
         const auto it = kv.value().find("shape");
@@ -127,6 +161,27 @@ bool read_safetensors(std::ifstream & in, std::vector<NetTensor> & out) {
         t.name = kv.key();
         for (const auto & d : *it) {
             t.shape.push_back(d.is_number_integer() ? d.get<int64_t>() : 0);
+        }
+        const auto dt = kv.value().find("dtype");
+        if (dt != kv.value().end() && dt->is_string()) {
+            t.dtype = dt->get<std::string>();
+        }
+        // a ".comfy_quant" tensor holds its module's quantization as JSON bytes (sd.cpp reads these)
+        const auto off = kv.value().find("data_offsets");
+        if (quant && ends(t.name, ".comfy_quant") && off != kv.value().end() && off->is_array() && off->size() == 2 &&
+            (*off)[0].is_number_unsigned() && (*off)[1].is_number_unsigned()) {
+            const uint64_t begin = (*off)[0].get<uint64_t>(), end = (*off)[1].get<uint64_t>();
+            if (end > begin && end - begin <= 4096) {
+                std::string text(end - begin, '\0');
+                in.clear();
+                in.seekg((std::streamoff) (8 + n + begin));
+                if (in.read(&text[0], (std::streamsize) text.size())) {
+                    const std::string f = comfy_format(text);
+                    quant->in_tensors.insert(f.empty() ? "?" : f);
+                } else {
+                    quant->in_tensors.insert("?");  // the data is not there (a cut file): sd.cpp would fail on it
+                }
+            }
         }
         out.push_back(std::move(t));
     }
@@ -144,12 +199,6 @@ struct Key {
     std::string k;
     Role        role = Role::other;
 };
-
-bool starts(const std::string & s, const std::string & p) { return s.compare(0, p.size(), p) == 0; }
-
-bool ends(const std::string & s, const std::string & p) {
-    return s.size() >= p.size() && s.compare(s.size() - p.size(), p.size(), p) == 0;
-}
 
 Key key_of(const std::string & name) {
     std::string s = name;
@@ -215,8 +264,11 @@ int64_t out_dim(const Key & key, const NetTensor & t) {
 
 }  // namespace
 
-bool read_net_tensors(const std::string & path, std::vector<NetTensor> & out) {
+bool read_net_tensors(const std::string & path, std::vector<NetTensor> & out, ComfyQuant * quant) {
     out.clear();
+    if (quant) {
+        *quant = ComfyQuant{};
+    }
     std::ifstream in(fs::u8path(path), std::ios::binary);
     char          magic[4] = {};
     if (!in.read(magic, 4)) {
@@ -225,12 +277,13 @@ bool read_net_tensors(const std::string & path, std::vector<NetTensor> & out) {
     if (std::memcmp(magic, "GGUF", 4) == 0) {
         return read_gguf(in, out);
     }
-    return read_safetensors(in, out);
+    return read_safetensors(in, out, quant);
 }
 
 std::string net_family_of(const std::vector<NetTensor> & tensors) {
     int     flux_double = 0, flux_single = 0;  // the highest block index + 1
-    bool    flux3 = false, bfl_double = false, sd3 = false, wan = false, zimage = false, unet = false, moss = false;
+    bool    flux3 = false, bfl_double = false, sd3 = false, wan = false, zimage = false, unet = false, moss = false,
+            krea2 = false;
     int64_t hidden = 0, mlp = 0, linear1 = 0, wan_dim = 0, context = 0;
     for (const NetTensor & t : tensors) {
         const Key key = key_of(t.name);
@@ -268,6 +321,10 @@ std::string net_family_of(const std::vector<NetTensor> & tensors) {
             k == "video.head.modulation") {
             moss = true;
         }
+        // Krea 2: its text fusion (txtfusion.*, diffusers: text_fusion.*) and its blocks' attention (attn.wq ...)
+        if (starts(k, "txtfusion.") || starts(k, "text.fusion.") || starts(rest, "attn.wq") || starts(rest, "attn.wk")) {
+            krea2 = true;
+        }
         if (starts(rest, "self.attn") || starts(rest, "cross.attn") || starts(rest, "ffn")) {
             wan = true;
             if (rest == "self.attn.q") {
@@ -287,6 +344,9 @@ std::string net_family_of(const std::vector<NetTensor> & tensors) {
 
     if (moss) {
         return "MOSS-Image";
+    }
+    if (krea2) {
+        return "Krea 2";
     }
     if (flux3) {
         return "FLUX.3 Klein";
@@ -357,15 +417,83 @@ std::string net_part_of(const std::vector<NetTensor> & tensors) {
     return text_encoder ? "text encoder" : vae ? "VAE" : "";
 }
 
+NetFormat net_format_of(const std::vector<NetTensor> & tensors, const ComfyQuant & quant) {
+    const auto  named = [&](const char * f) { return quant.in_tensors.count(f) || quant.in_metadata.count(f); };
+    bool        fp8 = false, fp4 = false, scaled = false, i8 = false;
+    std::string torchao;  // the dtype of a torchao layer's data (unsloth's files: <layer>._weight_qdata)
+    for (const NetTensor & t : tensors) {
+        if (ends(t.name, ".weight") && (t.dtype == "F8_E4M3" || t.dtype == "F8_E5M2")) {
+            fp8 = true;
+        }
+        i8     = i8 || (ends(t.name, ".weight") && t.dtype == "I8");
+        fp4    = fp4 || ends(t.name, ".weight_scale_2");  // NVFP4's second scale
+        scaled = scaled || ends(t.name, ".weight_scale") || ends(t.name, ".scale_weight");
+        if (torchao.empty() && ends(t.name, "._weight_qdata")) {
+            torchao = t.dtype.empty() ? "?" : t.dtype;
+        }
+    }
+    NetFormat out;
+    const char * gguf = " A GGUF of the model (Q4_K_M, Q8_0) runs on the PS5.";
+    if (!torchao.empty()) {
+        out.label = torchao == "I8" ? "torchao INT8" : torchao.rfind("F8", 0) == 0 ? "torchao FP8" : "torchao";
+        out.note  = "The file is quantized with torchao (its layers are _weight_qdata and _weight_scale), and "
+                    "stable-diffusion.cpp does not read that." + std::string(gguf);
+        out.loads = false;
+        return out;
+    }
+    if (named("nvfp4") || fp4) {
+        out.label = "ComfyUI NVFP4";
+        out.note  = std::string("NVFP4 is a 4-bit format for NVIDIA's newest GPUs, and stable-diffusion.cpp cannot read it.") + gguf;
+        out.loads = false;
+        return out;
+    }
+    const bool w4a8 = named("asym_w4a8_int8"), w4a4 = named("convrot_w4a4"), int8 = named("int8_tensorwise");
+    const bool unread = quant.in_tensors.count("?") > 0;
+    if (w4a8 || w4a4 || int8 || unread) {
+        out.label = w4a8 ? "ComfyUI W4A8" : w4a4 ? "ComfyUI INT4 (W4A4)" : int8 ? "ComfyUI INT8" : "ComfyUI quantized";
+        if (quant.in_tensors.empty()) {
+            // sd.cpp reads a layer's format from its .comfy_quant tensor only: without one, the I8 weights mean nothing
+            out.note  = "The file names the format of its layers only in its metadata (_quantization_metadata), "
+                        "and stable-diffusion.cpp does not read that, so it cannot run the file." + std::string(gguf);
+            out.loads = false;
+        } else if (unread) {
+            out.note  = "A .comfy_quant tensor of the file cannot be read: the file is damaged or incomplete.";
+            out.loads = false;
+        } else {
+            // sd.cpp runs such layers on the CPU when the GPU has no INT8 dot product; on the PS5 that ends the
+            // title with SIGBUS (an INT8 Qwen3-VL text encoder, twice, 2026-11-22, CONSOLE.md)
+            out.note  = "stable-diffusion.cpp reads it, but the PS5's GPU has no INT8 dot product, and running these "
+                        "layers on the CPU instead ends PS5SD." + std::string(gguf);
+            out.loads = false;
+        }
+        return out;
+    }
+    if (i8) {
+        // I8 weights without .comfy_quant or ComfyUI's metadata: sd.cpp has nothing that says how to use them
+        out.label = "INT8";
+        out.note  = "Its INT8 layers come without a format stable-diffusion.cpp reads (ComfyUI's .comfy_quant tensors), "
+                    "so it cannot run the file." + std::string(gguf);
+        out.loads = false;
+        return out;
+    }
+    if (fp8) {
+        out.label = scaled || named("float8_e4m3fn") ? "FP8 (scaled)" : "FP8";
+        out.note  = "The PS5's GPU has no FP8, so stable-diffusion.cpp turns each layer into BF16 while it runs. "
+                    "It works, but takes about 1.7 times as long as a Q8_0 GGUF of the model.";
+    }
+    return out;
+}
+
 namespace {
 
 struct Seen {
     uint64_t           size;
     fs::file_time_type time;
     std::string        family, part;
+    NetFormat          format;
 };
 
-// A file's family and part, read once per path, size and modification time.
+// A file's family, part and format, read once per path, size and modification time.
 bool seen(const std::string & path, Seen & out) {
     static std::mutex                   mu;
     static std::map<std::string, Seen> cache;
@@ -386,10 +514,12 @@ bool seen(const std::string & path, Seen & out) {
         }
     }
     std::vector<NetTensor> tensors;
-    out = Seen{ size, time, "", "" };
-    if (read_net_tensors(path, tensors)) {
+    ComfyQuant             quant;
+    out = Seen{ size, time, "", "", {} };
+    if (read_net_tensors(path, tensors, &quant)) {
         out.family = net_family_of(tensors);
         out.part   = net_part_of(tensors);
+        out.format = net_format_of(tensors, quant);
     }
     std::lock_guard<std::mutex> lock(mu);
     cache[path] = out;
@@ -406,6 +536,11 @@ std::string net_part(const std::string & path) {
 std::string net_family(const std::string & path) {
     Seen s;
     return seen(path, s) ? s.family : "";
+}
+
+NetFormat net_format(const std::string & path) {
+    Seen s;
+    return seen(path, s) ? s.format : NetFormat{};
 }
 
 }  // namespace ps5sd

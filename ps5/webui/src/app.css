@@ -609,6 +609,9 @@
   /* the editor grows with its Fields box: it scrolls inside the screen, so Save stays reachable */
   .dlg-box.wide { max-width: 48rem; max-height: 94%; overflow-y: auto; -webkit-overflow-scrolling: touch; }
   #pe-text { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 0.9rem; margin: 0.6rem 0 0.4rem; }
+  #pe-note { margin: 0 0 0.4rem; }
+  #pe-note .pe-line { display: block; margin-top: 0.3rem; }
+  #pe-note .pe-line.bad { color: var(--warn); }
   .pe-fields { margin: 0 0 0.4rem; }
   .pe-fields summary { cursor: pointer; padding: 0.4rem 0; color: var(--muted); }
   .pe-fields .hint { margin: 0.2rem 0 0.4rem; }

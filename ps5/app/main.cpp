@@ -1127,8 +1127,17 @@ void run_server() {
                 if (why.compare(0, prefix.size(), prefix) == 0) {
                     why.erase(0, prefix.size());
                 }
+                why = load_reason(why);
                 if (why.empty() && g_library.find(plan.id, entry, ignored)) {
                     why = part_reason(entry);
+                    if (why.empty()) {
+                        // a format that runs otherwise (FP8, turned into BF16 as it runs) may be why
+                        const EntryFormat f = entry_format(entry);
+                        if (!f.format.label.empty()) {
+                            why = "sd.cpp stopped while loading it. " + f.file + " is " + f.format.label + ": " +
+                                  f.format.note;
+                        }
+                    }
                 }
                 if (why.empty()) {
                     why = "sd.cpp stopped while loading it and did not say why; /data/PS5SD/app.log has its last lines. "
@@ -1271,6 +1280,14 @@ int ask_switch(const std::string & id, std::string & out) {
     if (!part.empty()) {
         std::printf("ps5sd: switch to %s refused: %s\n", entry.id.c_str(), part.c_str());
         out = error_json(part, "model_part");
+        return 422;
+    }
+    // A weight format sd.cpp cannot run on the PS5 (NVFP4, torchao, ComfyUI INT8): it would stop while
+    // reading the file, draw noise, or end the title (INT8 on the CPU: SIGBUS, CONSOLE.md 2026-11-22).
+    const std::string format = format_reason(entry);
+    if (!format.empty()) {
+        std::printf("ps5sd: switch to %s refused: %s\n", entry.id.c_str(), format.c_str());
+        out = error_json(format, "model_format");
         return 422;
     }
     if (g_quit_requested) {
@@ -1659,6 +1676,15 @@ extern "C" int sd_app_upload(const char * path, uint64_t length, sd_app_reader r
     return status;
 }
 
+// A POST body that is a JSON object with "text" (POST presets: a preset from its file, not a variant).
+static bool body_has_text(const char * body, size_t len) {
+    if (body == nullptr) {
+        return false;
+    }
+    const nlohmann::json j = nlohmann::json::parse(std::string(body, len), nullptr, false);
+    return j.is_object() && j.contains("text");
+}
+
 // The prompt collections: promptbooks, promptbooks/<name>, promptbooks/<name>/entries and
 // promptbooks/<name>/entries/<id> (prompt_books.hpp). Answers the status, or 0 when the route is not one of these.
 static int promptbooks_route(const std::string & m, const std::string & p, const std::string & text, std::string & out) {
@@ -1924,6 +1950,9 @@ extern "C" int sd_app_request(const char * method, const char * path, const char
     }
     if (status > 0) {
         // answered
+    } else if (m == "GET" && p == "models/files") {
+        out    = model_files_json(kModels);
+        status = 200;
     } else if (m == "GET" && p == "models") {
         const auto active = read_lines(kModel);
         out    = models_json(g_library, active.empty() ? "" : active[0], loaded_id(), g_switching, g_standby && !g_switching);
@@ -2042,6 +2071,25 @@ extern "C" int sd_app_request(const char * method, const char * path, const char
         } else {
             out    = error_json(error);
             status = 500;
+        }
+    } else if (m == "POST" && p == "presets" && body_has_text(body, body_len)) {
+        // {"name", "text"}: a new preset from its file (the web UI's Make a preset)
+        const nlohmann::json j = nlohmann::json::parse(std::string(body, body_len), nullptr, false);
+        std::string          error, id;
+        if (!j.contains("name") || !j["name"].is_string() || !j["text"].is_string()) {
+            out    = error_json("the body must be {\"name\": \"...\", \"text\": \"<the preset file>\"}");
+            status = 400;
+        } else if (!g_library.new_preset(j["name"].get<std::string>(), j["text"].get<std::string>(), id, error)) {
+            out    = error_json(error);
+            status = 400;
+        } else {
+            std::printf("ps5sd: new preset %s\n", id.c_str());
+            const auto     active = read_lines(kModel);
+            nlohmann::json o      = nlohmann::json::parse(
+                models_json(g_library, active.empty() ? "" : active[0], loaded_id(), g_switching, g_standby && !g_switching));
+            o["id"] = id;
+            out     = o.dump(-1, ' ', false, nlohmann::json::error_handler_t::replace);
+            status  = 201;
         }
     } else if (m == "POST" && p == "presets") {
         // {"name", "base", "defaults": {"steps": "10", ...}}: a variant of base
