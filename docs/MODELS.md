@@ -350,7 +350,8 @@ LoRAs, **Add a LoRA** is a search field: type part of a name.
 LoRA's page says). Several LoRAs work together. The web UI keeps the picks per model, with the model's other settings. Many LoRAs also
 need their trigger words in the prompt (the LoRA's page names them), for example `pixel art` for
 pixel-art-xl. When the console knows them, **Add trigger words** under the LoRA's name puts the ones that
-are missing at the end of the prompt.
+are missing at the cursor in the prompt. `__lora__` in the prompt puts in the words of all picked LoRAs at
+that place, `__lora:NAME__` those of one LoRA (Help, "Wildcards, collections and the prompt history").
 
 ### LoRA info and trigger words
 
@@ -371,6 +372,12 @@ LoRA, which is also A1111's name. Neither file shows as a LoRA or a model. Delet
 - **Look up all** (above the list) does the LoRAs that have no info yet, one after the other, with a **Stop**.
   A file that Civitai does not know is marked and not asked again.
 - A LoRA downloaded in the web UI gets its info on its own when the download ends.
+- **The trigger words are a list.** Each word or phrase is a chip, on or off; you add your own and remove
+  ones in Info, and turn them on and off under a LoRA you picked on the Create tab. A lookup makes one chip of
+  each of Civitai's trained words. The mode says what goes into the prompt for each image: all the words
+  that are on, one of them at random, or some at random (a number you set). The list and the mode are kept
+  in the info file (`ps5sd.triggers`, `trigger_mode`, `trigger_count`); `activation text` keeps all the
+  words, so A1111 still sees them.
 
 ### Search Civitai
 

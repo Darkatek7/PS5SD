@@ -3,7 +3,11 @@
 //   {a|b|c}     one of the options, picked anew for each image (an option may be empty, {x|{y|z}} works
 //               from the inside out; a brace without a "|" stays as it is)
 //   __name__    a random entry of the collection "name" (prompt_books.hpp), without regard to case
-//   __lora__    the trigger words of the LoRAs that go into the job (positive prompt only)
+//   __lora__    the trigger words of the LoRAs that go into the job (positive prompt only), each LoRA's
+//               list by its mode (all / one at random / some at random), picked anew for each image;
+//               LoRAs that a __lora:NAME__ of the same prompt names are left out
+//   __lora:NAME__  only that installed LoRA's words (NAME: its path under the loras folder without the
+//               extension, or its file name without it, any case; no match stays as typed)
 // Up to 8 passes, so entries may hold braces and other __names__, and an entry that names its own
 // collection stops there. A __name__ without a collection (or with an empty one) stays as typed.
 // Where a placeholder became empty, the separators it leaves are tidied (", ," -> ",", no comma or
@@ -23,10 +27,12 @@
 #include <functional>
 #include <map>
 #include <random>
+#include <set>
 #include <string>
 #include <vector>
 
 #include "json.hpp"
+#include "lora_info.hpp"
 #include "prompt_books.hpp"
 
 namespace ps5sd {
@@ -43,6 +49,54 @@ class PromptRng {
     std::mt19937_64 engine_;
 };
 
+// "style/Pixel.safetensors" -> "style/pixel": lower case, a model file's extension off.
+inline std::string lora_key(const std::string & path) {
+    std::string k = trigger_lower(path);
+    const size_t slash = k.rfind('/');
+    const size_t dot   = k.rfind('.');
+    if (dot != std::string::npos && (slash == std::string::npos || dot > slash)) {
+        const std::string ext = k.substr(dot);
+        if (ext == ".safetensors" || ext == ".ckpt" || ext == ".pt" || ext == ".pth" || ext == ".gguf" || ext == ".bin") {
+            k.resize(dot);
+        }
+    }
+    return k;
+}
+
+// A LoRA the expansion knows: key = lora_key(path).
+struct LoraEntry {
+    std::string  key;
+    LoraTriggers triggers;
+};
+
+// A request's change for one LoRA, for this call only.
+struct LoraOverride {
+    bool                     has_list = false, has_mode = false, has_count = false;
+    std::vector<LoraTrigger> list;
+    std::string              mode;
+    int                      count = 0;
+
+    void apply(LoraTriggers & t) const {
+        if (has_list) {
+            t.items = list;
+        }
+        if (has_mode) {
+            t.mode = mode;
+        }
+        if (has_count) {
+            t.count = count;
+        }
+    }
+};
+
+// What __lora__ and __lora:NAME__ stand for.
+struct LoraSource {
+    std::vector<LoraEntry>                  job;        // the job's LoRAs, in order
+    std::map<std::string, LoraOverride>     overrides;  // by key, for the job's and the named ones
+    // Every installed LoRA in the order of the list (called once, when a __lora:NAME__ needs it); may be empty.
+    std::function<std::vector<LoraEntry>()> installed;
+};
+
 struct PromptExpansion {
     std::string prompt;
     std::string negative;
@@ -52,9 +106,18 @@ class PromptExpander {
   public:
     static constexpr int kPasses = 8;
 
-    // lora_words: what __lora__ becomes in the prompt (may be empty); the negative prompt leaves it as typed.
-    PromptExpander(const PromptBookMap & books, std::string lora_words, PromptRng & rng)
-        : books_(books), lora_(std::move(lora_words)), rng_(rng) {}
+    // lora_words: what __lora__ becomes in the prompt (may be empty): one item, always put in. The negative
+    // prompt leaves it as typed.
+    PromptExpander(const PromptBookMap & books, const std::string & lora_words, PromptRng & rng) : books_(books), rng_(rng) {
+        const std::string w = trigger_trim(lora_words);
+        if (!w.empty()) {
+            LoraEntry e;
+            e.triggers.items.push_back({ w, true });
+            src_.job.push_back(e);
+        }
+    }
+    PromptExpander(const PromptBookMap & books, LoraSource source, PromptRng & rng)
+        : books_(books), src_(std::move(source)), rng_(rng) {}
 
     // The names of __name__ that matched no collection with entries (as typed the first time), so far.
     const std::vector<std::string> & unknown() const { return unknown_; }
@@ -130,6 +193,119 @@ class PromptExpander {
         return s;
     }
     static bool is_lora(const std::string & n) { return lower(n) == "lora"; }
+
+    // "__lora:NAME__" at s[i]: its whole length, or 0. NAME is any text without a line break, up to 1024
+    // bytes, that neither starts nor ends with a space or "_", and it ends at the first "__" (the page's
+    // /__lora:([^_\s](?:(?:[^_\n]|_(?!_))*[^_\s])?)__/i).
+    static size_t lora_name_at(const std::string & s, size_t i, std::string & name) {
+        if (i + 7 >= s.size() || s[i] != '_' || s[i + 1] != '_' || lower(s.substr(i + 2, 5)) != "lora:") {
+            return 0;
+        }
+        const auto   edge = [](char c) { return c == '_' || std::isspace(static_cast<unsigned char>(c)) != 0; };
+        const size_t from = i + 7;
+        if (edge(s[from])) {
+            return 0;
+        }
+        for (size_t j = from + 1; j + 1 < s.size() && j - from <= 1024; ++j) {
+            if (s[j] == '_' && s[j + 1] == '_') {
+                if (edge(s[j - 1])) {
+                    return 0;
+                }
+                name = s.substr(from, j - from);
+                return j + 2 - i;
+            }
+            if (s[j] == '\n') {
+                return 0;
+            }
+        }
+        return 0;
+    }
+
+    const std::vector<LoraEntry> & installed() {
+        if (!installed_loaded_) {
+            installed_loaded_ = true;
+            if (src_.installed) {
+                installed_ = src_.installed();
+            }
+        }
+        return installed_;
+    }
+
+    // The installed LoRA a NAME means: the path first, then the file name; null when none.
+    const LoraEntry * resolve(const std::string & name) {
+        const std::string l = lower(name);
+        const auto &      all = installed();
+        for (const auto & e : all) {
+            if (e.key == l) {
+                return &e;
+            }
+        }
+        for (const auto & e : all) {
+            const size_t slash = e.key.rfind('/');
+            if ((slash == std::string::npos ? e.key : e.key.substr(slash + 1)) == l) {
+                return &e;
+            }
+        }
+        return nullptr;
+    }
+
+    // One image's words of a LoRA: the items that are on, by its mode.
+    std::string words_of(const LoraEntry & e) {
+        LoraTriggers t   = e.triggers;
+        const auto   ov  = src_.overrides.find(e.key);
+        if (ov != src_.overrides.end()) {
+            ov->second.apply(t);
+        }
+        std::vector<std::string> on;
+        for (const auto & it : t.items) {
+            if (it.on) {
+                on.push_back(it.text);
+            }
+        }
+        if (on.empty()) {
+            return "";
+        }
+        std::vector<size_t> idx;
+        if (t.mode == "one") {
+            idx.push_back(pick(on.size()));
+        } else if (t.mode == "some") {
+            std::vector<size_t> all(on.size());
+            for (size_t k = 0; k < all.size(); ++k) {
+                all[k] = k;
+            }
+            const size_t want = std::min(static_cast<size_t>(std::max(t.count, 1)), on.size());
+            for (size_t k = 0; k < want; ++k) {  // partial shuffle
+                const size_t at = k + pick(all.size() - k);
+                std::swap(all[k], all[at]);
+                idx.push_back(all[k]);
+            }
+            std::sort(idx.begin(), idx.end());
+        } else {
+            for (size_t k = 0; k < on.size(); ++k) {
+                idx.push_back(k);
+            }
+        }
+        std::string out;
+        for (size_t k : idx) {
+            out += (out.empty() ? "" : ", ") + on[k];
+        }
+        return out;
+    }
+
+    // What __lora__ is for this image: the job's LoRAs but those a __lora:NAME__ names.
+    std::string job_words() {
+        std::string out;
+        for (const auto & e : src_.job) {
+            if (named_.count(e.key) != 0) {
+                continue;
+            }
+            const std::string w = words_of(e);
+            if (!w.empty()) {
+                out += (out.empty() ? "" : ", ") + w;
+            }
+        }
+        return out;
+    }
     static bool name_char(char c) {
         const unsigned char u = static_cast<unsigned char>(c);
         return (std::isalnum(u) && u < 128) || c == '_' || c == '-';
@@ -181,9 +357,15 @@ class PromptExpander {
         unknown_.push_back(name);
     }
 
-    // is_prompt: __lora__ is expanded (the positive prompt); otherwise it stays as typed.
+    // is_prompt: __lora__ and __lora:NAME__ are expanded (the positive prompt); otherwise they stay as typed.
+    // __lora__ goes last, in the pass where nothing else is left to expand, so it leaves out every LoRA a
+    // __lora:NAME__ took on the way (also one from a collection's entry), as the page does.
     std::string text(std::string t, bool is_prompt) {
-        bool emptied = false;
+        bool emptied   = false;
+        bool lora_done = false;
+        if (is_prompt) {
+            named_.clear();
+        }
         for (int pass = 0; pass < kPasses; ++pass) {
             bool again = false;
             // {a|b}: the innermost braces with a "|"
@@ -215,6 +397,25 @@ class PromptExpander {
             // __name__
             out.clear();
             for (size_t i = 0; i < t.size();) {
+                std::string  lname;
+                const size_t llen = lora_name_at(t, i, lname);
+                if (llen != 0) {
+                    const LoraEntry * e = is_prompt ? resolve(lname) : nullptr;
+                    if (e == nullptr) {
+                        if (is_prompt) {
+                            note_unknown("lora:" + lname);
+                        }
+                        out += t.substr(i, llen);
+                    } else {
+                        named_.insert(e->key);
+                        const std::string w = words_of(*e);
+                        again               = true;
+                        emptied             = emptied || w.empty();
+                        out += w;
+                    }
+                    i += llen;
+                    continue;
+                }
                 const size_t len = name_at(t, i);
                 if (len == 0) {
                     out += t[i++];
@@ -224,15 +425,7 @@ class PromptExpander {
                 const std::string whole = t.substr(i, len + 4);
                 i += len + 4;
                 if (is_lora(name)) {
-                    if (is_prompt) {
-                        again = true;
-                        if (lora_.empty()) {
-                            emptied = true;
-                        }
-                        out += lora_;
-                    } else {
-                        out += whole;
-                    }
+                    out += whole;  // __lora__: below, once nothing else is left
                     continue;
                 }
                 const auto it = books_.find(lower(name));
@@ -247,6 +440,28 @@ class PromptExpander {
                 out += entry;
             }
             t = out;
+            if (!again && !lora_done && is_prompt) {
+                lora_done = true;
+                out.clear();
+                for (size_t i = 0; i < t.size();) {
+                    const size_t len = name_at(t, i);
+                    if (len != 0 && is_lora(t.substr(i + 2, len))) {
+                        const std::string w = job_words();
+                        again               = true;
+                        emptied             = emptied || w.empty();
+                        out += w;
+                        i += len + 4;
+                        continue;
+                    }
+                    if (len != 0) {
+                        out += t.substr(i, len + 4);
+                        i += len + 4;
+                        continue;
+                    }
+                    out += t[i++];
+                }
+                t = out;
+            }
             if (!again) {
                 break;
             }
@@ -255,19 +470,24 @@ class PromptExpander {
     }
 
     const PromptBookMap &    books_;
-    std::string              lora_;
+    LoraSource               src_;
     PromptRng &              rng_;
     std::vector<std::string> unknown_;
+    std::vector<LoraEntry>   installed_;
+    bool                     installed_loaded_ = false;
+    std::set<std::string>    named_;  // keys of the LoRAs the current template names
 };
 
-// The LoRAs whose words __lora__ stands for: the "lora" field of the request ([{"path", "multiplier"}] or
-// plain path strings; a multiplier of 0 is off), else the <lora:NAME:weight> tags of the prompt. words_of
-// gives the trigger words of a file under the loras folder (its path with the extension; for a tag, NAME
-// with ".safetensors" behind it, which has the stem NAME). A LoRA with no words adds nothing. Returns false
-// (with the reason) when "lora" is not that shape or a path is not a plain relative path.
-inline bool collect_lora_words(const nlohmann::json & lora_field, bool has_field, const std::string & prompt,
-                               const std::function<std::string(const std::string &)> & words_of, std::string & words,
-                               std::string & error) {
+// The LoRAs __lora__ stands for: the "lora" field of the request ([{"path", "multiplier"}] or plain path
+// strings; a multiplier of 0 is off), else the <lora:NAME:weight> tags of the prompt. triggers_of gives the
+// stored words of a file under the loras folder (its path with the extension; for a tag, NAME with
+// ".safetensors" behind it, which has the stem NAME). An item of the field may carry "triggers", "trigger_mode"
+// and "trigger_count": they replace the stored ones for this call (also for a __lora:NAME__ of that LoRA).
+// Returns false (with the reason) when "lora" is not that shape, a path is not a plain relative path or an
+// override is bad.
+inline bool collect_lora_job(const nlohmann::json & lora_field, bool has_field, const std::string & prompt,
+                             const std::function<LoraTriggers(const std::string &)> & triggers_of, LoraSource & src,
+                             std::string & error) {
     std::vector<std::string> files;
     const auto               add = [&](const std::string & f) {
         if (std::find(files.begin(), files.end(), f) == files.end()) {
@@ -314,6 +534,30 @@ inline bool collect_lora_words(const nlohmann::json & lora_field, bool has_field
                 error = "not a LoRA path: " + path;
                 return false;
             }
+            if (l.is_object()) {
+                LoraOverride ov;
+                if (l.contains("triggers")) {
+                    ov.has_list = true;
+                    if (!parse_trigger_items(l["triggers"], ov.list, error)) {
+                        return false;
+                    }
+                }
+                if (l.contains("trigger_mode")) {
+                    ov.has_mode = true;
+                    if (!parse_trigger_mode(l["trigger_mode"], ov.mode, error)) {
+                        return false;
+                    }
+                }
+                if (l.contains("trigger_count")) {
+                    ov.has_count = true;
+                    if (!parse_trigger_count(l["trigger_count"], ov.count, error)) {
+                        return false;
+                    }
+                }
+                if (ov.has_list || ov.has_mode || ov.has_count) {
+                    src.overrides[lora_key(path)] = ov;
+                }
+            }
             if (mult != 0.0) {
                 add(path);
             }
@@ -342,21 +586,9 @@ inline bool collect_lora_words(const nlohmann::json & lora_field, bool has_field
             }
         }
     }
-    words.clear();
+    src.job.clear();
     for (const auto & f : files) {
-        std::string w = words_of(f);
-        size_t      a = 0, b = w.size();
-        const auto  edge = [](char c) { return c == ',' || std::isspace(static_cast<unsigned char>(c)) != 0; };
-        while (a < b && edge(w[a])) {
-            ++a;
-        }
-        while (b > a && edge(w[b - 1])) {
-            --b;
-        }
-        w = w.substr(a, b - a);
-        if (!w.empty()) {
-            words += (words.empty() ? "" : ", ") + w;
-        }
+        src.job.push_back({ lora_key(f), triggers_of(f) });
     }
     return true;
 }

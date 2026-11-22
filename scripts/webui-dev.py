@@ -543,7 +543,10 @@ class MockLoras:
     # the sidecars that exist from the start; the key names are the app's answers of GET loras/info
     INFO = {
         "styles/ink-sketch.safetensors": {
-            "trigger": "inksketch, monochrome", "weight": 0.8, "base": "SDXL 1.0", "preview": True, "preview_nsfw_level": 1,
+            "trigger": "inksketch, monochrome, ink wash, loose lines", "weight": 0.8,
+            "triggers": [{"text": "inksketch", "on": True}, {"text": "monochrome", "on": True},
+                         {"text": "ink wash", "on": True}, {"text": "loose lines", "on": False}],
+            "trigger_mode": "one", "trigger_count": 2, "base": "SDXL 1.0", "preview": True, "preview_nsfw_level": 1,
             "description": "Black ink on white paper, loose lines.\n\nWorks best at strength 0.6 to 1.",
             "notes": "Good with the Illustrious models too.", "looked_up": "2026-11-20T18:30:00Z", "lookup": "found",
             "civitai": {"model_id": 1, "version_id": 11, "model": "Ink Sketch", "version": "v1.0", "base_model": "SDXL 1.0",
@@ -557,6 +560,11 @@ class MockLoras:
         "sdxl-lightning-8step.safetensors": {"notes": "From ByteDance. No trigger words.", "lookup": "not_found",
                                              "looked_up": "2026-11-18T12:00:00Z"},
         "styles/anime/flat-colors.safetensors": {"trigger": "flat color", "weight": 1.2, "base": "SDXL 1.0"},
+        "pixel-art-xl.safetensors": {
+            "trigger": "pixel art, pixelated, 16-bit, retro game sprite, limited palette", "base": "SDXL 1.0",
+            "triggers": [{"text": "pixel art", "on": True}, {"text": "pixelated", "on": True}, {"text": "16-bit", "on": True},
+                         {"text": "retro game sprite", "on": True}, {"text": "limited palette", "on": True}],
+            "trigger_mode": "some", "trigger_count": 2},
     }
 
     def __init__(self):
@@ -577,9 +585,41 @@ class MockLoras:
             for k in ("trigger", "weight", "base", "preview", "lookup"):
                 if i.get(k):
                     e[k] = i[k]
+            if i.get("trigger") or i.get("triggers"):
+                e.update(self._triggers(i))
             if i.get("preview_nsfw_level") is not None and i.get("preview"):
                 e["preview_nsfw_level"] = i["preview_nsfw_level"]
         return e
+
+    @staticmethod
+    def _triggers(i):
+        """The list, the mode and the count of a sidecar's entry; no list yet: "trigger" split at commas, all on."""
+        items = i.get("triggers")
+        if items is None:
+            items = [{"text": w.strip(), "on": True} for w in i.get("trigger", "").split(",") if w.strip()]
+        return {"trigger": ", ".join(t["text"] for t in items), "triggers": [dict(t) for t in items],
+                "trigger_mode": i.get("trigger_mode", "all"), "trigger_count": i.get("trigger_count", 2)}
+
+    @staticmethod
+    def _clean_triggers(v):
+        """A list of strings or {text, on}: the clean list, or None when it is bad."""
+        if not isinstance(v, list) or len(v) > 100:
+            return None
+        out, seen = [], set()
+        for t in v:
+            on = True
+            if isinstance(t, dict):
+                on = t.get("on", True)
+                t = t.get("text")
+            if not isinstance(t, str) or not isinstance(on, bool):
+                return None
+            t = t.strip()
+            if not t or len(t.encode()) > 200 or "\n" in t:
+                return None
+            if t.lower() not in seen:
+                seen.add(t.lower())
+                out.append({"text": t, "on": on})
+        return out
 
     def _json(self):
         return {"loras": [self._entry(path, b, fam) for path, (b, fam) in sorted(self.files.items())]}
@@ -587,6 +627,9 @@ class MockLoras:
     def _info(self, path):
         out = {"path": path}
         out.update(self.info.get(path, {}))
+        out.update(self._triggers(out))
+        if not out["triggers"]:
+            out.pop("trigger")
         if out.get("preview"):
             out["images"] = [dict(im, url=APP + "loras/preview/" + urllib.parse.quote(path)) for im in out.get("images", [])]
         return out
@@ -664,11 +707,33 @@ class MockLoras:
                         data = None
                     ok = isinstance(data, dict) and all(
                         (k in ("trigger", "notes", "description") and isinstance(v, str)) or
-                        (k == "weight" and (v is None or (isinstance(v, (int, float)) and not isinstance(v, bool))))
+                        (k == "weight" and (v is None or (isinstance(v, (int, float)) and not isinstance(v, bool)))) or
+                        k in ("triggers", "trigger_mode", "trigger_count")
                         for k, v in data.items())
+                    if ok and "triggers" in data and self._clean_triggers(data["triggers"]) is None:
+                        ok = False
+                    if ok and "trigger_mode" in data and data["trigger_mode"] not in ("all", "one", "some"):
+                        ok = False
+                    if ok and "trigger_count" in data and not (isinstance(data["trigger_count"], int) and
+                                                               not isinstance(data["trigger_count"], bool) and
+                                                               1 <= data["trigger_count"] <= 20):
+                        ok = False
                     if not ok:
-                        return 400, {"error": "the body is not an object of trigger, weight, notes, description"}
+                        return 400, {"error": "the body is not an object of trigger, triggers, trigger_mode, trigger_count, weight, notes, description"}
                     i = self.info.setdefault(lora, {})
+                    if "triggers" in data:
+                        i["triggers"] = self._clean_triggers(data.pop("triggers"))
+                        data.pop("trigger", None)
+                    elif "trigger" in data:
+                        i["triggers"] = [{"text": w.strip(), "on": True} for w in data.pop("trigger").split(",") if w.strip()]
+                    if "trigger_mode" in data:
+                        i["trigger_mode"] = data.pop("trigger_mode")
+                    if "trigger_count" in data:
+                        i["trigger_count"] = data.pop("trigger_count")
+                    if "triggers" in i:
+                        i["trigger"] = ", ".join(t["text"] for t in i["triggers"])
+                        if not i["trigger"]:
+                            i.pop("trigger")
                     for k, v in data.items():
                         if v in ("", None, 0):
                             i.pop(k, None)

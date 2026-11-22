@@ -8,6 +8,10 @@
     req('GET', APP + '/loras', null, function (code, data) {
       if (code === 200 && data && data.loras) {
         loraList = data.loras;
+        for (var k = 0; k < loraList.length; k++) {
+          // an older app sends "trigger" only: the list is built from it, and nothing of it is saved
+          if (loraList[k].trigger && !loraListed(loraList[k])) loraList[k].oldApp = true;
+        }
         show('pnl-loras', true);
         drawLoraList();
         drawLoraPicker();
@@ -111,10 +115,10 @@
         var nm = el('div', 'lname');
         nm.appendChild(document.createTextNode(readable(loraName(s.path)) + (gone ? ' (not on the console)' : '')));
         // a LoRA with trigger words: one press puts the ones missing at the end of the prompt
-        if (loraTrigger(s.path)) {
+        if (loraItems(loraEntry(s.path)).length) {
           var tb = el('button', 'linkbtn ltrig', 'Add trigger words');
           tb.type = 'button';
-          tb.title = 'Put its trigger words at the cursor of the prompt: ' + loraTrigger(s.path);
+          tb.title = 'Put its trigger words (or __lora:NAME__) at the cursor of the prompt';
           tb.onclick = function () { addTriggerWords(s.path); };
           tb.setAttribute('data-path', s.path);
           nm.appendChild(tb);
@@ -140,6 +144,8 @@
         rm.setAttribute('aria-label', 'Remove ' + loraName(s.path));
         row.appendChild(rm);
         box.appendChild(row);
+        var tbox = triggerBox(s.path);
+        if (tbox) box.appendChild(tbox);
       })(loraSel[i]);
     }
     drawLoraAdd(fam);
@@ -291,34 +297,157 @@
     if ($('prompt').addEventListener) $('prompt').addEventListener('input', updateTriggerButtons);
   }
 
-  // ---- trigger words: the words of the LoRA that are not in the prompt yet, at its end
-  function missingWords(path) {
-    var words = loraTrigger(path).split(','), p = $('prompt').value.toLowerCase(), out = [];
-    for (var i = 0; i < words.length; i++) {
-      var w = trim(words[i]);
-      if (w && p.indexOf(w.toLowerCase()) < 0) out.push(w);
+  // ---- trigger words: a LoRA's list (chips, each on or off) and its mode, under its row
+  // A chip: the word, one press turns it on or off. onRemove (optional) adds the × of the Info dialog.
+  function trigChip(item, onToggle, onRemove) {
+    var wrap = el('span', 'tchip' + (item.on ? '' : ' off'));
+    var b = el('button', 'tword', item.text);
+    b.type = 'button';
+    b.setAttribute('aria-pressed', item.on ? 'true' : 'false');
+    b.title = item.on ? 'On: press to turn it off' : 'Off: press to turn it on';
+    b.onclick = onToggle;
+    wrap.appendChild(b);
+    if (onRemove) {
+      var x = el('button', 'tx', '×');
+      x.type = 'button';
+      x.setAttribute('aria-label', 'Remove ' + item.text);
+      x.title = 'Remove';
+      x.onclick = onRemove;
+      wrap.appendChild(x);
     }
+    return wrap;
+  }
+
+  // The mode: All, One at random, Some at random + a count. get() returns {mode, count}, set(mode, count) takes
+  // the change. Used on the Create tab and in the Info dialog.
+  function trigModeControls(mode, count, set) {
+    var box = el('div', 'tmode');
+    var sel = document.createElement('select');
+    sel.setAttribute('aria-label', 'Which trigger words go into the prompt');
+    var opts = [['all', 'All of them'], ['one', 'One at random'], ['some', 'Some at random']];
+    for (var i = 0; i < opts.length; i++) {
+      var o = document.createElement('option');
+      o.value = opts[i][0];
+      text(o, opts[i][1]);
+      sel.appendChild(o);
+    }
+    sel.value = mode;
+    box.appendChild(sel);
+    var num = document.createElement('input');
+    num.type = 'number';
+    num.min = '1';
+    num.max = '20';
+    num.step = '1';
+    num.value = count;
+    num.setAttribute('aria-label', 'How many words');
+    num.title = 'How many words each image takes';
+    num.style.display = mode === 'some' ? '' : 'none';
+    box.appendChild(num);
+    sel.onchange = function () {
+      num.style.display = sel.value === 'some' ? '' : 'none';
+      set(sel.value, loraCountOf({ trigger_count: num.value }));
+    };
+    num.onchange = function () {
+      var n = loraCountOf({ trigger_count: num.value });
+      num.value = n;
+      set(sel.value, n);
+    };
+    return box;
+  }
+
+  // The console keeps the list for this LoRA (an older app sends the one string only).
+  function loraSaves(e) { return !!(e && loraListed(e) && !e.oldApp); }
+
+  // Under a picked LoRA that has words: its chips and its mode. Saved to the console at once (debounced).
+  function triggerBox(path) {
+    var e = loraEntry(path), items = loraItems(e);
+    if (!e || !items.length) return null;
+    var box = el('div', 'ltrigs');
+    var chips = el('div', 'tchips');
+    for (var i = 0; i < items.length; i++) {
+      (function (idx) {
+        chips.appendChild(trigChip(items[idx], function () {
+          var cur = loraItems(e);
+          cur[idx].on = !cur[idx].on;
+          e.triggers = cur;
+          if (!loraSaves(e)) e.oldApp = true;
+          saveTriggersSoon(path);
+          drawLoraPicker();
+        }));
+      })(i);
+    }
+    box.appendChild(chips);
+    if (loraSaves(e)) {
+      box.appendChild(trigModeControls(loraModeOf(e), loraCountOf(e), function (mode, count) {
+        e.trigger_mode = mode;
+        e.trigger_count = count;
+        saveTriggersSoon(path);
+        drawLoraPicker();
+      }));
+    }
+    return box;
+  }
+
+  var trigTimers = {};
+  function saveTriggersSoon(path) {
+    var e = loraEntry(path);
+    if (!e || e.oldApp) return;   // an older app has no list to save
+    if (trigTimers[path]) clearTimeout(trigTimers[path]);
+    trigTimers[path] = setTimeout(function () {
+      delete trigTimers[path];
+      var cur = loraEntry(path);
+      if (!cur) return;
+      var body = { triggers: loraItems(cur), trigger_mode: loraModeOf(cur), trigger_count: loraCountOf(cur) };
+      req('POST', APP + '/loras/info/' + encodePath(path), body, function (code, data) {
+        if (code !== 200) toast(errText(code, data, 'Could not save the trigger words of ' + loraName(path)), 6000);
+      }, 15000);
+    }, 600);
+  }
+
+  // The placeholder that puts a LoRA's words in by its mode, and whether the prompt has it.
+  function namedHolder(path) { return '__lora:' + loraNoExt(path) + '__'; }
+  function promptHasNamed(path) {
+    var n = namedPlaceholders($('prompt').value);
+    for (var i = 0; i < n.length; i++) { var l = loraByName(n[i]); if (l && l.path === path) return true; }
+    return false;
+  }
+
+  // The words of the LoRA that are on and not in the prompt yet.
+  function missingWords(path) {
+    var words = loraOnTexts(loraEntry(path)), p = $('prompt').value.toLowerCase(), out = [];
+    for (var i = 0; i < words.length; i++) if (p.indexOf(words[i].toLowerCase()) < 0) out.push(words[i]);
     return out;
   }
 
-  // At the caret of the prompt (09h remembers the last one), else at its end.
+  // At the caret of the prompt (09h remembers the last one), else at its end. Mode all: the words that are
+  // on; one or some: __lora:NAME__, so each image picks.
   function addTriggerWords(path) {
+    var e = loraEntry(path);
+    if (loraModeOf(e) !== 'all') {
+      putAtCaret(namedHolder(path), ', ');
+      toast('Added ' + namedHolder(path) + ': each image picks its words.');
+      return;
+    }
     var miss = missingWords(path);
     if (!miss.length) { toast('Its trigger words are in the prompt already.'); return; }
     putAtCaret(miss.join(', '), ', ');
     toast('Added to the prompt: ' + miss.join(', ') + '.');
   }
 
-  // Each Add trigger words button says whether there is something to add.
+  // Each Add trigger words button says what it adds, and whether there is something to add.
   function updateTriggerButtons() {
     var bs = $('lora-sel').getElementsByClassName('ltrig');
+    var prompt = $('prompt').value;
     for (var i = 0; i < bs.length; i++) {
-      var via = hasLoraPlaceholder($('prompt').value);
-      var none = missingWords(bs[i].getAttribute('data-path')).length === 0;
-      bs[i].disabled = via || none;
-      text(bs[i], via ? 'Via __lora__' : none ? 'Words are in the prompt' : 'Add trigger words');
+      var path = bs[i].getAttribute('data-path'), e = loraEntry(path);
+      var mode = loraModeOf(e), on = loraOnTexts(e).length;
+      var via = hasLoraPlaceholder(prompt), named = mode !== 'all' && promptHasNamed(path);
+      var none = mode === 'all' && on > 0 && missingWords(path).length === 0;
+      bs[i].disabled = via || named || none || !on;
+      text(bs[i], via ? 'Via __lora__' : named ? 'Via ' + namedHolder(path) : !on ? 'No word is on' : none ? 'Words are in the prompt'
+        : mode === 'all' ? 'Add trigger words' : 'Add ' + namedHolder(path));
     }
-      drawWildHint();   // __lora__ says how many words there are
+    drawWildHint();   // __lora__ says what each image picks
   }
 
   // The settings a fast LoRA needs (a few steps at a low CFG), by its file name; null for other LoRAs.
@@ -472,7 +601,19 @@
     }
     var main = el('div', 'mmain');
     main.appendChild(el('div', 'mname', readable(l.name || loraName(l.path))));
-    if (l.trigger) main.appendChild(el('div', 'mmeta ltrigline', 'Trigger words: ' + l.trigger));
+    var titems = loraItems(l);
+    if (titems.length) {
+      // the words that are on; an off one is dimmed
+      var tl = el('div', 'mmeta ltrigline');
+      tl.appendChild(document.createTextNode('Trigger words: '));
+      for (var ti = 0; ti < titems.length; ti++) {
+        if (ti) tl.appendChild(document.createTextNode(', '));
+        tl.appendChild(el('span', titems[ti].on ? '' : 'toff', titems[ti].text));
+      }
+      var tm = loraModeOf(l);
+      if (tm !== 'all') tl.appendChild(document.createTextNode(' (' + (tm === 'one' ? 'one at random' : loraCountOf(l) + ' at random') + ')'));
+      main.appendChild(tl);
+    }
     var meta = [];
     if (l.bytes > 0) meta.push(bytes(l.bytes));
     if (l.base) meta.push(l.base);

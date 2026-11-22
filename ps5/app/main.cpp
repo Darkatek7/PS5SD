@@ -1828,20 +1828,30 @@ static int prompts_expand_route(const std::string & m, const std::string & p, co
         std::random_device rd;
         seed = (static_cast<uint64_t>(rd()) << 32) ^ rd();
     }
-    std::string lora_words, error;
-    const auto  words_of = [](const std::string & file) {
-        const nlohmann::json side = read_sidecar(std::string(kLoras) + "/" + file);
-        return side.is_object() && side.contains("activation text") && side["activation text"].is_string()
-                   ? side["activation text"].get<std::string>()
-                   : std::string();
-    };
-    const bool has_lora = j.contains("lora");
-    if (!collect_lora_words(has_lora ? j["lora"] : nlohmann::json(), has_lora, prompt, words_of, lora_words, error)) {
+    std::string error;
+    const auto  triggers_of = [](const std::string & file) { return sidecar_triggers(read_sidecar(std::string(kLoras) + "/" + file)); };
+    LoraSource  source;
+    const bool  has_lora = j.contains("lora");
+    if (!collect_lora_job(has_lora ? j["lora"] : nlohmann::json(), has_lora, prompt, triggers_of, source, error)) {
         return bad(error);
     }
+    // every installed LoRA, for __lora:NAME__ (read when a prompt needs it)
+    source.installed = [triggers_of]() {
+        std::vector<LoraEntry> all;
+        const nlohmann::json   list = nlohmann::json::parse(loras_json(kLoras), nullptr, false);
+        if (list.is_object() && list.contains("loras") && list["loras"].is_array()) {
+            for (const auto & l : list["loras"]) {
+                if (l.is_object() && l.contains("path") && l["path"].is_string()) {
+                    const std::string path = l["path"].get<std::string>();
+                    all.push_back({ lora_key(path), triggers_of(path) });
+                }
+            }
+        }
+        return all;
+    };
     const PromptBookMap books = g_books.entries_by_name();
     PromptRng           rng(seed);
-    PromptExpander      expander(books, lora_words, rng);
+    PromptExpander      expander(books, std::move(source), rng);
     nlohmann::json      items = nlohmann::json::array();
     for (int64_t i = 0; i < count; i++) {
         const PromptExpansion e = expander.expand(prompt, negative);

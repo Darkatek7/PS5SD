@@ -332,10 +332,61 @@ std::string base_of(const Json & sidecar) {
 
 }  // namespace
 
+Json triggers_json(const std::vector<LoraTrigger> & items) {
+    Json a = Json::array();
+    for (const auto & it : items) {
+        a.push_back({ { "text", it.text }, { "on", it.on } });
+    }
+    return a;
+}
+
+LoraTriggers sidecar_triggers(const Json & sidecar) {
+    LoraTriggers t;
+    const Json & ps   = ps5sd_const(sidecar);
+    const auto   list = ps.find("triggers");
+    if (list != ps.end() && list->is_array()) {
+        for (const Json & e : *list) {
+            std::string text;
+            bool        on = true;
+            if (e.is_string()) {
+                text = e.get<std::string>();
+            } else if (e.is_object() && e.contains("text") && e["text"].is_string()) {
+                text = e["text"].get<std::string>();
+                on   = !(e.contains("on") && e["on"].is_boolean() && !e["on"].get<bool>());
+            }
+            text = trigger_cut(trigger_trim(text), kMaxTriggerBytes);
+            if (!text.empty() && text.find_first_of("\r\n") == std::string::npos && t.items.size() < kMaxTriggerItems) {
+                add_trigger_item(t.items, text, on);
+            }
+        }
+    } else {
+        t.items = split_trigger_text(str_of(sidecar, "activation text"));
+    }
+    const auto mode = ps.find("trigger_mode");
+    if (mode != ps.end() && mode->is_string() && valid_trigger_mode(mode->get<std::string>())) {
+        t.mode = mode->get<std::string>();
+    }
+    const auto count = ps.find("trigger_count");
+    if (count != ps.end() && count->is_number_integer() && count->get<int64_t>() >= 1 &&
+        count->get<int64_t>() <= kMaxTriggerCount) {
+        t.count = static_cast<int>(count->get<int64_t>());
+    }
+    return t;
+}
+
+void set_sidecar_triggers(Json & sidecar, const std::vector<LoraTrigger> & items) {
+    ps5sd_of(sidecar)["triggers"] = triggers_json(items);
+    sidecar["activation text"]    = join_triggers(items);
+}
+
 Json lora_list_extras(const Json & sidecar, bool has_sidecar, bool has_preview) {
     Json o = Json::object();
-    if (!blank_text(str_of(sidecar, "activation text"))) {
-        o["trigger"] = trim_of(str_of(sidecar, "activation text"));
+    const LoraTriggers triggers = sidecar_triggers(sidecar);
+    if (!triggers.items.empty()) {
+        o["trigger"]       = join_triggers(triggers.items);
+        o["triggers"]      = triggers_json(triggers.items);
+        o["trigger_mode"]  = triggers.mode;
+        o["trigger_count"] = triggers.count;
     }
     const double weight = num_of(sidecar, "preferred weight");
     if (weight != 0) {
@@ -370,6 +421,12 @@ Json lora_info_view(const std::string & path, const Json & sidecar, bool has_pre
     const Json extras = lora_list_extras(sidecar, false, false);
     if (extras.contains("trigger")) {
         o["trigger"] = extras["trigger"];
+    }
+    {
+        const LoraTriggers triggers = sidecar_triggers(sidecar);
+        o["triggers"]               = triggers_json(triggers.items);
+        o["trigger_mode"]           = triggers.mode;
+        o["trigger_count"]          = triggers.count;
     }
     if (extras.contains("weight")) {
         o["weight"] = extras["weight"];
@@ -434,6 +491,19 @@ bool apply_info_post(Json & sidecar, const Json & body, bool & changed, std::str
             return false;
         }
     }
+    std::vector<LoraTrigger> list;
+    std::string              mode;
+    int                      tcount = 0;
+    const bool               has_list = body.contains("triggers");
+    if (has_list && !parse_trigger_items(body["triggers"], list, error)) {
+        return false;
+    }
+    if (body.contains("trigger_mode") && !parse_trigger_mode(body["trigger_mode"], mode, error)) {
+        return false;
+    }
+    if (body.contains("trigger_count") && !parse_trigger_count(body["trigger_count"], tcount, error)) {
+        return false;
+    }
     double weight = 0;
     const auto w  = body.find("weight");
     if (w != body.end()) {
@@ -450,9 +520,20 @@ bool apply_info_post(Json & sidecar, const Json & body, bool & changed, std::str
     if (!sidecar.is_object()) {
         sidecar = Json::object();
     }
-    if (body.contains("trigger")) {
-        sidecar["activation text"] = trim_of(body["trigger"].get<std::string>());
-        changed                    = true;
+    if (has_list) {
+        set_sidecar_triggers(sidecar, list);
+        changed = true;
+    } else if (body.contains("trigger")) {
+        set_sidecar_triggers(sidecar, split_trigger_text(body["trigger"].get<std::string>()));
+        changed = true;
+    }
+    if (body.contains("trigger_mode")) {
+        ps5sd_of(sidecar)["trigger_mode"] = mode;
+        changed                           = true;
+    }
+    if (body.contains("trigger_count")) {
+        ps5sd_of(sidecar)["trigger_count"] = tcount;
+        changed                            = true;
     }
     if (body.contains("notes")) {
         sidecar["notes"] = body["notes"].get<std::string>();
@@ -766,17 +847,33 @@ Json civitai_images(const Json & version) {
     return out;
 }
 
-std::string join_words(const Json & words) {
-    std::string out;
+// A lookup's words, one item each (an item with commas stays one phrase): trimmed, one line, cut to 200
+// bytes, the same text once, at most 100.
+std::vector<LoraTrigger> words_list(const Json & words) {
+    std::vector<LoraTrigger> items;
     if (words.is_array()) {
         for (const Json & w : words) {
-            const std::string t = w.is_string() ? trim_of(w.get<std::string>()) : std::string();
-            if (!t.empty()) {
-                out += (out.empty() ? "" : ", ") + t;
+            std::string t = w.is_string() ? w.get<std::string>() : std::string();
+            for (char & c : t) {
+                if (c == '\r' || c == '\n') {
+                    c = ' ';
+                }
+            }
+            t = trigger_cut(trigger_trim(t), kMaxTriggerBytes);
+            if (!t.empty() && items.size() < kMaxTriggerItems) {
+                add_trigger_item(items, t, true);
             }
         }
     }
-    return out;
+    return items;
+}
+
+// The user's list stays: a lookup fills it only when the LoRA has none and no activation text.
+void fill_triggers(Json & sidecar, const std::vector<LoraTrigger> & items) {
+    if (items.empty() || ps5sd_const(sidecar).contains("triggers") || !blank_text(str_of(sidecar, "activation text"))) {
+        return;
+    }
+    set_sidecar_triggers(sidecar, items);
 }
 
 bool image_name(const std::string & url) {
@@ -832,7 +929,7 @@ void civitai_to_sidecar(const Json & version, const Json & model, Json & sidecar
     }
     ps["civitai"] = c;
 
-    fill_text(sidecar, "activation text", join_words(version.value("trainedWords", Json())));
+    fill_triggers(sidecar, words_list(version.value("trainedWords", Json())));
     // the model's description (the page's text), else the version's own
     const std::string html = model.is_object() && !str_of(model, "description").empty() ? str_of(model, "description")
                                                                                        : str_of(version, "description");
@@ -851,12 +948,12 @@ void hf_to_sidecar(const Json & model, const std::string & repo, Json & sidecar,
                             : Json::object();
     ps["hf"] = { { "repo", repo }, { "url", "https://huggingface.co/" + repo } };
 
-    std::string trigger;
-    const auto  ip = card.find("instance_prompt");
+    Json       words = Json::array();
+    const auto ip    = card.find("instance_prompt");
     if (ip != card.end()) {
-        trigger = ip->is_string() ? ip->get<std::string>() : join_words(*ip);
+        words = ip->is_string() ? Json::array({ *ip }) : *ip;
     }
-    fill_text(sidecar, "activation text", trim_of(trigger));
+    fill_triggers(sidecar, words_list(words));
     std::string base;
     const auto  bm = card.find("base_model");
     if (bm != card.end()) {

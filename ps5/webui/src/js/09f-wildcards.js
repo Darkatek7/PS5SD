@@ -8,6 +8,9 @@
   // collection stops there. A __name__ without a collection (or with an empty one) stays as typed.
   var WILD_RE = /\{([^{}|]*\|[^{}]*)\}/g;
   var NAME_RE = /__([A-Za-z0-9_-]{1,40})__/g;
+  // __lora:NAME__: NAME is a LoRA's path or file name; letters, digits, - . / and spaces among them; a single _
+  // is fine, two (__) end it.
+  var LORA_NAMED_RE = /__lora:([^_\s](?:(?:[^_\n]|_(?!_))*[^_\s])?)__/gi;
   var WILD_PASSES = 8;
   var bookList = null;     // [{name, time, entries: [{id, prompt, negative}]}] from the console; null: none known
   var booksOk = true;      // false: the app has no such route (404), so __name__ stays as typed
@@ -24,6 +27,30 @@
   function isLoraName(n) { return String(n).toLowerCase() === 'lora'; }
   function hasLoraPlaceholder(t) { return /__lora__/i.test(t || ''); }
 
+  // The names of the __lora:NAME__ in a text, in order, each once (case folded).
+  function namedPlaceholders(t) {
+    var out = [], seen = {}, m, re = new RegExp(LORA_NAMED_RE.source, 'gi');
+    while ((m = re.exec(t || ''))) {
+      var k = m[1].toLowerCase();
+      if (!seen[k]) { seen[k] = 1; out.push(m[1]); }
+    }
+    return out;
+  }
+
+  // Does a LoRA give other words for each image (one or some of more than it takes)?
+  function loraPicks(e) {
+    var n = loraOnTexts(e).length, mode = loraModeOf(e);
+    return (mode === 'one' && n > 1) || (mode === 'some' && loraCountOf(e) < n);
+  }
+
+  // What a LoRA puts in: "all 3", "one of 3", "2 of 5".
+  function loraPickText(e) {
+    var n = loraOnTexts(e).length, mode = loraModeOf(e);
+    if (mode === 'one' && n > 1) return 'one of ' + n;
+    if (mode === 'some' && loraCountOf(e) < n) return loraCountOf(e) + ' of ' + n;
+    return 'all ' + n;
+  }
+
   // The names of the __x__ in a text, in order, each once (as typed the first time).
   function placeholderNames(t) {
     var out = [], seen = {}, m, re = new RegExp(NAME_RE.source, 'g');
@@ -37,6 +64,11 @@
   // Does a text give another result for each image: braces, or a __name__ with a collection with entries?
   function isRandom(t) {
     if (hasWildcard(t)) return true;
+    if (hasLoraPlaceholder(t)) {
+      for (var k = 0; k < loraSel.length; k++) if (loraPicks(loraEntry(loraSel[k].path))) return true;
+    }
+    var nm = namedPlaceholders(t);
+    for (var j = 0; j < nm.length; j++) if (loraPicks(loraByName(nm[j]))) return true;
     var names = placeholderNames(t);
     for (var i = 0; i < names.length; i++) {
       var b = isLoraName(names[i]) ? null : findBook(names[i]);
@@ -53,10 +85,12 @@
     return t.replace(/,(\s*,)+/g, ',').replace(/^[\s,]+/, '').replace(/[\s,]+$/, '');
   }
 
-  // ctx: {find: name -> collection or null, lora: the words for __lora__, or null to leave it as typed}
+  // ctx: {find: name -> collection or null,
+  //        lora: function (named) -> the words for __lora__ (named: the paths a __lora:NAME__ took), or null
+  //        to leave __lora__ as typed, named: function (name, rnd) -> {path, words} or null (no such LoRA)}
   function expandText(t, ctx, rnd) {
     t = String(t);
-    var emptied = false;
+    var emptied = false, loraDone = false, took = {};
     for (var pass = 0; pass < WILD_PASSES; pass++) {
       var again = false;
       t = t.replace(WILD_RE, function (m, inner) {
@@ -64,16 +98,31 @@
         var options = inner.split('|');
         return options[pickIndex(options.length, rnd)];
       });
-      if (ctx.find || ctx.lora !== null) {
+      if (ctx.find) {
         t = t.replace(NAME_RE, function (m, name) {
-          var out = null;
-          if (isLoraName(name)) {
-            if (ctx.lora !== null && ctx.lora !== undefined) out = ctx.lora;
-          } else {
-            var b = ctx.find ? ctx.find(name) : null;
-            if (b && b.entries.length) out = b.entries[pickIndex(b.entries.length, rnd)].prompt;
-          }
-          if (out === null) return m;
+          var b = isLoraName(name) ? null : ctx.find(name);
+          if (!b || !b.entries.length) return m;
+          again = true;
+          var out = b.entries[pickIndex(b.entries.length, rnd)].prompt;
+          if (!out) emptied = true;
+          return out;
+        });
+      }
+      if (ctx.named) {
+        t = t.replace(LORA_NAMED_RE, function (m, name) {
+          var r = ctx.named(name, rnd);
+          if (!r) return m;
+          took[r.path] = true;
+          again = true;
+          if (!r.words) emptied = true;
+          return r.words;
+        });
+      }
+      // __lora__ last, when nothing else is left to expand: it leaves out the LoRAs that were named
+      if (!again && !loraDone && ctx.lora) {
+        loraDone = true;
+        t = t.replace(/__lora__/gi, function () {
+          var out = ctx.lora(took);
           again = true;
           if (!out) emptied = true;
           return out;
@@ -87,15 +136,95 @@
   // pick: a function giving a number from 0 up to (not including) 1; Math.random unless a test hands one in.
   // Only the {a|b} part (the other callers of this).
   function expandWildcards(t, pick) {
-    return expandText(t, { find: null, lora: null }, pick || Math.random);
+    return expandText(t, { find: null, lora: null, named: null }, pick || Math.random);
   }
 
-  // The trigger words of the LoRAs that go into a job (loraBody: on, strength not 0, on the console), in the
-  // order they are picked, joined with ", ".
-  function loraWordsOf(loras) {
-    var used = loraBody({ loras: loras || [] }), words = [];
-    for (var i = 0; i < used.length; i++) {
-      var w = String(loraTrigger(used[i].path) || '').replace(/^[\s,]+|[\s,]+$/g, '');
+  // ---- a LoRA's trigger words: a list of {text, on}, a mode (all, one, some) and a count (for some)
+  function loraItems(e) {
+    var out = [], i;
+    if (!e) return out;
+    if (e.triggers && e.triggers.length !== undefined) {
+      for (i = 0; i < e.triggers.length; i++) {
+        var t = e.triggers[i];
+        var tx = String(t && typeof t === 'object' ? t.text : t).replace(/^\s+|\s+$/g, '');
+        if (tx) out.push({ text: tx, on: !(t && typeof t === 'object' && t.on === false) });
+      }
+      return out;
+    }
+    // an older app: the one string, split at commas, all on
+    var parts = String(e.trigger || '').split(',');
+    for (i = 0; i < parts.length; i++) {
+      var w = parts[i].replace(/^\s+|\s+$/g, '');
+      if (w) out.push({ text: w, on: true });
+    }
+    return out;
+  }
+
+  // Does the console keep the list (it sent "triggers")? Without it the mode is "all" and cannot be saved.
+  function loraListed(e) { return !!(e && e.triggers && e.triggers.length !== undefined); }
+
+  function loraModeOf(e) {
+    return e && loraListed(e) && (e.trigger_mode === 'one' || e.trigger_mode === 'some') ? e.trigger_mode : 'all';
+  }
+
+  function loraCountOf(e) {
+    var n = e ? Math.floor(Number(e.trigger_count)) : 0;
+    return n >= 1 && n <= 20 ? n : 2;
+  }
+
+  function loraOnTexts(e) {
+    var items = loraItems(e), out = [];
+    for (var i = 0; i < items.length; i++) if (items[i].on) out.push(items[i].text);
+    return out;
+  }
+
+  // The words of a LoRA for one image: all (the ones that are on), one at random, or count different ones
+  // at random in list order. A string, joined with ", " (empty when none is on).
+  function loraPickWords(e, rnd) {
+    var on = loraOnTexts(e), mode = loraModeOf(e);
+    if (mode === 'one' && on.length > 1) return on[pickIndex(on.length, rnd)];
+    if (mode === 'some') {
+      var n = Math.min(loraCountOf(e), on.length);
+      if (n < on.length) {
+        var idx = [], i, chosen = [];
+        for (i = 0; i < on.length; i++) idx.push(i);
+        for (i = 0; i < n; i++) chosen.push(idx.splice(pickIndex(idx.length, rnd), 1)[0]);
+        chosen.sort(function (a, b) { return a - b; });
+        var out = [];
+        for (i = 0; i < chosen.length; i++) out.push(on[chosen[i]]);
+        return out.join(', ');
+      }
+    }
+    return on.join(', ');
+  }
+
+  // A path without its extension.
+  function loraNoExt(path) { return String(path).replace(/\.(gguf|safetensors|ckpt|sft|pt|bin)$/i, ''); }
+
+  // The installed LoRA a __lora:NAME__ means: its path without extension, else its file name without
+  // extension (without regard to case; the path wins). null: none.
+  function loraByName(name) {
+    var list = loraList || [], low = String(name).toLowerCase(), i, stem = null;
+    for (i = 0; i < list.length; i++) if (loraNoExt(list[i].path).toLowerCase() === low) return list[i];
+    for (i = 0; i < list.length; i++) {
+      if (!stem && loraNoExt(list[i].path).replace(/^.*\//, '').toLowerCase() === low) stem = list[i];
+    }
+    return stem;
+  }
+
+  // The LoRAs that go into a job (loraBody: on, strength not 0, on the console), their paths in order.
+  function loraUsedPaths(loras) {
+    var used = loraBody({ loras: loras || [] }), out = [];
+    for (var i = 0; i < used.length; i++) out.push(used[i].path);
+    return out;
+  }
+
+  // The words for __lora__: the job's LoRAs in order, each by its list and mode, leaving out the paths in skip.
+  function loraWordsOf(loras, rnd, skip) {
+    var paths = loraUsedPaths(loras), words = [];
+    for (var i = 0; i < paths.length; i++) {
+      if (skip && skip[paths[i]]) continue;
+      var w = loraPickWords(loraEntry(paths[i]), rnd || Math.random);
       if (w) words.push(w);
     }
     return words.join(', ');
@@ -113,8 +242,12 @@
   // one. Used by generate, a page run (every image after the first) and the queue.
   function expandJob(p, pick) {
     var rnd = pick || Math.random;
-    var ctx = { find: findBook, lora: loraWordsOf(p.loras) };
-    var negCtx = { find: findBook, lora: null };
+    var ctx = { find: findBook, lora: function (took) { return loraWordsOf(p.loras, rnd, took); },
+      named: function (name, r) {
+        var e = loraByName(name);
+        return e ? { path: e.path, words: loraPickWords(e, r) } : null;
+      } };
+    var negCtx = { find: findBook, lora: null, named: null };
     var tpl = String(p.template), extra = '', prompt;
     var m = tpl.match(/^\s*__([A-Za-z0-9_-]{1,40})__\s*$/);
     var book = m && !isLoraName(m[1]) ? findBook(m[1]) : null;
@@ -130,12 +263,6 @@
     p.negative = joinParts(extra, typed);
   }
 
-  // The words of the picked LoRAs for the hint: how many there are.
-  function loraWordCount() {
-    var w = loraWordsOf(loraSel);
-    return w ? w.split(',').length : 0;
-  }
-
   function plural(n, one, many) { return n + ' ' + (n === 1 ? one : many); }
 
   // The note under the prompt while it has a placeholder: what each image picks from.
@@ -145,13 +272,25 @@
     for (i = 0; i < names.length; i++) {
       var n = names[i];
       if (isLoraName(n)) {
-        var c = loraWordCount();
-        parts.push('__lora__ (' + (c ? plural(c, 'word', 'words') : 'no words') + ')');
+        var named = {}, nn = namedPlaceholders(t), q, lp = loraUsedPaths(loraSel), say = [];
+        for (q = 0; q < nn.length; q++) { var ne = loraByName(nn[q]); if (ne) named[ne.path] = true; }
+        for (q = 0; q < lp.length; q++) {
+          var le = loraEntry(lp[q]);
+          if (named[lp[q]] || !loraOnTexts(le).length) continue;
+          say.push(loraName(lp[q]) + ': ' + loraPickText(le));
+        }
+        parts.push('__lora__ (' + (say.length ? say.join('; ') : 'no words') + ')');
         continue;
       }
       var b = findBook(n);
       if (b && b.entries.length) parts.push('__' + n + '__ (' + b.entries.length + ')');
       else if (booksOk && bookList) stay.push('__' + n + '__');
+    }
+    var lnames = namedPlaceholders(t), lstay = [];
+    for (i = 0; i < lnames.length; i++) {
+      var le2 = loraByName(lnames[i]);
+      if (le2) parts.push('__lora:' + lnames[i] + '__ (' + (loraOnTexts(le2).length ? loraPickText(le2) : 'no words') + ')');
+      else if (loraList) lstay.push('__lora:' + lnames[i] + '__');
     }
     var seen = {};
     while ((m = re.exec(t || ''))) {
@@ -159,6 +298,7 @@
     }
     var out = parts.length ? 'Each image picks from ' + parts.join(', ') + '.' : '';
     if (stay.length) out += (out ? ' ' : '') + stay.join(', ') + ' matches no collection, so it stays as typed.';
+    if (lstay.length) out += (out ? ' ' : '') + lstay.join(', ') + ' matches no LoRA, so it stays as typed.';
     return out;
   }
 

@@ -38,6 +38,18 @@
       if (d[keys[i]]) l[keys[i]] = d[keys[i]]; else delete l[keys[i]];
     }
     if (d.preview_nsfw_level !== undefined) l.preview_nsfw_level = d.preview_nsfw_level;
+    // the list and the mode (the console of 1.8.2 and later); without them the one string stays
+    if (d.triggers && d.triggers.length !== undefined) {
+      l.triggers = d.triggers;
+      l.trigger_mode = d.trigger_mode;
+      l.trigger_count = d.trigger_count;
+      delete l.oldApp;
+    } else {
+      delete l.triggers;
+      delete l.trigger_mode;
+      delete l.trigger_count;
+      if (l.trigger) l.oldApp = true; else delete l.oldApp;
+    }
     loraStamp[l.path] = new Date().getTime();
   }
 
@@ -65,13 +77,65 @@
     wrap.onkeydown = function (e) { e = e || window.event; if (e.keyCode === 13 || e.keyCode === 32) return reveal(e); return true; };
   }
 
+  // ---- the trigger words in the Info dialog: chips (a press turns one on or off, × removes it), a field to
+  // add, the mode. liFor.trig is {items, mode, count, srv}; srv: the console keeps the list and the mode.
+  function liSetTrig(e) {
+    if (!liFor) return;
+    liFor.trig = { items: loraItems(e), mode: loraModeOf(e), count: loraCountOf(e),
+      srv: !!(e && e.triggers && e.triggers.length !== undefined) };
+    $('li-trigger').value = '';
+    liDrawTrig();
+  }
+
+  function liDrawTrig() {
+    var t = liFor && liFor.trig, box = $('li-chips'), mode = $('li-mode');
+    clear(box);
+    clear(mode);
+    if (!t) return;
+    for (var i = 0; i < t.items.length; i++) {
+      (function (idx) {
+        box.appendChild(trigChip(t.items[idx], function () {
+          t.items[idx].on = !t.items[idx].on;
+          liDrawTrig();
+        }, function () {
+          t.items.splice(idx, 1);
+          liDrawTrig();
+          $('li-trigger').focus();
+        }));
+      })(i);
+    }
+    if (!t.items.length) box.appendChild(el('span', 'mmeta', 'No trigger words yet.'));
+    if (t.srv) {
+      mode.appendChild(trigModeControls(t.mode, t.count, function (m, n) { t.mode = m; t.count = n; }));
+      mode.appendChild(el('div', 'mmeta', t.mode === 'all' ? '__lora__ puts in the words that are on.'
+        : t.mode === 'one' ? '__lora__ puts in one of the words that are on, a new one for each image.'
+        : '__lora__ puts in ' + t.count + ' of the words that are on, new ones for each image.'));
+    }
+  }
+
+  // Take what is typed in the field as items: a comma or Enter ends one. all: also the rest, without a comma.
+  function liAddTrig(all) {
+    var t = liFor && liFor.trig, f = $('li-trigger');
+    if (!t) return;
+    var parts = f.value.split(','), rest = all ? '' : parts.pop();
+    for (var i = 0; i < parts.length; i++) {
+      var w = trim(parts[i]).replace(/\s+/g, ' ');
+      if (!w || t.items.length >= 100) continue;
+      var dup = false;
+      for (var j = 0; j < t.items.length; j++) if (t.items[j].text.toLowerCase() === w.toLowerCase()) dup = true;
+      if (!dup) t.items.push({ text: w.slice(0, 200), on: true });
+    }
+    f.value = rest;
+    liDrawTrig();
+  }
+
   // ---- the Info dialog
   function openLoraInfo(l) {
     liFor = { l: l, ticket: (liFor ? liFor.ticket : 0) + 1 };
     var my = liFor.ticket;
     text($('li-title'), readable(l.name || loraName(l.path)));
     text($('li-file'), l.path + (l.bytes > 0 ? ' · ' + bytes(l.bytes) : ''));
-    $('li-trigger').value = typeof l.trigger === 'string' ? l.trigger : '';
+    liSetTrig(l);
     $('li-weight').value = l.weight ? l.weight : '';
     $('li-notes').value = '';
     clear($('li-imgs'));
@@ -116,7 +180,7 @@
 
   // What the dialog shows of an answer: the fields to edit, then the facts, the description, the pictures.
   function drawLoraInfo(l, d) {
-    $('li-trigger').value = d.trigger || '';
+    liSetTrig(d);
     $('li-weight').value = d.weight ? d.weight : '';
     $('li-notes').value = d.notes || '';
     var box = $('li-facts');
@@ -171,7 +235,18 @@
     if (isNaN(wn) || wn < -100 || wn > 100) { text($('li-err'), 'The strength is a number from -100 to 100, or empty.'); return; }
     text($('li-err'), '');
     $('li-save').disabled = true;
-    var body = { trigger: trim($('li-trigger').value), weight: wn, notes: $('li-notes').value };
+    liAddTrig(true);
+    var t = f.trig, body = { weight: wn, notes: $('li-notes').value };
+    if (t && t.srv) {
+      body.triggers = t.items;
+      body.trigger_mode = t.mode;
+      body.trigger_count = t.count;
+    } else {
+      // an older app: one string, the words that are on
+      var on = [];
+      for (var k = 0; t && k < t.items.length; k++) if (t.items[k].on) on.push(t.items[k].text);
+      body.trigger = on.join(', ');
+    }
     req('POST', APP + '/loras/info/' + encodePath(f.l.path), body, function (code, data) {
       if (!liFor || liFor !== f) return;
       $('li-save').disabled = false;
@@ -289,6 +364,14 @@
   function initLoraInfo() {
     $('li-close').onclick = closeLoraInfo;
     $('li-save').onclick = saveLoraInfo;
+    var tf = $('li-trigger');
+    tf.onkeydown = function (e) {
+      e = e || window.event;
+      if (e.keyCode === 13) { liAddTrig(true); if (e.preventDefault) e.preventDefault(); return false; }
+      return true;
+    };
+    tf.oninput = function () { if (tf.value.indexOf(',') >= 0) liAddTrig(false); };
+    tf.onblur = function () { if (liFor && trim(tf.value)) liAddTrig(true); };
     $('li-look').onclick = function () {
       var f = liFor;
       if (!f || loraBusy[f.l.path]) return;

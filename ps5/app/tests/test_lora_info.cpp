@@ -384,7 +384,8 @@ void test_info_routes(const fs::path & root) {
     std::string       out;
     put(root / "loras/style/pixel.safetensors", "weights");
     eq(lora_info_get(dir, "style/pixel.safetensors", out), 200, "info of a LoRA without a file");
-    eq(Json::parse(out), Json{ { "path", "style/pixel.safetensors" } }, "just the path");
+    eq(Json::parse(out), (Json{ { "path", "style/pixel.safetensors" }, { "triggers", Json::array() }, { "trigger_mode", "all" }, { "trigger_count", 2 } }),
+       "the path, and an empty list with the defaults");
     eq(lora_info_get(dir, "style/none.safetensors", out), 404, "info: no LoRA");
     eq(Json::parse(out)["error"]["code"], "not_found", "info 404 code");
     eq(lora_info_get(dir, "../etc/passwd.safetensors", out), 400, "info: ..");
@@ -436,7 +437,9 @@ void test_info_routes(const fs::path & root) {
     // a new sidecar for a LoRA without one
     put(root / "loras/plain.safetensors", "w");
     eq(lora_info_post(dir, "plain.safetensors", R"({"trigger": "go"})", out), 200, "post creates the info file");
-    eq(Json::parse(slurp(root / "loras/plain.json")), (Json{ { "activation text", "go" } }), "the new file has just that key");
+    eq(Json::parse(slurp(root / "loras/plain.json")),
+       (Json{ { "activation text", "go" }, { "ps5sd", { { "triggers", Json::array({ { { "text", "go" }, { "on", true } } }) } } } }),
+       "the new file has the text and the list");
 
     // the preview route
     std::string type;
@@ -642,6 +645,109 @@ void test_lookup(const fs::path & root) {
     check(fs::exists(root / "lk/video.preview.webp"), "webp file");
 }
 
+void test_triggers(const fs::path & root) {
+    // the fallback: activation text split at commas, all on; no list is written by reading
+    LoraTriggers t = sidecar_triggers(Json{ { "activation text", " pixel art, , Pixelated ,PIXEL ART" } });
+    eq(t.items.size(), 2u, "fallback: split, empties and the same text once");
+    check(t.items[0].text == "pixel art" && t.items[1].text == "Pixelated" && t.items[0].on && t.items[1].on, "fallback: items, all on");
+    check(t.mode == "all" && t.count == 2, "defaults");
+    check(sidecar_triggers(Json::object()).items.empty(), "nothing: no items");
+    // a list wins over the text; mode and count
+    const Json sc = { { "activation text", "x" },
+                      { "ps5sd", { { "triggers", Json::array({ { { "text", "a" }, { "on", false } }, "b", { { "text", "A" } }, 5 }) },
+                                   { "trigger_mode", "some" }, { "trigger_count", 3 } } } };
+    t = sidecar_triggers(sc);
+    check(t.items.size() == 2 && t.items[0].text == "a" && !t.items[0].on && t.items[1].text == "b" && t.items[1].on, "the list: off, string is on, duplicate and junk dropped");
+    check(t.mode == "some" && t.count == 3, "mode and count");
+    t = sidecar_triggers(Json{ { "ps5sd", { { "trigger_mode", "many" }, { "trigger_count", 99 } } } });
+    check(t.mode == "all" && t.count == 2, "bad mode and count fall back");
+    // split limits
+    std::string many;
+    for (int i = 0; i < 150; i++) many += "w" + std::to_string(i) + ",";
+    eq(split_trigger_text(many).size(), 100u, "at most 100 items");
+    eq(split_trigger_text(std::string(300, 'x'))[0].text.size(), 200u, "an item is cut at 200 bytes");
+
+    // GET loras: the list when there are words
+    const Json e = lora_list_extras(Json{ { "activation text", "a, b" } }, true, false);
+    check(e["trigger"] == "a, b" && e["triggers"].size() == 2 && e["trigger_mode"] == "all", "list extras: trigger, triggers, mode");
+    check(!lora_list_extras(Json::object(), true, false).contains("triggers"), "list extras: none without words");
+
+    // POST
+    const std::string dir = (root / "loras").string();
+    std::string       out;
+    put(root / "loras/t.safetensors", "w");
+    eq(lora_info_post(dir, "t.safetensors",
+                      R"({"triggers": ["pixel art", {"text": "8bit, retro", "on": false}, "PIXEL ART"], "trigger_mode": "some", "trigger_count": 5})", out),
+       200, "post the list");
+    Json v = Json::parse(out);
+    eq(v["triggers"].size(), 2u, "the same text once");
+    check(v["triggers"][1]["text"] == "8bit, retro" && v["triggers"][1]["on"] == false, "a phrase with a comma stays one item, off");
+    eq(v["trigger"], "pixel art, 8bit, retro", "trigger is the join of all items");
+    eq(v["trigger_mode"], "some", "mode");
+    eq(v["trigger_count"], 5, "count");
+    Json file = Json::parse(slurp(root / "loras/t.json"));
+    eq(file["activation text"], "pixel art, 8bit, retro", "A1111's key is the join");
+    eq(file["ps5sd"]["trigger_mode"], "some", "mode in the file");
+    // mode alone keeps the list
+    eq(lora_info_post(dir, "t.safetensors", R"({"trigger_mode": "one"})", out), 200, "post a mode alone");
+    v = Json::parse(out);
+    check(v["triggers"].size() == 2 && v["trigger_mode"] == "one" && v["trigger_count"] == 5, "...keeps the list and the count");
+    // "trigger" (1.8.0): split, all on
+    eq(lora_info_post(dir, "t.safetensors", R"({"trigger": "x, y"})", out), 200, "post trigger");
+    v = Json::parse(out);
+    check(v["triggers"].size() == 2 && v["triggers"][0]["on"] == true && v["trigger"] == "x, y", "trigger becomes the list, all on");
+    // both: triggers wins
+    eq(lora_info_post(dir, "t.safetensors", R"({"trigger": "x, y", "triggers": ["z"]})", out), 200, "post both");
+    v = Json::parse(out);
+    check(v["triggers"].size() == 1 && v["trigger"] == "z", "triggers wins");
+    // an empty list clears
+    eq(lora_info_post(dir, "t.safetensors", R"({"triggers": []})", out), 200, "post an empty list");
+    v = Json::parse(out);
+    check(v["triggers"].empty() && !v.contains("trigger"), "empty list: no words");
+    const std::string before = slurp(root / "loras/t.json");
+    for (const char * bad : { R"({"triggers": "a"})", R"({"triggers": [1]})", R"({"triggers": [""]})", R"({"triggers": ["a\nb"]})",
+                              R"({"triggers": [{"text": "a", "on": "yes"}]})", R"({"trigger_mode": "many"})", R"({"trigger_mode": 1})",
+                              R"({"trigger_count": 0})", R"({"trigger_count": 21})", R"({"trigger_count": 1.5})" }) {
+        eq(lora_info_post(dir, "t.safetensors", std::string(R"({"notes": "n", )") + (bad + 1), out), 400, std::string("post 400 for ") + bad);
+    }
+    eq(slurp(root / "loras/t.json"), before, "a bad body changes nothing");
+    Json big = Json::array();
+    for (int i = 0; i < 101; i++) big.push_back("w" + std::to_string(i));
+    eq(lora_info_post(dir, "t.safetensors", Json{ { "triggers", big } }.dump(), out), 400, "101 items");
+    big.erase(big.size() - 1);
+    eq(lora_info_post(dir, "t.safetensors", Json{ { "triggers", big } }.dump(), out), 200, "100 items");
+    eq(lora_info_post(dir, "t.safetensors", Json{ { "triggers", Json::array({ std::string(201, 'x') }) } }.dump(), out), 400, "201 bytes");
+    eq(lora_info_post(dir, "t.safetensors", Json{ { "triggers", Json::array({ std::string(200, 'x') }) } }.dump(), out), 200, "200 bytes");
+
+    // the lookup fills only when there is no list yet
+    Json version = { { "id", 1 }, { "modelId", 2 }, { "baseModel", "SDXL 1.0" },
+                     { "trainedWords", Json::array({ "pixel art", "8bit, retro style", " pixel ART ", "" }) } };
+    Json fresh = Json::object();
+    civitai_to_sidecar(version, Json(), fresh, "t");
+    t = sidecar_triggers(fresh);
+    check(t.items.size() == 2 && t.items[0].text == "pixel art" && t.items[1].text == "8bit, retro style" && t.items[1].on,
+          "civitai: one item each, a phrase with commas stays one");
+    eq(fresh["activation text"], "pixel art, 8bit, retro style", "civitai: activation text is the join");
+    check(fresh["ps5sd"].contains("triggers"), "civitai: the list is written");
+    Json mine = { { "ps5sd", { { "triggers", Json::array({ "mine" }) } } }, { "activation text", "mine" } };
+    civitai_to_sidecar(version, Json(), mine, "t");
+    check(sidecar_triggers(mine).items.size() == 1 && sidecar_triggers(mine).items[0].text == "mine", "civitai: the user's list stays");
+    Json cleared = { { "ps5sd", { { "triggers", Json::array() } } } };
+    civitai_to_sidecar(version, Json(), cleared, "t");
+    check(sidecar_triggers(cleared).items.empty(), "civitai: a list the user emptied stays empty");
+    Json text_only = { { "activation text", "a, b" } };
+    civitai_to_sidecar(version, Json(), text_only, "t");
+    check(sidecar_triggers(text_only).items.size() == 2 && !text_only["ps5sd"].contains("triggers"), "civitai: an activation text stays");
+    // Hugging Face: one item each
+    Json hf1 = Json::object(), hf2 = Json::object();
+    hf_to_sidecar(Json::parse(R"({"cardData": {"instance_prompt": "a photo of sks dog, in a park"}})"), "o/r", hf1, "t");
+    t = sidecar_triggers(hf1);
+    check(t.items.size() == 1 && t.items[0].text == "a photo of sks dog, in a park", "hf: a string is one item");
+    hf_to_sidecar(Json::parse(R"({"cardData": {"instance_prompt": ["a", "b, c"]}})"), "o/r", hf2, "t");
+    t = sidecar_triggers(hf2);
+    check(t.items.size() == 2 && t.items[1].text == "b, c" && hf2["activation text"] == "a, b, c", "hf: a list is one item each");
+}
+
 void test_tokens(const fs::path & root) {
     const std::string hf = (root / "hf-token.txt").string(), civ = (root / "civitai-token.txt").string();
     std::string       out;
@@ -700,6 +806,7 @@ int main() {
     test_sources();
     test_list_extras();
     test_info_routes(root);
+    test_triggers(root);
     test_lookup(root);
     test_tokens(root);
     fs::remove_all(root);

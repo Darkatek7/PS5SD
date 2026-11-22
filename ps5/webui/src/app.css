@@ -576,6 +576,24 @@
   /* Create, Style: the LoRA picked has its trigger words under its name; the search field of Add a LoRA */
   .lrow .lname button.ltrig { display: block; min-width: 0; min-height: 1.9rem; margin: 0.1rem 0 0; padding: 0; text-align: left; font-size: 0.8125rem; }
   .lrow .lname button.ltrig:disabled { color: var(--faint); text-decoration: none; }
+  /* Trigger words as chips (Create under a picked LoRA, and the Info dialog) and their mode */
+  .tchips { display: flex; flex-wrap: wrap; gap: 0.35rem; margin: 0.2rem 0 0.3rem; }
+  .tchip { display: inline-flex; align-items: stretch; max-width: 100%; border: 1px solid var(--feat-line); background: var(--feat-bg);
+    border-radius: 2rem; overflow: hidden; }
+  .tchip.off { border-color: var(--border); background: transparent; }
+  .tchip button { min-height: 2rem; min-width: 0; padding: 0 0.7rem; border: 0; border-radius: 0; background: transparent; font-size: 0.85rem;
+    color: var(--text); overflow-wrap: anywhere; text-align: left; }
+  .tchip button:hover { background: var(--hover-x); }
+  .tchip.off .tword { color: var(--faint); text-decoration: line-through; }
+  .tchip .tx { padding: 0 0.6rem 0 0.3rem; color: var(--muted); }
+  .ltrigs { margin: -0.1rem 0 0.7rem 2rem; }
+  .tmode { display: flex; align-items: center; gap: 0.5rem; margin-top: 0.2rem; }
+  .tmode select { width: auto; flex: 1 1 9rem; max-width: 14rem; height: 2.4rem; padding: 0 0.7rem; font-size: 0.9rem; }
+  .tmode input { width: 4.2rem; flex: none; height: 2.4rem; padding: 0 0.5rem; font-size: 0.9rem; text-align: center; }
+  #li-mode { margin-top: 0.5rem; }
+  #li-mode .mmeta { margin-top: 0.4rem; }
+  .ld-field .tmode input { margin-top: 0; }
+  .toff { opacity: 0.5; text-decoration: line-through; }
   .lpick { margin-top: 0.4rem; }
   .lpop { margin-top: 0.3rem; max-height: 50vh; max-height: min(18rem, 50vh); overflow-y: auto; -webkit-overflow-scrolling: touch;
     background: var(--field); border: 1px solid var(--border); border-radius: 10px; }

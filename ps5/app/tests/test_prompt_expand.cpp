@@ -3,7 +3,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "prompt_expand.hpp"
 
+#include <algorithm>
 #include <cstdio>
+#include <initializer_list>
+#include <map>
 #include <set>
 #include <string>
 
@@ -29,6 +32,7 @@ PromptBookMap books() {
     b["blank"]    = { { "", "" } };
     b["single"]   = { { "only", "ugly" } };
     b["bad"]      = { { "lowres", "" }, { "jpeg artifacts", "" } };
+    b["styled"]   = { { "__lora:other/watercolor__ look", "" } };
     return b;
 }
 
@@ -140,28 +144,167 @@ void test_seed() {
     check(s.size() > 1, "each item is picked anew");
 }
 
+LoraTriggers trig(std::initializer_list<std::pair<const char *, bool>> items, const char * mode = "all", int count = 2) {
+    LoraTriggers t;
+    for (const auto & i : items) {
+        t.items.push_back({ i.first, i.second });
+    }
+    t.mode  = mode;
+    t.count = count;
+    return t;
+}
+
+// What the "stored" LoRAs say, by file with its extension.
+LoraTriggers stored(const std::string & f) {
+    if (f == "a.safetensors") return trig({ { "one", true } });
+    if (f == "sub/b.safetensors") return trig({ { "two", true } });
+    if (f == "c.safetensors") return LoraTriggers();
+    if (f == "tag.safetensors") return trig({ { "tagged", true } });
+    return trig({ { "unexpected", true } });
+}
+
 void test_collect() {
-    const auto words = [](const std::string & f) {
-        if (f == "a.safetensors") return std::string(" one, ");
-        if (f == "sub/b.safetensors") return std::string("two");
-        if (f == "c.safetensors") return std::string("");
-        if (f == "tag.safetensors") return std::string("tagged");
-        return std::string("unexpected:" + f);
-    };
-    std::string w, error;
+    LoraSource  src;
+    std::string error;
     nlohmann::json field = nlohmann::json::parse(R"([{"path": "a.safetensors", "multiplier": 0.8}, "sub/b.safetensors", {"path": "c.safetensors"},
         {"path": "off.safetensors", "multiplier": 0}, {"path": "a.safetensors"}])");
-    check(collect_lora_words(field, true, "p", words, w, error) && w == "one, two", "the lora field: words joined, 0 is off, no words adds nothing, once each");
-    check(collect_lora_words(nlohmann::json::array(), true, "<lora:tag:1>", words, w, error) && w.empty(), "lora: [] means none, tags do not count");
-    check(collect_lora_words(nullptr, false, "x <lora:tag:0.7> y <lora:tag:1> <lora:gone:0>", words, w, error) && w == "tagged",
+    check(collect_lora_job(field, true, "p", stored, src, error) && src.job.size() == 3 && src.job[0].key == "a" &&
+              src.job[1].key == "sub/b" && src.job[2].key == "c",
+          "the lora field: 0 is off, once each");
+    check(collect_lora_job(nlohmann::json::array(), true, "<lora:tag:1>", stored, src, error) && src.job.empty(), "lora: [] means none, tags do not count");
+    check(collect_lora_job(nullptr, false, "x <lora:tag:0.7> y <lora:tag:1> <lora:gone:0>", stored, src, error) && src.job.size() == 1 &&
+              src.job[0].key == "tag",
           "tags without a lora field");
-    check(collect_lora_words(nullptr, false, "no tags", words, w, error) && w.empty(), "no tags, no words");
-    check(!collect_lora_words(nlohmann::json("x"), true, "", words, w, error), "lora that is not a list");
-    check(!collect_lora_words(nlohmann::json::parse("[1]"), true, "", words, w, error), "a lora entry that is a number");
-    check(!collect_lora_words(nlohmann::json::parse(R"([{"path": "../x.safetensors"}])"), true, "", words, w, error), "a path with ..");
-    check(!collect_lora_words(nlohmann::json::parse(R"(["/etc/x"])"), true, "", words, w, error), "an absolute path");
-    check(!collect_lora_words(nlohmann::json::parse(R"([{"path": "a", "multiplier": "1"}])"), true, "", words, w, error), "a multiplier that is a string");
-    check(collect_lora_words(nullptr, false, "<lora:../x:1>", words, w, error) && w.empty(), "a tag with .. is skipped");
+    check(collect_lora_job(nullptr, false, "no tags", stored, src, error) && src.job.empty(), "no tags, no LoRAs");
+    check(!collect_lora_job(nlohmann::json("x"), true, "", stored, src, error), "lora that is not a list");
+    check(!collect_lora_job(nlohmann::json::parse("[1]"), true, "", stored, src, error), "a lora entry that is a number");
+    check(!collect_lora_job(nlohmann::json::parse(R"([{"path": "../x.safetensors"}])"), true, "", stored, src, error), "a path with ..");
+    check(!collect_lora_job(nlohmann::json::parse(R"(["/etc/x"])"), true, "", stored, src, error), "an absolute path");
+    check(!collect_lora_job(nlohmann::json::parse(R"([{"path": "a", "multiplier": "1"}])"), true, "", stored, src, error), "a multiplier that is a string");
+    check(collect_lora_job(nullptr, false, "<lora:../x:1>", stored, src, error) && src.job.empty(), "a tag with .. is skipped");
+    // overrides
+    LoraSource ov;
+    check(collect_lora_job(nlohmann::json::parse(R"([{"path": "a.safetensors", "triggers": ["x", {"text": "y", "on": false}, "X"],
+        "trigger_mode": "some", "trigger_count": 3}])"), true, "", stored, ov, error) && ov.overrides.size() == 1,
+          "an override is read");
+    const LoraOverride & o = ov.overrides["a"];
+    check(o.has_list && o.list.size() == 2 && o.list[1].text == "y" && !o.list[1].on && o.mode == "some" && o.count == 3, "its fields");
+    for (const char * bad : { R"([{"path": "a", "trigger_mode": "many"}])", R"([{"path": "a", "trigger_count": 0}])",
+                              R"([{"path": "a", "trigger_count": 21}])", R"([{"path": "a", "triggers": "x"}])",
+                              R"([{"path": "a", "triggers": [""]}])", R"([{"path": "a", "triggers": [5]}])"}) {
+        check(!collect_lora_job(nlohmann::json::parse(bad), true, "", stored, ov, error), std::string("a bad override: ") + bad);
+    }
+}
+
+std::vector<LoraEntry> installed_list() {
+    return { { "style/pixel-art", trig({ { "pixel art", true }, { "pixelated", true } }) },
+             { "pixel-art", trig({ { "root pixel", true } }) },
+             { "other/watercolor", trig({ { "watercolor", true }, { "soft", false } }) },
+             { "dim", trig({ { "a", false }, { "b", false } }) },
+             { "styles/ink (v2)", trig({ { "ink", true } }) } };
+}
+
+// Expands n images of t with the job's LoRAs (by key, from installed_list).
+std::vector<std::string> lora_run(const std::string & t, std::initializer_list<const char *> job, int n = 1, uint64_t seed = 1,
+                                  std::map<std::string, LoraOverride> ov = {}, std::vector<std::string> * unknown = nullptr) {
+    LoraSource src;
+    for (const char * k : job) {
+        for (const auto & e : installed_list()) {
+            if (e.key == k) src.job.push_back(e);
+        }
+    }
+    src.overrides = ov;
+    src.installed = installed_list;
+    const PromptBookMap bm = books();
+    PromptRng           rng(seed);
+    PromptExpander      x(bm, src, rng);
+    std::vector<std::string> out;
+    for (int i = 0; i < n; i++) out.push_back(x.expand(t, "").prompt);
+    if (unknown) *unknown = x.unknown();
+    return out;
+}
+
+void test_triggers() {
+    // all: the items that are on, in list order
+    check(lora_run("__lora__", { "other/watercolor" })[0] == "watercolor", "all: an item that is off is left out");
+    check(lora_run("x, __lora__", { "dim" })[0] == "x", "none on: nothing, and the comma is tidied");
+    check(lora_run("__lora__", { "style/pixel-art", "other/watercolor" })[0] == "pixel art, pixelated, watercolor", "several LoRAs in order");
+    // one
+    std::map<std::string, LoraOverride> one, some, some9;
+    one["style/pixel-art"].has_mode  = true;
+    one["style/pixel-art"].mode      = "one";
+    std::set<std::string> seen_one;
+    const auto            ones = lora_run("__lora__", { "style/pixel-art" }, 60, 3, one);
+    for (const auto & w : ones) {
+        check(w == "pixel art" || w == "pixelated", "one: a single item, got " + w);
+        seen_one.insert(w);
+    }
+    check(seen_one.size() == 2, "one: both items come up over 60 images");
+    check(ones == lora_run("__lora__", { "style/pixel-art" }, 60, 3, one), "one: the same seed repeats");
+    check(ones != lora_run("__lora__", { "style/pixel-art" }, 60, 4, one), "one: another seed differs");
+    // some
+    LoraEntry five = { "five", trig({ { "a", true }, { "b", true }, { "c", true }, { "d", true }, { "e", true } }, "some", 3) };
+    {
+        LoraSource src;
+        src.job.push_back(five);
+        const PromptBookMap bm = books();
+        PromptRng           rng(9);
+        PromptExpander      x(bm, src, rng);
+        std::set<std::string> kinds;
+        bool                  ordered = true, three = true;
+        for (int i = 0; i < 80; i++) {
+            const std::string w = x.expand("__lora__", "").prompt;
+            kinds.insert(w);
+            three = three && std::count(w.begin(), w.end(), ',') == 2;
+            std::string letters;
+            for (char c : w) if (std::isalpha(static_cast<unsigned char>(c))) letters += c;
+            ordered = ordered && std::is_sorted(letters.begin(), letters.end());
+        }
+        check(three, "some: 3 different items");
+        check(ordered, "some: in list order");
+        check(kinds.size() > 3, "some: it varies");
+        PromptRng      r1(5), r2(5);
+        PromptExpander y1(bm, src, r1), y2(bm, src, r2);
+        check(y1.expand("__lora__", "").prompt == y2.expand("__lora__", "").prompt, "some: the same seed repeats");
+        src.job[0].triggers.count = 9;
+        PromptRng      r3(5);
+        PromptExpander y3(bm, src, r3);
+        check(y3.expand("__lora__", "").prompt == "a, b, c, d, e", "some: count above the number of items gives all");
+    }
+    // __lora:NAME__
+    std::vector<std::string> unknown;
+    check(lora_run("__lora:style/pixel-art__", {})[0] == "pixel art, pixelated", "by path, a LoRA that is not in the job");
+    check(lora_run("__lora:Pixel-Art__", {})[0] == "root pixel", "by file name, any case, the path wins when both match");
+    check(lora_run("__lora:watercolor__, x", {})[0] == "watercolor, x", "by file name");
+    check(lora_run("__lora:dim__ end", {})[0] == "end", "named, none on: tidied");
+    check(lora_run("__lora:nope__ x", {}, 1, 1, {}, &unknown)[0] == "__lora:nope__ x" && unknown.size() == 1 && unknown[0] == "lora:nope",
+          "an unknown name stays as typed and is listed");
+    check(lora_run("__lora__ and __lora:style/pixel-art__", { "style/pixel-art", "other/watercolor" })[0] ==
+              "watercolor and pixel art, pixelated",
+          "__lora__ leaves out the named LoRA");
+    check(lora_run("__lora:watercolor__ __lora:WATERCOLOR__", {})[0] == "watercolor watercolor", "twice");
+    check(lora_run("__lora__, __styled__", { "style/pixel-art", "other/watercolor" })[0] == "pixel art, pixelated, watercolor look",
+          "__lora__ goes last and leaves out a LoRA that a collection's entry names");
+    check(lora_run("__lora:ink (v2)__ x", {})[0] == "ink x", "a name with a space and brackets (the page's rule)");
+    check(lora_run("__lora:styles/ink (v2)__", {})[0] == "ink", "the same by path");
+    check(lora_run("__lora: ink (v2)__", {})[0] == "__lora: ink (v2)__", "a name that starts with a space is not one");
+    check(lora_run("__lora:ink (v2) __", {})[0] == "__lora:ink (v2) __", "a name that ends with a space is not one");
+    // not in the negative prompt
+    {
+        LoraSource src;
+        src.installed = installed_list;
+        const PromptBookMap bm = books();
+        PromptRng           rng(1);
+        PromptExpander      x(bm, src, rng);
+        const PromptExpansion e = x.expand("p", "__lora:watercolor__");
+        check(e.negative == "__lora:watercolor__" && x.unknown().empty(), "the negative prompt keeps it as typed");
+    }
+    // an override of the call
+    std::map<std::string, LoraOverride> ovr;
+    ovr["style/pixel-art"].has_list = true;
+    ovr["style/pixel-art"].list     = { { "own", true }, { "mine", false } };
+    check(lora_run("__lora__", { "style/pixel-art" }, 1, 1, ovr)[0] == "own", "an override list replaces the stored one");
+    check(lora_run("__lora:style/pixel-art__", {}, 1, 1, ovr)[0] == "own", "and for the named LoRA too");
 }
 
 }  // namespace
@@ -172,6 +315,7 @@ int main() {
     test_negative();
     test_seed();
     test_collect();
+    test_triggers();
     if (failures) {
         std::printf("%d failure(s)\n", failures);
         return 1;

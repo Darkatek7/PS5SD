@@ -287,10 +287,10 @@ apart, and still silent) or `no ELF loader`. Without it those
 | `POST /ps5sd/v1/app/models/active` | `{"id": "<id>"}`: switch to that entry; the responses are below |
 | `DELETE /ps5sd/v1/app/models/<id>` | delete an entry; see below |
 | `POST /ps5sd/v1/app/fit` | the body of an `img_gen` or `vid_gen` request: will it fit in the GPU memory of the loaded model? The body needs `width` and `height` (`400` without them); `hires` (an object with `enabled` and `scale`), `control_image` or `"control": true` (a guide image, which has limits of its own) and `video_frames` (the frame count) are optional. The answer is `{"verdict", "message", "family", "width", "height", "frames"}`, with `width` and `height` of the largest pass (the hires target). `verdict` is `fits`, `tight` (larger than measured, or than every run since the model loaded: it may run out of memory, and a restart of PS5SD gives the most room) or `too_big` (measured not to fit); `message` says it for people. Nothing runs, and a run is never refused for it. See [CONSOLE.md](CONSOLE.md#memory-what-fits-and-why-runs-failed-2026-10-22) |
-| `GET /ps5sd/v1/app/loras` | `{"loras": [{"name", "path", "bytes", "family"}]}`: the LoRA files in `/data/PS5SD/loras` and its subfolders; `family` as for a model (below). An entry also has, when they are known, `trigger`, `weight`, `base`, `preview`, `preview_nsfw_level`, `info` and `lookup` (see [LoRA info](#lora-info)) |
+| `GET /ps5sd/v1/app/loras` | `{"loras": [{"name", "path", "bytes", "family"}]}`: the LoRA files in `/data/PS5SD/loras` and its subfolders; `family` as for a model (below). An entry also has, when they are known, `trigger`, `triggers`, `trigger_mode`, `trigger_count`, `weight`, `base`, `preview`, `preview_nsfw_level`, `info` and `lookup` (see [LoRA info](#lora-info)) |
 | `DELETE /ps5sd/v1/app/loras/<path>` | delete one LoRA file with its info file and preview; the answer is the list as `GET` gives it |
 | `GET /ps5sd/v1/app/loras/info/<path>` | what is known about a LoRA: see [LoRA info](#lora-info) |
-| `POST /ps5sd/v1/app/loras/info/<path>` | `{"trigger": "pixel art", "weight": 0.8, "notes": "...", "description": "..."}`: set any of these in the LoRA's info file |
+| `POST /ps5sd/v1/app/loras/info/<path>` | `{"trigger": "pixel art", "triggers": [...], "trigger_mode": "all", "trigger_count": 2, "weight": 0.8, "notes": "...", "description": "..."}`: set any of these in the LoRA's info file |
 | `POST /ps5sd/v1/app/loras/lookup/<path>` | look the LoRA up on Civitai or Hugging Face and fill its info file |
 | `GET /ps5sd/v1/app/loras/preview/<path>` | the LoRA's preview image |
 
@@ -382,7 +382,9 @@ absolute path or a name that is not a model file is a `400` (`invalid_request`).
 `GET /ps5sd/v1/app/loras/info/<path>` answers with what is known. A field that is not known is left out:
 
 ```json
-{"path": "style/pixel-art-xl.safetensors", "trigger": "pixel art", "weight": 0.8, "description": "Pixel Art XL ...",
+{"path": "style/pixel-art-xl.safetensors", "trigger": "pixel art, pixelated",
+ "triggers": [{"text": "pixel art", "on": true}, {"text": "pixelated", "on": false}],
+ "trigger_mode": "all", "trigger_count": 2, "weight": 0.8, "description": "Pixel Art XL ...",
  "notes": "", "base": "SDXL 1.0", "source": "https://civitai.com/api/download/models/135931",
  "sha256": "BBF3D8DEFBFB3FB71331545225C0CF50C74A748D2525F7C19EBB8F74445DE274",
  "civitai": {"model_id": 120096, "version_id": 135931, "model": "Pixel Art XL", "version": "v1.1",
@@ -391,13 +393,14 @@ absolute path or a name that is not a model file is a `400` (`invalid_request`).
  "preview": true, "preview_nsfw_level": 1, "looked_up": "2026-11-21T22:00:00Z", "lookup": "found"}
 ```
 
-- `trigger` is the activation text, `weight` the preferred weight, `base` the base model (`sd version`, else
+- `triggers` are the trigger words (see [Trigger words](#trigger-words)); `trigger` is the texts of all of them
+  joined with `, `, which is the `activation text`. `weight` is the preferred weight, `base` the base model (`sd version`, else
   Civitai's `base_model`). A LoRA without an info file answers `{"path": ...}` (and `"preview": true` when an A1111
   preview is there). `404` (`not_found`) when the LoRA is not there.
 - `hf` is `{"repo", "url"}` for a LoRA found on Hugging Face. Its `images` have no `nsfw_level`.
 - `lookup` is `found` or `not_found`, after a lookup.
 - `POST` merges the fields of its body into the info file and creates it. `trigger`, `notes` and `description` are
-  strings of at most 20000 bytes; `weight` is a number from -100 to 100, or `null` or `0` to clear it. The rest
+  strings of at most 20000 bytes (`trigger` becomes the list, see below); `weight` is a number from -100 to 100, or `null` or `0` to clear it. The rest
   of the file stays. The answer is the same as `GET`. `400` for a body that is not an object or a value of the
   wrong type.
 - `GET /ps5sd/v1/app/loras/preview/<path>` sends the image with its `Content-Type` (`image/png`, `image/jpeg` or
@@ -410,15 +413,15 @@ and stops at the first that knows it:
 1. Civitai's model version, when `ps5sd.civitai.version_id` is set (a download from Civitai sets it) or `source` is a
    Civitai link: `/api/v1/model-versions/<id>`.
 2. Hugging Face, when `source` is a Hugging Face link: `/api/models/<owner>/<repo>`. `cardData.instance_prompt` is the
-   trigger, `cardData.base_model` the base, the widget's images the images. A repository that needs a token (`401`
+   trigger word (one item for a string, one each for a list), `cardData.base_model` the base, the widget's images the images. A repository that needs a token (`401`
    or `403`) or is gone counts as not known.
 3. The file's SHA-256, looked up on Civitai: `/api/v1/model-versions/by-hash/<sha256>`. A large file takes a while to
    hash; the hash is kept, and a later lookup with the same file size and time does not hash again.
 
-From a Civitai version the title takes `trainedWords` (joined with `, `) as the trigger, `baseModel` as the base, the
+From a Civitai version the title takes `trainedWords` as the trigger words (one item each; an item with commas stays one phrase), `baseModel` as the base, the
 model's and the version's name, up to 6 images (`/original=true/` in a URL becomes `/width=450/`), and the model's
 description (`/api/v1/models/<id>`; HTML turned into plain text, at most 2000 characters). The Civitai token
-(below) goes along. A lookup fills `activation text`, `description` and `sd version` only when they are empty, and
+(below) goes along. A lookup fills the trigger words, `description` and `sd version` only when they are empty (a LoRA that has a list, or an `activation text`, keeps its words), and
 `Unknown` counts as empty for `sd version`: what you wrote stays. `ps5sd` is always refreshed.
 
 The preview is the first image whose `nsfw_level` is 2 or less (else the first), downloaded as `<name>.preview.<ext>`
@@ -432,6 +435,29 @@ when the LoRA is not there, `502` when Civitai or Hugging Face cannot be reached
 Civitai also `401` and `403`, where a token may help) or sends something that is not JSON, and `503` when the app is
 ending. A lookup can take a minute for a large file. A download into `loras` writes `source` (and the Civitai
 version) into the info file and runs the lookup by itself when it is done; a failure there is only logged.
+
+#### Trigger words
+
+A LoRA's trigger words are a list of items (a word or a phrase), each on or off, with a mode for what `__lora__`
+puts in for each image. They are kept in the info file:
+
+```json
+{ "activation text": "pixel art, pixelated",
+  "ps5sd": { "triggers": [ { "text": "pixel art", "on": true }, { "text": "pixelated", "on": false } ],
+             "trigger_mode": "all", "trigger_count": 2 } }
+```
+
+- An item is 1 to 200 bytes after trimming, with no line break. At most 100 items. The same text twice (any
+  case) is kept once.
+- `activation text` is always the texts of all items joined with `, `, so A1111 and older versions see every word.
+- A file with no `ps5sd.triggers` (one from 1.8.0 or from A1111): the list is `activation text` split at commas,
+  each item on. It is written as a list only when something changes it.
+- `trigger_mode` is `all` (default), `one` or `some`. `trigger_count` is 1 to 20 (default 2); `some` uses it.
+- `GET` always has `triggers`, `trigger_mode` and `trigger_count` (an empty list and the defaults when there are
+  none). `GET /ps5sd/v1/app/loras` has them for a LoRA that has words.
+- `POST` takes `triggers` (strings, which are on, or `{"text", "on"}`; the list is replaced; `[]` clears it),
+  `trigger_mode` and `trigger_count`, each alone or together. `trigger` (a string) still works: it becomes the list,
+  split at commas, all on. When both come, `triggers` wins. A bad value is a `400` and nothing changes.
 
 ### Saved presets
 
@@ -586,7 +612,7 @@ curl -X POST http://10.0.0.101:7860/ps5sd/v1/app/promptbooks/saved/entries \
 ### Expand a prompt
 
 `POST /ps5sd/v1/app/prompts/expand` does what the web UI does before it sends a job: it expands `{a|b}`,
-`__name__` and `__lora__` (see [Wildcards](#wildcards)), so an API client gets the same prompts.
+`__name__`, `__lora__` and `__lora:NAME__` (see [Wildcards](#wildcards)), so an API client gets the same prompts.
 
 ```json
 { "prompt": "__lora__, portrait of __people__, {red|blue} coat", "negative_prompt": "__bad__",
@@ -599,8 +625,12 @@ curl -X POST http://10.0.0.101:7860/ps5sd/v1/app/promptbooks/saved/entries \
   picks are random.
 - `lora` names the LoRAs for `__lora__`, in the shape img_gen takes (`[{"path", "multiplier"}]`; plain path
   strings work too; a multiplier of 0 is off). Without `lora`, the LoRAs named in the prompt's
-  `<lora:NAME:weight>` tags count; the tags stay in the text. A LoRA's trigger words are the "activation text"
-  of its info (see [LoRA info](#lora-info)). A LoRA that is not there, or has no words, adds nothing.
+  `<lora:NAME:weight>` tags count; the tags stay in the text. A LoRA's trigger words are the list in its info,
+  by its mode (see [Trigger words](#trigger-words)), picked anew for each image. A LoRA that is not there, or has
+  no words that are on, adds nothing.
+- An item of `lora` may also carry `triggers` (strings: exactly these items, all on), `trigger_mode` and
+  `trigger_count`. They replace the stored ones for this call only, nothing is saved. A bad value is a `400`.
+  They hold for a `__lora:NAME__` of that LoRA too.
 - Answer `200`:
 
   ```json
@@ -609,8 +639,8 @@ curl -X POST http://10.0.0.101:7860/ps5sd/v1/app/promptbooks/saved/entries \
     "unknown": [ "bad" ] }
   ```
 
-  `items` has `count` entries. `unknown` lists the `__name__`s that matched no collection with entries; they
-  stay as typed. A bad body is `400`.
+  `items` has `count` entries. `unknown` lists the `__name__`s that matched no collection with entries, and a
+  `__lora:NAME__` that matched no LoRA as `lora:NAME`; they stay as typed. A bad body is `400`.
 - A prompt that is exactly one `__name__` also takes that entry's negative prompt, in front of the
   `negative_prompt` you sent.
 
@@ -648,6 +678,19 @@ other `__names__`; up to 8 passes are made, so an entry that names its own colle
 `__name__` without a collection stays as typed. The web UI expands `__name__` and `__lora__` in the page, not
 the server, the same as `{a|b}`: img_gen sees a plain prompt. A client that wants them calls
 `POST /ps5sd/v1/app/prompts/expand`, which uses the same rules.
+
+A LoRA's words for one image are the items of its list that are on (see [Trigger words](#trigger-words)):
+mode `all` puts in all of them, `one` one at random, `some` `trigger_count` different ones at random, in list
+order. None on: nothing. The words are joined with `, `. Picks are made for each image like `{a|b}`; the
+`seed` of the expand route makes them repeat.
+
+`__lora:NAME__` puts in only the words of that LoRA, by the same rule. NAME is the LoRA's path under the loras
+folder without its extension (`style/pixel-art-xl`), or its file name without the extension (`pixel-art-xl`),
+in any case; the path wins when both match different LoRAs. It works for any installed LoRA, picked or not,
+and does not add the LoRA to the job. NAME may hold any character but a line break, and neither starts nor
+ends with a space or `_`; the first `__` ends it. A NAME that matches no LoRA stays as typed. `__lora__` is put
+in last, and leaves out the LoRAs that a `__lora:NAME__` of the same prompt names, also one that came in with
+a collection's entry. Like `__lora__`, it is put in only in the positive prompt.
 
 ## Jobs: queue and cancel
 
